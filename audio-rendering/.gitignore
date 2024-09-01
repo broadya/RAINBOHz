@@ -1,0 +1,25 @@
+# Build and IDE directories
+/build/
+/out/
+/bin/
+/lib/
+/docs/
+/.vscode/
+/CMakeFiles/
+CMakeCache.txt
+Makefile
+cmake_install.cmake
+
+# Compiled source files
+*.o
+*.obj
+
+# Logs
+*.log
+
+# Generated WAV files
+*.wav
+
+# OS files
+.DS_Store
+Thumbs.db
