@@ -1,8 +1,10 @@
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <string>
 
 #include "AudioTypes.h"
+#include "PaxelGenerator.h"
 #include "SineWaveGenerator.h"
 #include "WavWriter.h"
 
@@ -16,6 +18,7 @@ void printUsage(const std::string& programName) {
               << "  -s --samplerate <samples per second> (default: 44100)\n";
 }
 
+/*
 int main(int argc, char* argv[]) {
     double frequency = 660.0;
     double amplitude = 0.5;
@@ -64,6 +67,25 @@ int main(int argc, char* argv[]) {
     RAINBOHz::WavWriter writer(sampleRate);
     if (writer.writeToFile(outputFilename, samples)) {
         std::cout << "WAV file generated successfully: " << outputFilename << std::endl;
+    } else {
+        std::cerr << "Failed to write WAV file.\n";
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
+}
+*/
+
+int main(int argc, char* argv[]) {
+    // Generate paxel test
+    RAINBOHz::PaxelGenerator generator(1000.0, 112.674, 0.5, 0.7, 0.0, (3.0 * M_PI / 2.0),
+                                       RAINBOHz::kSampleRate * 3, RAINBOHz::kSampleRate);
+    auto samples = generator.generatePaxel();
+
+    // Write samples to WAV file
+    RAINBOHz::WavWriter writer(RAINBOHz::kSampleRate);
+    if (writer.writeToFile("paxeltest.wav", samples)) {
+        std::cout << "WAV file generated successfully: " << std::endl;
     } else {
         std::cerr << "Failed to write WAV file.\n";
         return EXIT_FAILURE;
