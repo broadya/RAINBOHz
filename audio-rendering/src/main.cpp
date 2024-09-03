@@ -78,7 +78,7 @@ int main(int argc, char* argv[]) {
 
 int main(int argc, char* argv[]) {
     // Generate paxel test
-    RAINBOHz::PaxelGenerator generator(1000.0, 112.674, 0.5, 0.7, 0.0, (3.0 * M_PI / 2.0),
+    RAINBOHz::PaxelGenerator generator(112.674, 112.674, 0.5, 0.5, 0.0, (M_PI / 2.0),
                                        RAINBOHz::kSampleRate * 3, RAINBOHz::kSampleRate);
     auto samples = generator.generatePaxel();
 

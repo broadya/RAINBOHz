@@ -41,7 +41,7 @@ class PaxelGenerator {
     double endAmplitude_{0.0};
     double startPhase_{0.0};
     double endPhase_{0.0};
-    double durationSamples_{0.0};
+    uint32_t durationSamples_{0};
     uint32_t sampleRate_{0};
     double phaseAccumulator_{0.0};
     double phaseIncrement_{0.0};
