@@ -13,7 +13,7 @@ SineWaveGenerator::SineWaveGenerator(double frequency, double amplitude, double 
       sampleRate_(sampleRate),
       phaseAccumulator_(0.0) {
     // Invariants
-    assert((frequency_ >= kMinAudioFrequencyHz) && (frequency_ <= kMaxAudioFrequencyHz));
+    assert((frequency_ >= kMinAudioFrequency) && (frequency_ <= kMaxAudioFrequency));
     assert((amplitude_ >= 0.0) && (amplitude_ <= 1.0));
     assert(duration_ >= 0.0);
     assert(sampleRate_ > 0);

@@ -1,15 +1,14 @@
 #include "WavWriter.h"
-#include <fstream>
-#include <cstring>
+
 #include <cassert>
+#include <cstring>
+#include <fstream>
 #include <iostream>
 
 using namespace RAINBOHz;
 
 WavWriter::WavWriter(uint32_t sampleRate, uint16_t channels)
-    : sampleRate_(sampleRate),
-      channels_(channels)
-{
+    : sampleRate_(sampleRate), channels_(channels) {
     // Invariants
     assert(sampleRate_ > 0);
     assert(channels_ > 0);
@@ -27,7 +26,8 @@ void WavWriter::writeUint8Vector(std::ofstream& outFile, const std::vector<uint8
     outFile.write(reinterpret_cast<const char*>(values.data()), values.size());
 }
 
-bool WavWriter::writeToFile(const std::string& filename, const std::vector<SamplePaxelFP>& samples) {
+bool WavWriter::writeToFile(const std::string& filename,
+                            const std::vector<SamplePaxelFP>& samples) {
     // Preconditions
     assert(samples.size() > 0);
     assert(filename.length() > 0);
@@ -37,7 +37,7 @@ bool WavWriter::writeToFile(const std::string& filename, const std::vector<Sampl
 
     // Inherently part of the WAV file format
     constexpr uint32_t fmtChunkSize = 16;
-    constexpr uint16_t audioFormat = 1; // PCM
+    constexpr uint16_t audioFormat = 1;  // PCM
 
     // Variable for this file
     const uint32_t dataChunkSize = static_cast<uint32_t>(pcmData.size());
@@ -74,8 +74,8 @@ bool WavWriter::writeToFile(const std::string& filename, const std::vector<Sampl
         outFile.close();
         return true;
     } catch (const std::exception& e) {
-            std::cerr << "Error: " << e.what() << std::endl;
-            return false;  // Or rethrow the exception if it needs to be handled by the caller
+        std::cerr << "Error: " << e.what() << std::endl;
+        return false;  // Or rethrow the exception if it needs to be handled by the caller
     }
 }
 

@@ -1,5 +1,6 @@
 #include "PaxelGenerator.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 
@@ -7,19 +8,16 @@
 
 using namespace RAINBOHz;
 
-PaxelGenerator::PaxelGenerator(double startFrequency, double endFrequency, double startAmplitude,
-                               double endAmplitude, double startPhase, double endPhase,
-                               uint32_t durationSamples, uint32_t sampleRate)
-    : startFrequency_(startFrequency),
-      endFrequency_(endFrequency),
-      startAmplitude_(startAmplitude),
-      endAmplitude_(endAmplitude),
-      startPhase_(startPhase),
-      endPhase_(endPhase),
-      durationSamples_(durationSamples),
-      sampleRate_(sampleRate) {
-    // Invariants
-    assert(durationSamples_ > 0);
+PaxelGenerator::PaxelGenerator(const PaxelSpecification& paxelSpecification)
+    : paxelSpecification_(paxelSpecification) {
+    // Invariants are already defined in the PaxelSpecification struct
+}
+
+std::vector<SamplePaxelFP> PaxelGenerator::generatePaxel() {
+    // Compute actual audio portion, paxels may have silence at begin / end to allow for envlope
+    // points. Add one due to the fencepost problem.
+    double audioDurationSamples =
+        1 + paxelSpecification_.endSample - paxelSpecification_.startSample;
 
     // Calculate rates, note that here the calculation is based on the start time and end time of
     // the paxel so it starts from the begin time of the first sample and ends on the end time of
@@ -27,11 +25,13 @@ PaxelGenerator::PaxelGenerator(double startFrequency, double endFrequency, doubl
     // We are dealing in phase in terms of an accumulation for cycles. These phase calculations do
     // not "wrap around" on 2π. This is intentional because it leads on to the rate at which
     // phase needs to change on each sample.
-    double f1PhaseIncrement = (TWO_PI * startFrequency_) / static_cast<double>(sampleRate_);
-    double f1PhaseEnd = startPhase_ + f1PhaseIncrement * durationSamples_;
+    double f1PhaseIncrement =
+        (TWO_PI * paxelSpecification_.startFrequency) / static_cast<double>(kSampleRate);
+    double f1PhaseEnd = paxelSpecification_.startPhase + f1PhaseIncrement * audioDurationSamples;
 
-    double f2PhaseIncrement = (TWO_PI * endFrequency_) / static_cast<double>(sampleRate_);
-    double f2PhaseEnd = startPhase_ + f2PhaseIncrement * durationSamples_;
+    double f2PhaseIncrement =
+        (TWO_PI * paxelSpecification_.endFrequency) / static_cast<double>(kSampleRate);
+    double f2PhaseEnd = paxelSpecification_.startPhase + f2PhaseIncrement * audioDurationSamples;
 
     // This is where the phase accumulation would end "naturally" if there were no concept of an
     // end phase target.
@@ -40,12 +40,13 @@ PaxelGenerator::PaxelGenerator(double startFrequency, double endFrequency, doubl
     // However, phase and frequency are of course not orthogonal, so we need to perform compensation
     // of max half a cycle (π) in order to end the paxel at the end phase target.
     // This is the small amout to add to the phase in order to hit the end phase target.
-    double phaseCompensation = coherenceCompensation(naturalPhaseEnd, endPhase_);
+    double phaseCompensation = coherenceCompensation(naturalPhaseEnd, paxelSpecification_.endPhase);
 
     // The phase compensation needs to be multiplied by 2 as the inverse of the mean calculation
     // that led to the natural phase end calculation, where there was a division by 2.
     double compensatedf2PhaseEnd = f2PhaseEnd + (phaseCompensation * 2.0);
-    double compensatedf2PhaseIncrement = (compensatedf2PhaseEnd - startPhase_) / durationSamples_;
+    double compensatedf2PhaseIncrement =
+        (compensatedf2PhaseEnd - paxelSpecification_.startPhase) / audioDurationSamples;
 
     // Set generation parameters. Now the calculation is based on the centre point in time for each
     // sample. This is the reason for dividing by durationSamples + 1 and adding the
@@ -54,36 +55,41 @@ PaxelGenerator::PaxelGenerator(double startFrequency, double endFrequency, doubl
     // phase at the end time of the sample.
 
     // The starting rate of phase change
-    phaseIncrement_ = f1PhaseIncrement;
+    double phaseIncrement = f1PhaseIncrement;
 
     // The second deviation, rate of rate of phase change.
-    phaseIncrementRate_ = (compensatedf2PhaseIncrement - f1PhaseIncrement) / (durationSamples_ + 1);
+    double phaseIncrementRate =
+        (compensatedf2PhaseIncrement - f1PhaseIncrement) / (audioDurationSamples + 1);
 
     // Initial value for phase is, perhaps surprisingly, not startPhase_ because this is not the
     // mean value for the first sample.
-    phaseAccumulator_ = startPhase_ + (phaseIncrementRate_ / 2.0);
+    double phaseAccumulator = paxelSpecification_.startPhase + (phaseIncrementRate / 2.0);
 
     // The calculation for amplitude is just a straight interpolation, although again the mean of
     // the sample must be taken into account.
-    amplitudeIncrement_ = (endAmplitude_ - startAmplitude_) / (durationSamples_ + 1);
-    amplitude_ = startAmplitude_ + (amplitudeIncrement_ / 2.0);
+    double amplitudeIncrement =
+        (paxelSpecification_.endAmplitude - paxelSpecification_.startAmplitude) /
+        (audioDurationSamples + 1);
+    double amplitude = paxelSpecification_.startAmplitude + (amplitudeIncrement / 2.0);
 
-    // Postconditions
-}
+    std::vector<SamplePaxelFP> samples(paxelSpecification_.durationSamples);
 
-std::vector<SamplePaxelFP> PaxelGenerator::generatePaxel() {
-    std::vector<SamplePaxelFP> samples(durationSamples_);
+    std::fill(samples.begin(), samples.begin() + paxelSpecification_.startSample, 0.0);
 
-    for (size_t i = 0; i < durationSamples_; ++i) {
-        samples[i] = static_cast<SamplePaxelFP>(amplitude_ * sin(phaseAccumulator_));
+    for (size_t i = paxelSpecification_.startSample; i <= paxelSpecification_.endSample; ++i) {
+        samples[i] = static_cast<SamplePaxelFP>(amplitude * sin(phaseAccumulator));
         assert((samples[i] >= -1.0) && (samples[i] <= 1.0));
-        phaseIncrement_ += phaseIncrementRate_;
-        phaseAccumulator_ += phaseIncrement_;
-        amplitude_ += amplitudeIncrement_;
+        phaseIncrement += phaseIncrementRate;
+        phaseAccumulator += phaseIncrement;
+        amplitude += amplitudeIncrement;
 
         // Keep phase accumulator within 0 to 2π
-        phaseAccumulator_ = std::fmod(phaseAccumulator_, TWO_PI);
+        phaseAccumulator = std::fmod(phaseAccumulator, TWO_PI);
     }
+
+    // The +1 here is because of the half-open semantics of std::fill
+    // samples.end() points to one after the final sample according to iterator semantics.
+    std::fill(samples.begin() + paxelSpecification_.endSample + 1, samples.end(), 0.0);
 
     // Postconditions
     assert(samples.size() > 0);

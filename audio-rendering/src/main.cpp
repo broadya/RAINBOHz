@@ -4,6 +4,7 @@
 #include <string>
 
 #include "AudioTypes.h"
+#include "MultiPaxelGenerator.h"
 #include "PaxelGenerator.h"
 #include "SineWaveGenerator.h"
 #include "WavWriter.h"
@@ -76,10 +77,39 @@ int main(int argc, char* argv[]) {
 }
 */
 
+/*
 int main(int argc, char* argv[]) {
+    RAINBOHz::PaxelSpecification paxelSpecification{
+        1000.0, 97.654, 0.5, 0.8, RAINBOHz::HALF_PI, RAINBOHz::ONE_AND_HALF_PI, 300000, 0, 299999};
+
     // Generate paxel test
-    RAINBOHz::PaxelGenerator generator(112.674, 112.674, 0.5, 0.5, 0.0, (M_PI / 2.0),
-                                       RAINBOHz::kSampleRate * 3, RAINBOHz::kSampleRate);
+    RAINBOHz::PaxelGenerator generator(paxelSpecification);
+    auto samples = generator.generatePaxel();
+
+    // Write samples to WAV file
+    RAINBOHz::WavWriter writer(RAINBOHz::kSampleRate);
+    if (writer.writeToFile("paxeltest.wav", samples)) {
+        std::cout << "WAV file generated successfully: " << std::endl;
+    } else {
+        std::cerr << "Failed to write WAV file.\n";
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
+}
+*/
+
+int main(int argc, char* argv[]) {
+    RAINBOHz::PaxelSpecification paxelSpecification1{
+        1000.0, 97.654, 0.5, 0.8, RAINBOHz::HALF_PI, RAINBOHz::ONE_AND_HALF_PI, 300000, 0, 100000};
+    RAINBOHz::PaxelSpecification paxelSpecification2{
+        97.654, 2000.0, 0.8, 0.2, RAINBOHz::ONE_AND_HALF_PI, 0.0, 300000, 100001, 299999};
+
+    std::vector<RAINBOHz::PaxelSpecification> multiPaxelSpecification{paxelSpecification1,
+                                                                      paxelSpecification2};
+
+    // Generate paxel test
+    RAINBOHz::MultiPaxelGenerator generator(multiPaxelSpecification);
     auto samples = generator.generatePaxel();
 
     // Write samples to WAV file

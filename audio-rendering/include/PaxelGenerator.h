@@ -18,36 +18,15 @@ namespace RAINBOHz {
 class PaxelGenerator {
    public:
     /// @brief Constructs a PaxelGenerator ready to create a paxel with fixed parameters.
-    /// @param startFrequency
-    /// @param endFrequency
-    /// @param startAmplitude
-    /// @param endAmplitude
-    /// @param startPhase
-    /// @param endPhase
-    /// @param durationSamples
-    /// @param sampleRate
-    PaxelGenerator(double startFrequency, double endFrequency, double startAmplitude,
-                   double endAmplitude, double startPhase, double endPhase,
-                   uint32_t durationSamples, uint32_t sampleRate);
+    /// @param paxelSpecification A specification of the paxel.
+    PaxelGenerator(const PaxelSpecification& paxelSpecification);
 
-    /// @brief Generate te actual sine wave and return it in a vector
+    /// @brief Generate to floating point audio and return it in a vector
     /// @return A vector of floating point values represneting the wave.
     std::vector<SamplePaxelFP> generatePaxel();
 
    private:
-    double startFrequency_{0.0};
-    double endFrequency_{0.0};
-    double startAmplitude_{0.0};
-    double endAmplitude_{0.0};
-    double startPhase_{0.0};
-    double endPhase_{0.0};
-    uint32_t durationSamples_{0};
-    uint32_t sampleRate_{0};
-    double phaseAccumulator_{0.0};
-    double phaseIncrement_{0.0};
-    double phaseIncrementRate_{0.0};
-    double amplitude_{0.0};
-    double amplitudeIncrement_{0.0};
+    const PaxelSpecification paxelSpecification_;
 };
 
 }  // namespace RAINBOHz
