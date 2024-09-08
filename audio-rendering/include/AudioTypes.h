@@ -1,6 +1,7 @@
 #ifndef AUDIOTYPES_H
 #define AUDIOTYPES_H
 
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <vector>
@@ -164,10 +165,10 @@ struct PartialSpecification {
                     (endPhase == ZERO_PI || endPhase == PI));
         }());
 
-        // Lambda function with a capture by reference [&] to check that invariats that apply to
+        // Lambda function with a capture by reference [&] to check that invariants that apply to
         // the vector of multipaxel specifications.
         assert([&]() {
-            // Check that there are no discontinuities
+            // Check that there are no discontinuities.
             // If there is only one multipaxel in the vector then it is inherent that there
             // are no discontinuities, loop will then not start. Note the final checks for
             // duration to ensure that there is not a multipaxel present that has a gap at
@@ -198,6 +199,125 @@ struct PartialSpecification {
     }
 
     const std::vector<MultiPaxelSpecification> multiPaxels;
+};
+
+/// @brief Possible types of envelope curve, intended to be semantically equivalent to sclang
+enum class EnvelopeCurveType { lin, exp, sine, welch, step, numeric };
+
+/// @brief Represents a single point on an envelope curve
+struct EnvelopeCurvePoint {
+   public:
+    EnvelopeCurvePoint(EnvelopeCurveType envelopeCurveType)
+        : envelopeCurveType(envelopeCurveType), numericValue(0) {};
+    EnvelopeCurvePoint(double numericValue)
+        : envelopeCurveType(EnvelopeCurveType::numeric), numericValue(numericValue) {};
+    const EnvelopeCurveType envelopeCurveType;
+    const double numericValue;  // this value is ignored if the curve type is not numeric
+};
+
+/// @brief A generic envelope, based on and intended to have the same semantics as, the Env
+/// structure in sclang.
+/// (TODO) Curves are not yet implemented and may only be implemented much later in this project.
+struct Envelope {
+   public:
+    Envelope(const std::vector<double>& levels, const std::vector<double>& times,
+             const std::vector<EnvelopeCurvePoint>& curves)
+        : levels(levels),
+          times(times),
+          curves(curves)
+
+    {
+        // Invariants
+        // There must be at least one level - note that it is allowed to have just one point, which
+        // is like a constant value.
+        assert(levels.size() >= 1);
+        // It is allowed to have extra time elements, they are ignored. This is to emulate sclang.
+        assert(times.size() >= levels.size() - 1);
+        // Time values must not be negative
+        assert(std::none_of(times.begin(), times.end(),
+                            [](const double& time) { return time < 0.0; }));
+        // Curves are optional, so there are no invariants for curves.
+    }
+
+    const std::vector<double> levels;
+    const std::vector<double> times;
+    const std::vector<EnvelopeCurvePoint> curves;
+};
+
+struct FrequencyEnvelope : public Envelope {
+    FrequencyEnvelope(const std::vector<double>& levels, const std::vector<double>& times,
+                      const std::vector<EnvelopeCurvePoint>& curves)
+        : Envelope(levels, times, curves) {
+        // Invariants
+        // The levels of a frequency envelope must remain positive
+        // Currently not applying stricter rules as extreme values may be creatively interesting
+        assert(std::all_of(levels.begin(), levels.end(),
+                           [](const double& level) { return level > 0.0; }));
+    }
+};
+
+struct AmplitudeEnvelope : public Envelope {
+    AmplitudeEnvelope(const std::vector<double>& levels, const std::vector<double>& times,
+                      const std::vector<EnvelopeCurvePoint>& curves)
+        : Envelope(levels, times, curves) {
+        // Invariants
+        // The levels of an amplitude envelope must remain with an absolute value between 0 and 1.
+        // Negative levels are unusual but are allowed and are expected to cause phase reversal.
+        // This also emulates behaviour in sclang.
+        assert(std::all_of(levels.begin(), levels.end(),
+                           [](const double& level) { return (level >= -1.0 && level <= 1.0); }));
+    }
+};
+
+/// @brief  Sets the positions where phase is expected to reach a certain set value.
+/// This is not a concept in sclang, and therefore is not intended to provide interoperability.
+struct PhaseCoordinate {
+   public:
+    PhaseCoordinate(double value, double time) : value(value), time(time) {
+        // Invariants
+        assert(!(time < 0.0));
+        assert(value >= ZERO_PI && value <= TWO_PI);
+    }
+
+    const double value;
+    const double time;
+};
+
+struct PhaseCoordinates {
+   public:
+    PhaseCoordinates(const double startPhase, const std::vector<PhaseCoordinate>& coordinates,
+                     const double endPhase)
+        : startPhase(startPhase), coordinates(coordinates), endPhase(endPhase) {
+        // Invariants
+        assert(startPhase == ZERO_PI || startPhase == PI);
+        assert(endPhase == ZERO_PI || endPhase == PI);
+    }
+
+    PhaseCoordinates(const std::vector<PhaseCoordinate>& coordinates) : coordinates(coordinates) {
+        // Invariants are already captured in PhaseCoordinates
+    }
+
+    const double startPhase{ZERO_PI};
+    const double endPhase{ZERO_PI};
+    const std::vector<PhaseCoordinate> coordinates;
+};
+
+/// @brief A way to specify a partial in terms of envelopes, closer to the composer / sound
+/// designer's view of the partial.
+struct PartialEnvelopes {
+   public:
+    PartialEnvelopes(const AmplitudeEnvelope& amplitudeEnvelope,
+                     const FrequencyEnvelope& frequencyEnvelope,
+                     const PhaseCoordinates& phaseCoordinates)
+        : amplitudeEnvelope(amplitudeEnvelope),
+          frequencyEnvelope(frequencyEnvelope),
+          phaseCoordinates(phaseCoordinates) {
+        // Invariants are handled by the three structs theselves.
+    }
+
+    const AmplitudeEnvelope amplitudeEnvelope;
+    const FrequencyEnvelope frequencyEnvelope;
+    const PhaseCoordinates phaseCoordinates;
 };
 
 }  // namespace RAINBOHz

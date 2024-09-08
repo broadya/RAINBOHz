@@ -22,7 +22,13 @@ class PartialGenerator {
     /// @param multiPaxelSpecification A specification of the multipaxels to be used.
     /// @param labels A vector of labels to associate with this partial
     PartialGenerator(const PartialSpecification& partialSpecification,
-                     const std::vector<std::string> labels);
+                     const std::vector<std::string>& labels);
+
+    /// @brief Constructs a Partial based on an envelope and phase coordinate specification.
+    /// @param partialEnvelopers A specification of the partial.
+    /// @param labels A vector of labels to associate with this partial
+    PartialGenerator(const PartialEnvelopes& partialEnvelopes,
+                     const std::vector<std::string>& labels);
 
     /// @brief Generate to floating point audio for the entire partial and return it in
     /// a vector
@@ -32,6 +38,8 @@ class PartialGenerator {
     std::vector<SamplePaxelFP> generatePartial();
 
    private:
+    PartialSpecification mapEnvelopesToPaxels(const PartialEnvelopes& partialEnvelopes);
+
     const PartialSpecification partialSpecification_;
     const std::vector<std::string> labels_;
 };
