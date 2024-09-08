@@ -5,6 +5,7 @@
 
 #include "AudioTypes.h"
 #include "MultiPaxelGenerator.h"
+#include "PartialGenerator.h"
 #include "PaxelGenerator.h"
 #include "SineWaveGenerator.h"
 #include "WavWriter.h"
@@ -99,7 +100,7 @@ int main(int argc, char* argv[]) {
 }
 */
 
-int main(int argc, char* argv[]) {
+int testMultiPaxel() {
     RAINBOHz::PaxelSpecification paxelSpecification1{
         1000.0, 97.654, 0.5, 0.8, RAINBOHz::HALF_PI, RAINBOHz::ONE_AND_HALF_PI, 300000, 0, 100000};
     RAINBOHz::PaxelSpecification paxelSpecification2{
@@ -123,3 +124,41 @@ int main(int argc, char* argv[]) {
 
     return EXIT_SUCCESS;
 }
+
+int testPartial() {
+    RAINBOHz::PaxelSpecification paxelSpecification0{
+        20.0, 1000.0, 0.5, 0.5, RAINBOHz::ZERO_PI, RAINBOHz::HALF_PI, 300000, 0, 299999};
+    RAINBOHz::PaxelSpecification paxelSpecification1{
+        1000.0, 97.654, 0.5, 0.8, RAINBOHz::HALF_PI, RAINBOHz::ONE_AND_HALF_PI, 300000, 0, 100000};
+    RAINBOHz::PaxelSpecification paxelSpecification2{
+        97.654, 2000.0, 0.8,   0.2, RAINBOHz::ONE_AND_HALF_PI, RAINBOHz::ZERO_PI,
+        300000, 100001, 299999};
+    RAINBOHz::PaxelSpecification paxelSpecification3{
+        2000.0, 2000.0, 0.2, 0.5, RAINBOHz::ZERO_PI, RAINBOHz::ZERO_PI, 300000, 0, 299999};
+
+    std::vector<RAINBOHz::PaxelSpecification> multiPaxelSpecification0{paxelSpecification0};
+    std::vector<RAINBOHz::PaxelSpecification> multiPaxelSpecification1{paxelSpecification1,
+                                                                       paxelSpecification2};
+    std::vector<RAINBOHz::PaxelSpecification> multiPaxelSpecification2{paxelSpecification3};
+
+    std::vector<RAINBOHz::MultiPaxelSpecification> partialSpecification{
+        multiPaxelSpecification0, multiPaxelSpecification1, multiPaxelSpecification2};
+    std::vector<std::string> labels{"Label0", "Label1"};
+
+    // Generate paxel test
+    RAINBOHz::PartialGenerator generator(partialSpecification, labels);
+    auto samples = generator.generatePartial();
+
+    // Write samples to WAV file
+    RAINBOHz::WavWriter writer(RAINBOHz::kSampleRate);
+    if (writer.writeToFile("paxeltest.wav", samples)) {
+        std::cout << "WAV file generated successfully: " << std::endl;
+    } else {
+        std::cerr << "Failed to write WAV file.\n";
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
+}
+
+int main(int argc, char* argv[]) { return testPartial(); }

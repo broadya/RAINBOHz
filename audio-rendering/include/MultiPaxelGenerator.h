@@ -9,11 +9,10 @@
 namespace RAINBOHz {
 
 /**
- * @class PaxelGenerator
- * @brief Generates a floating point vector representing a single paxel.
- * Phase is expressed in radians.
- * This class can be seen as a precursor to development of the more complex, parallelised paxel
- * logic.
+ * @class MultiPaxelGenerator
+ * @brief Generates a floating point vector with the length of a single paxel, based on a
+ * specification of a vector of contiguous paxels that is called a multipaxel. Phase is expressed in
+ * radians.
  */
 class MultiPaxelGenerator {
    public:

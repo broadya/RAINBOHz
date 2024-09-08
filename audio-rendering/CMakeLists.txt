@@ -16,6 +16,7 @@ add_library(audio_rendering_lib STATIC
     src/SineWaveGenerator.cpp
     src/PaxelGenerator.cpp
     src/MultiPaxelGenerator.cpp
+    src/PartialGenerator.cpp
     src/WavWriter.cpp
     # Add more source files as needed...
 )

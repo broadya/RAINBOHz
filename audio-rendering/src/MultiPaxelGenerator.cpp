@@ -16,7 +16,7 @@ MultiPaxelGenerator::MultiPaxelGenerator(const MultiPaxelSpecification& multiPax
 
 std::vector<SamplePaxelFP> MultiPaxelGenerator::generatePaxel() {
     // Preconditions
-    multiPaxelSpecification_.paxels.size() > 0;
+    assert(multiPaxelSpecification_.paxels.size() > 0);
 
     PaxelGenerator paxelGenerator{multiPaxelSpecification_.paxels[0]};
     std::vector<SamplePaxelFP> result = paxelGenerator.generatePaxel();
