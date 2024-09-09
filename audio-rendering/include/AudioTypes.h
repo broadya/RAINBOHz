@@ -223,7 +223,8 @@ struct Envelope {
     Envelope(const std::vector<double>& levels, const std::vector<double>& times,
              const std::vector<EnvelopeCurvePoint>& curves)
         : levels(levels),
-          times(times),
+          timesSeconds(times),
+          timesSamples(secondsToSamples(times)),
           curves(curves)
 
     {
@@ -232,16 +233,33 @@ struct Envelope {
         // is like a constant value.
         assert(levels.size() >= 1);
         // It is allowed to have extra time elements, they are ignored. This is to emulate sclang.
-        assert(times.size() >= levels.size() - 1);
+        assert(timesSeconds.size() >= levels.size() - 1);
         // Time values must not be negative
-        assert(std::none_of(times.begin(), times.end(),
+        assert(std::none_of(timesSeconds.begin(), timesSeconds.end(),
                             [](const double& time) { return time < 0.0; }));
+        // Times in seconds and in samples must be similar
+        assert(timesSeconds.size() == timesSamples.size());
+        // Check one value for correct transformation
+        assert(static_cast<uint32_t>(timesSeconds.back() * kSampleRate) == timesSamples.back());
         // Curves are optional, so there are no invariants for curves.
     }
 
     const std::vector<double> levels;
-    const std::vector<double> times;
+    const std::vector<double> timesSeconds;
+    const std::vector<uint32_t> timesSamples;
     const std::vector<EnvelopeCurvePoint> curves;
+
+   private:
+    std::vector<uint32_t> secondsToSamples(const std::vector<double>& timesSeconds) {
+        std::vector<uint32_t> timesSamples(timesSeconds.size());
+        double scaleFactor = kSampleRate;
+        std::transform(
+            timesSeconds.begin(), timesSeconds.end(), timesSamples.begin(),
+            [scaleFactor](double val) {
+                return static_cast<uint32_t>(val * scaleFactor);  // Scale and convert to uint32_t
+            });
+        return timesSamples;
+    }
 };
 
 struct FrequencyEnvelope : public Envelope {
@@ -283,22 +301,34 @@ struct PhaseCoordinate {
     const double time;
 };
 
+// PhaseCoordinates also define the limits on the partial. The start phase coordinate must be on
+// time zero and the final phase coordinate corresponds to the end of the partial. This is necessary
+// because it is a requirement to specify the phase (0 or π) at both the start and the end of the
+// partial. The coordinates must be provided in time order.
+// Note that times here represent coordinates, they are not relative to the previous coordinate like
+// in Envelopes.
 struct PhaseCoordinates {
    public:
-    PhaseCoordinates(const double startPhase, const std::vector<PhaseCoordinate>& coordinates,
-                     const double endPhase)
-        : startPhase(startPhase), coordinates(coordinates), endPhase(endPhase) {
-        // Invariants
-        assert(startPhase == ZERO_PI || startPhase == PI);
-        assert(endPhase == ZERO_PI || endPhase == PI);
-    }
-
     PhaseCoordinates(const std::vector<PhaseCoordinate>& coordinates) : coordinates(coordinates) {
-        // Invariants are already captured in PhaseCoordinates
+        // Invariants
+        // At a minimum the start and end phase must be determined.
+        assert(coordinates.size() >= 2);
+        // The more complex invariants
+        assert([&]() {
+            // Phase at start and end of the partial must be 0 or π
+            double startPhase = coordinates.front().value;
+            double endPhase = coordinates.back().value;
+            if (startPhase != ZERO_PI && startPhase != PI) return false;
+            if (endPhase != ZERO_PI && endPhase != PI) return false;
+
+            // Check that time coordinates are in ascending order
+            return std::adjacent_find(coordinates.begin(), coordinates.end(),
+                                      [](const PhaseCoordinate& a, const PhaseCoordinate& b) {
+                                          return b.time <= a.time;
+                                      }) == coordinates.end();
+        }());
     }
 
-    const double startPhase{ZERO_PI};
-    const double endPhase{ZERO_PI};
     const std::vector<PhaseCoordinate> coordinates;
 };
 

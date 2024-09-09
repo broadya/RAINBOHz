@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <set>
 #include <string>
 
 #include "AudioHelpers.h"
@@ -32,6 +33,13 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
     const PartialEnvelopes& partialEnvelopes) {
     // TODO - Logic to generate a PartialSpecification, instead of it being directly provided
     // The big one :-)
+
+    // To perform all of the envelope calculations, we need to first determine where all the paxel
+    // boundaries will lie. Every envelope point corresponds, by definition to a paxel boundary.
+
+    std::set<uint32_t> paxelBoundaryTimePoints;
+
+    // Then add in all the regular boundaries just due to the paxel length itself...
 
     /* General idea...
 
