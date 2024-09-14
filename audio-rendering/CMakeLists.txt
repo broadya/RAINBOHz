@@ -5,6 +5,12 @@ project(RAINBOHzAudioRendering VERSION 0.1.0)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
+# Add debug flags for LLDB
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -O0 -fno-omit-frame-pointer")
+
+# Ensure the Debug build type is used
+set(CMAKE_BUILD_TYPE Debug)
+
 # Include directories (if you have headers in an include directory)
 include_directories(include)
 

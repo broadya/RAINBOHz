@@ -21,8 +21,11 @@ PartialGenerator::PartialGenerator(const PartialSpecification& partialSpecificat
 }
 
 PartialGenerator::PartialGenerator(const PartialEnvelopes& partialEnvelopes,
-                                   const std::vector<std::string>& labels)
-    : partialSpecification_(mapEnvelopesToPaxels(partialEnvelopes)), labels_(labels) {
+                                   const std::vector<std::string>& labels,
+                                   uint32_t paxelDurationSamples, uint32_t offsetSamples)
+    : labels_(labels),
+      partialSpecification_(
+          mapEnvelopesToPaxels(partialEnvelopes, paxelDurationSamples, offsetSamples)) {
     // Invariants
     // It is allowed to have zero labels, but if they are present none may be empty
     assert(std::none_of(labels_.begin(), labels_.end(),
@@ -30,47 +33,346 @@ PartialGenerator::PartialGenerator(const PartialEnvelopes& partialEnvelopes,
 }
 
 PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
-    const PartialEnvelopes& partialEnvelopes) {
-    // TODO - Logic to generate a PartialSpecification, instead of it being directly provided
-    // The big one :-)
+    const PartialEnvelopes& partialEnvelopes, uint32_t paxelDurationSamples,
+    uint32_t offsetSamples) {
+    // Preconditions
+    // Invariants or partialEnvelope are set witin PartialEnvelope istels.
+    // In principle it is allowed to have a paxel duration of one sample.
+    assert(paxelDurationSamples > 0);
+    assert(offsetSamples < paxelDurationSamples);
 
     // To perform all of the envelope calculations, we need to first determine where all the paxel
-    // boundaries will lie. Every envelope point corresponds, by definition to a paxel boundary.
+    // boundaries will lie. There are the regular boundaries casued by the duration of a "standard"
+    // paxel and there are also additional, shorter paxels caused by envelope points. At the very
+    // beginning and end there can also be shorter paxels casued by the start and end times. The
+    // ultimate start and end times are defined by the phase coordinates.
 
-    std::set<uint32_t> paxelBoundaryTimePoints;
+    std::set<PaxelInPartial> prePaxels;
 
-    // Then add in all the regular boundaries just due to the paxel length itself...
+    // First insert the phase coordinates because these also determine the end time of the partial.
+    // Adding the phase value is actually only necessary for the very first paxel, but it is
+    // available information and may prove useful during future optimisation and debugging.
+    for (const auto& phaseCoordinate : partialEnvelopes.phaseCoordinates.coordinates) {
+        PaxelInPartial phasePaxel{phaseCoordinate.timeSamples};
+        phasePaxel.paxel->startPhase = phaseCoordinate.value;
+        prePaxels.insert(phasePaxel);
+    }
 
-    /* General idea...
+    uint32_t endTime = (*prePaxels.rbegin()).positionInPartial;
 
-    1. Analyse all of the specifications and based on that decide how many paxels there will
-    be. You can just reuse the classic Paxel struct, or a non const variant of it.
+    // Every envelope point corresponds, by definition to a paxel boundary.
+    // The UnrestrictedPaxelSpecification is a struct used within this class to gradually build up a
+    // full description of all paxels needed to build the partial.
 
-    For amplitude -
+    // Note that if there is an amplitude or frequency envelope point after this end time, it still
+    // needs to be taken into account because it may define the envelope slope and optional curve
+    // towards the end of the partial.
 
-    By definition, every envelope point will lie on a paxel boundary.
-    Calculate gradient (first derivative) for each envelope point.
-    Just by interpolation, calculate the other amplitudes.
+    // Insert all the times that are defined by the paxel duration. These are at regular intervals.
+    uint32_t total{offsetSamples};
+    while (total < endTime) {
+        // Insert the running total into the set.
+        prePaxels.insert(PaxelInPartial{total});
+        // Add current value to the running total
+        total += paxelDurationSamples;
+    }
 
-    For frequency -
+    // Insert all the times found in the amplitude envelope points
+    total = 0;  // Reset the total
+    for (const auto& time : partialEnvelopes.amplitudeEnvelope.timesSamples) {
+        // Add current value to the running total
+        total += time;
+        // Insert the running total into the set, if it is within the range of the partial
+        // and also add the last envelope point that is beyond the endTime, if it is present.
+        prePaxels.insert(PaxelInPartial{total});
+        if (total >= endTime) break;
+    }
 
-    By definition, every envelope point will lie on a paxel boundary.
-    Calculate gradient (first derivative) for each envelope point.
-    Just by interpolation, calculate the other frequencies.
+    // Insert all the times found in the frequency envelope points
+    total = 0;  // Reset the total
+    for (const auto& time : partialEnvelopes.frequencyEnvelope.timesSamples) {
+        // Add current value to the running total
+        total += time;
+        // Insert the running total into the set, if it is within the range of the partial
+        // and also add the last envelope point that is beyond the endTime, if it is present.
+        prePaxels.insert(PaxelInPartial{total});
+        if (total >= endTime) break;
+    }
 
-    OK, now for the big trick - phase.
+    // The number of paxels needed is the number of boundary points - 1
+    assert(prePaxels.size() > 1);
 
-    Using the extrapolation technique, calculate the natural phase at every paxel boundary. You will
-    need to add up each natural phase value. Gnarly but possible. Then, at every fixed phase point,
-    calculate the actual phase using the extrapolation technique already used. Then calculate the
-    necessary phase offset. Then by interpolation calculate the actual phase target on every paxel
-    boundary.
+    // The unrestricted paxels are not (yet) of fixed duration, but it is known that they can be
+    // merged into multipaxels that will have boudaries of the correct fixed duration because these
+    // points have been added to the set of boundary times.
+    //
+    // Intentionally starting the loop at index 1, because we need to take each boundary point and
+    // the previous point to calculate the limits on the paxels.
 
-    Then, once you've done everything, gather up some of the paxels into multipaxels as required.
+    // It's a two pass process.
+    // Pass 1 - Set all amplitude and frequency envelope points, and interpolate points in-between,
+    // set the natural phase values taking into account the start phase.
 
-    The put that vector of multipaxels into the member variable.
+    // Iterators and time counters into the various envelopes and coordinates
+    // Amplitude state
+    auto amplitudeTimeIterator = partialEnvelopes.amplitudeEnvelope.timesSamples.begin();
+    auto amplitudeLevelIterator = partialEnvelopes.amplitudeEnvelope.levels.begin();
+    uint32_t amplitudeTimeTotal{0};
 
-    */
+    double previousAmplitudeLevel = *amplitudeLevelIterator++;
+    uint32_t previousAmplitudeTimeSamples{0};  // All partials must begin on time zero
+    // The first point to search for (intentional ++ here, envelopes are not coordinates, first time
+    // point is implicit but first level point is explicit)
+    uint32_t currentAmplitudeTimeSamples{endTime + 1};
+    if (partialEnvelopes.amplitudeEnvelope.timesSamples.size() > 0) {
+        currentAmplitudeTimeSamples = *amplitudeTimeIterator++;
+    }
+
+    // Frequency state
+    auto frequencyTimeIterator = partialEnvelopes.frequencyEnvelope.timesSamples.begin();
+    auto frequencyLevelIterator = partialEnvelopes.frequencyEnvelope.levels.begin();
+    uint32_t frequencyTimeTotal{0};
+
+    double previousFrequencyLevel = *frequencyLevelIterator++;
+    uint32_t previousFrequencyTimeSamples{0};  // All partials must begin on time zero
+    // The first point to search for (intentional ++ here, envelopes are not coordinates, first time
+    // point is implicit but first level point is explicit)
+    uint32_t currentFrequencyTimeSamples{endTime + 1};
+    if (partialEnvelopes.frequencyEnvelope.timesSamples.size() > 0) {
+        currentFrequencyTimeSamples = *frequencyTimeIterator++;
+    }
+
+    // This is an iterator into the set of PaxelInPartial
+    auto timePointIterator = prePaxels.begin();
+
+    // ------------------------------------------
+    // Pass 1 - Process the Amplitude and Frequency Envelopes
+    // ------------------------------------------
+    while (timePointIterator != prePaxels.end()) {
+        PaxelInPartial paxelInPartial = *timePointIterator;
+        ++timePointIterator;
+        // Calculate the duration of the current paxel.
+        // Because the calculations work "backwards", this means that all durations are defined for
+        // the inner loop.
+        if (timePointIterator != prePaxels.end()) {
+            (*paxelInPartial.paxel).durationSamples =
+                (*timePointIterator).positionInPartial - paxelInPartial.positionInPartial;
+        }
+
+        UnrestrictedPaxelSpecification timePointPaxel = *paxelInPartial.paxel;
+
+        // ------------------------------------------
+        // Amplitude envelope matching and processing
+        // ------------------------------------------
+        if (amplitudeTimeIterator == partialEnvelopes.amplitudeEnvelope.timesSamples.end()) {
+            timePointPaxel.startAmplitude = previousAmplitudeLevel;
+            timePointPaxel.endAmplitude = previousAmplitudeLevel;
+        } else if (currentAmplitudeTimeSamples == paxelInPartial.positionInPartial) {
+            // Search to find where in the set the paxel corresponding the previous amplitude
+            // envelope point is.
+            auto innerTimePointIterator = std::find_if(
+                prePaxels.begin(), prePaxels.end(),
+                [previousAmplitudeTimeSamples](const PaxelInPartial& paxelSpecification) {
+                    return paxelSpecification.positionInPartial == previousAmplitudeTimeSamples;
+                });
+
+            // Validate conditions at this point in processing
+            assert((*innerTimePointIterator).positionInPartial == previousAmplitudeTimeSamples);
+            assert((*timePointIterator).positionInPartial > previousAmplitudeTimeSamples);
+
+            // The paxel corresponding the last envelope point
+            UnrestrictedPaxelSpecification innerTimePointPaxel = *(*innerTimePointIterator).paxel;
+
+            // Fill in known information
+            innerTimePointPaxel.startAmplitude = previousAmplitudeLevel;
+
+            // Now we can calculate the gradient.
+            // This calculation is not about the mean value in a sample, it is about the
+            // boundary values. It is about the "fenceposts".
+            double amplitudeGradient =
+                (*amplitudeLevelIterator - innerTimePointPaxel.startAmplitude) /
+                (currentAmplitudeTimeSamples - previousAmplitudeTimeSamples);
+
+            // Now loop through the set and write the boundary values, noting that the start
+            // boudary parameters are always the same as the corresponding end boundary parameters.
+            //
+            // Note that here we are dealing with the fenceposts - the specification of paxels, as
+            // opposed to dealing with the actual amplitude of real samples, where we need to take
+            // the mean value of the time period of the sample in question.
+            do {
+                double boundaryAmplitude = innerTimePointPaxel.startAmplitude +
+                                           innerTimePointPaxel.durationSamples * amplitudeGradient;
+
+                innerTimePointPaxel.endAmplitude = boundaryAmplitude;
+                ++innerTimePointIterator;
+                innerTimePointPaxel = *(*innerTimePointIterator).paxel;
+                innerTimePointPaxel.startAmplitude = boundaryAmplitude;
+            } while ((*innerTimePointIterator).positionInPartial != currentAmplitudeTimeSamples);
+
+            // Ensure that rounding errors do not affect the final boundary point
+            --innerTimePointIterator;
+            (*(*innerTimePointIterator).paxel).endAmplitude = *amplitudeLevelIterator;
+            timePointPaxel.startAmplitude = *amplitudeLevelIterator;
+
+            // Move on to the next point in the amplitude envelope
+            // Envelope time is relative, so need to sum here
+            previousAmplitudeTimeSamples = currentAmplitudeTimeSamples;
+            currentAmplitudeTimeSamples += *amplitudeTimeIterator;
+            previousAmplitudeLevel = *amplitudeLevelIterator;
+            ++amplitudeLevelIterator;
+            ++amplitudeTimeIterator;
+        }
+
+        // ------------------------------------------
+        // Frequency envelope matching and processing
+        // ------------------------------------------
+        if (frequencyTimeIterator == partialEnvelopes.frequencyEnvelope.timesSamples.end()) {
+            timePointPaxel.startFrequency = previousFrequencyLevel;
+            timePointPaxel.endFrequency = previousFrequencyLevel;
+        } else if (currentFrequencyTimeSamples == paxelInPartial.positionInPartial) {
+            // Search to find where in the set the paxel corresponding the previous frequency
+            // envelope point is.
+            auto innerTimePointIterator = std::find_if(
+                prePaxels.begin(), prePaxels.end(),
+                [previousFrequencyTimeSamples](const PaxelInPartial& paxelSpecification) {
+                    return paxelSpecification.positionInPartial == previousFrequencyTimeSamples;
+                });
+
+            // Validate conditions at this point in processing
+            assert((*innerTimePointIterator).positionInPartial == previousFrequencyTimeSamples);
+            assert((*timePointIterator).positionInPartial > previousFrequencyTimeSamples);
+
+            // The paxel corresponding the last envelope point
+            UnrestrictedPaxelSpecification innerTimePointPaxel = *(*innerTimePointIterator).paxel;
+
+            // Fill in known information
+            innerTimePointPaxel.startFrequency = previousFrequencyLevel;
+
+            // Now we can calculate the gradient.
+            // This calculation is not about the mean value in a sample, it is about the
+            // boundary values. It is about the "fenceposts".
+            double frequencyGradient =
+                (*frequencyLevelIterator - innerTimePointPaxel.startFrequency) /
+                (currentFrequencyTimeSamples - previousFrequencyTimeSamples);
+
+            // Now loop through the set and write the boundary values, noting that the start
+            // boudary parameters are always the same as the corresponding end boundary parameters.
+            //
+            // Note that here we are dealing with the fenceposts - the specification of paxels, as
+            // opposed to dealing with the actual frequency of real samples, where we need to take
+            // the mean value of the time period of the sample in question.
+            do {
+                double boundaryFrequency = innerTimePointPaxel.startFrequency +
+                                           innerTimePointPaxel.durationSamples * frequencyGradient;
+                innerTimePointPaxel.endFrequency = boundaryFrequency;
+                double naturalBoundaryPhase = naturalPhase(
+                    innerTimePointPaxel.startPhase, innerTimePointPaxel.startFrequency,
+                    innerTimePointPaxel.endFrequency, innerTimePointPaxel.durationSamples, true);
+                innerTimePointPaxel.endPhase = naturalBoundaryPhase;
+                ++innerTimePointIterator;
+                innerTimePointPaxel = *(*innerTimePointIterator).paxel;
+                innerTimePointPaxel.startFrequency = boundaryFrequency;
+                innerTimePointPaxel.startPhase = naturalBoundaryPhase;
+            } while ((*innerTimePointIterator).positionInPartial != currentFrequencyTimeSamples);
+
+            // Ensure that rounding errors do not affect the final boundary point
+            --innerTimePointIterator;
+            (*(*innerTimePointIterator).paxel).endFrequency = *frequencyLevelIterator;
+            timePointPaxel.startFrequency = *frequencyLevelIterator;
+
+            // Move on to the next point in the frequency envelope
+            // Envelope time is relative, so need to sum here
+            previousFrequencyTimeSamples = currentFrequencyTimeSamples;
+            currentFrequencyTimeSamples += *frequencyTimeIterator;
+            previousFrequencyLevel = *frequencyLevelIterator;
+            ++frequencyLevelIterator;
+            ++frequencyTimeIterator;
+        }
+    }
+
+    // ------------------------------------------
+    // Pass 2 - Phase Correction
+    // ------------------------------------------
+
+    // Note that initial phase is already set.
+    assert(partialEnvelopes.phaseCoordinates.coordinates.size() >= 2);
+    auto previousPhaseIterator = partialEnvelopes.phaseCoordinates.coordinates.begin();
+    auto currentPhaseIterator = previousPhaseIterator;
+    ++currentPhaseIterator;
+    auto previousPaxelIterator = prePaxels.begin();  // First paxel must be first phase point
+
+    while (currentPhaseIterator != partialEnvelopes.phaseCoordinates.coordinates.end()) {
+        double previousPhase = (*previousPhaseIterator).value;
+        double currentPhase = (*currentPhaseIterator).value;
+        uint32_t previousTimeSamples = previousPhaseIterator->timeSamples;
+        uint32_t currentTimeSamples = currentPhaseIterator->timeSamples;
+
+        auto currentPaxelIterator =
+            std::find_if(prePaxels.begin(), prePaxels.end(),
+                         [currentTimeSamples](const PaxelInPartial& paxelSpecification) {
+                             return paxelSpecification.positionInPartial == currentTimeSamples;
+                         });
+
+        double naturalBoundaryPhase = currentPaxelIterator->paxel->startPhase;
+        double phaseShift = coherenceCompensation(naturalBoundaryPhase, currentPhase);
+
+        double phaseGradient = phaseShift / (currentTimeSamples - previousTimeSamples);
+
+        --currentPaxelIterator;  // Because we set it after this loop directly.
+        while (previousPaxelIterator != currentPaxelIterator) {
+            double paxelPhaseShift = phaseGradient * previousPaxelIterator->paxel->durationSamples;
+            double boundaryPhase =
+                std::fmod(previousPaxelIterator->paxel->endPhase + paxelPhaseShift, TWO_PI);
+            previousPaxelIterator->paxel->endPhase = boundaryPhase;
+            ++previousPaxelIterator;
+            previousPaxelIterator->paxel->startPhase = boundaryPhase;
+        }
+
+        // The final boundary position is set exactly based on the envelope values to reduce any
+        // inaccuracies that could arise from rounding errors in the floating point calculations.
+        // This way there can be no rounding calculations where envelopes are simple and time
+        // periods are short.
+        currentPaxelIterator->paxel->endPhase = currentPhase;
+        ++currentPaxelIterator->paxel->startPhase = currentPhase;
+
+        ++previousPhaseIterator;
+        ++currentPhaseIterator;
+    }
+
+    // ------------------------------------------
+    // Pass 3 - Convert to correct MultiPaxels
+    // ------------------------------------------
+    auto paxelIterator = prePaxels.begin();
+    uint32_t paxelStartTime{0};
+    uint32_t paxelEndTime{paxelDurationSamples};
+    uint32_t inverseOffset = (paxelDurationSamples - offsetSamples) % paxelDurationSamples;
+    std::vector<MultiPaxelSpecification> completeMultiPaxelVector;
+    std::vector<PaxelSpecification> currentMultiPaxel;
+    do {
+        PaxelInPartial currentPrePaxel = *paxelIterator;
+        currentPrePaxel.positionInPartial += inverseOffset;
+        uint32_t positionInPaxel = currentPrePaxel.positionInPartial % paxelDurationSamples;
+        currentPrePaxel.paxel->startSample = positionInPaxel;
+        // Fencepost makes the -1 necessary. If duration is 1 sample, then startSample == endSample;
+        currentPrePaxel.paxel->endSample =
+            positionInPaxel + currentPrePaxel.paxel->durationSamples - 1;
+        currentPrePaxel.paxel->durationSamples = paxelDurationSamples;
+
+        PaxelSpecification currentPaxelSpecification{
+            currentPrePaxel.paxel->generatePaxelSpecification()};
+        currentMultiPaxel.push_back(currentPaxelSpecification);
+
+        ++paxelIterator;
+        if (paxelIterator == prePaxels.end() || paxelIterator->positionInPartial == paxelEndTime) {
+            MultiPaxelSpecification currentMultiPaxelSpecification{currentMultiPaxel};
+            completeMultiPaxelVector.push_back(currentMultiPaxelSpecification);
+            paxelStartTime += paxelDurationSamples;
+            paxelEndTime += paxelDurationSamples;
+        }
+    } while (paxelIterator != prePaxels.end());
+
+    PartialSpecification completePartialSpecificaion{completeMultiPaxelVector};
+    return completePartialSpecificaion;
 }
 
 std::vector<SamplePaxelFP> PartialGenerator::generatePartial() {

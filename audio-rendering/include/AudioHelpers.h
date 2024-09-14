@@ -24,7 +24,7 @@ inline double coherenceCompensation(double sourcePhase, double targetPhase) {
     // Calculate the difference
     double difference = targetPhase - sourcePhase;
 
-    // Wrap the difference into the range [-π, π]
+    // Wrap the difference into the range [-π,π]
     if (difference > PI) {
         difference -= TWO_PI;
     } else if (difference < -PI) {
@@ -33,6 +33,60 @@ inline double coherenceCompensation(double sourcePhase, double targetPhase) {
 
     assert((difference >= -PI) && (difference <= PI));
     return difference;
+}
+
+/// @brief Calculate the "natural" phase at the end of an audio fragment that makes a linear
+/// frequency transition inside a given number of samples and where the start phase is known.
+/// @param startPhase The start phase, in radians. A value in the range [0,2π]
+/// @param startFrequency The start frequency, in Hz.
+/// @param endFrequency The end frequence, in Hz.
+/// @param durationSamples The duration of the audio fragment in samples (sample rate is an
+/// application constant)
+/// @param onlyIncompleteCycles If true, limits the phase returned to a value in the range [0,2π).
+/// If false, returns the full natural phase that also provides an indication of the number of
+/// complete cycles (multiples of 2π)
+/// @return The end phase, in radians. If applyFmod is true, this is limited to a value in the range
+/// [0,2π)
+inline double naturalPhase(double startPhase, double startFrequency, double endFrequency,
+                           uint32_t durationSamples, bool onlyIncompleteCycles) {
+    // Preconditions
+    // Start phase must be within the allowed range for a paxel boundary
+    assert(startPhase >= ZERO_PI && startPhase <= TWO_PI);
+    // There must be at least one sample present. It is allowed to have a single sample.
+    assert(durationSamples > 0);
+    // Frequency values must not be negative
+    assert(startFrequency > 0);
+    assert(endFrequency > 0);
+
+    // Compute actual audio portion, paxels may have silence at begin / end to allow for envlope
+    // points. Add one due to the fencepost problem.
+    uint32_t audioDurationSamples = ++durationSamples;
+
+    // Calculate rates, note that here the calculation is based on the start time and end time of
+    // the paxel so it starts from the begin time of the first sample and ends on the end time of
+    // the last sample. Even one sample has a duration (1/kSampleRate seconds), it is not a point in
+    // time.
+    // We are dealing in phase in terms of an accumulation for cycles. These phase
+    // calculations do not "wrap around" on 2π. This is intentional because it can be required to
+    // calculate the rate at which phase needs to change on each sample.
+    double f1PhaseIncrement = (TWO_PI * startFrequency) / static_cast<double>(kSampleRate);
+    double f1PhaseEnd = startPhase + f1PhaseIncrement * audioDurationSamples;
+
+    double f2PhaseIncrement = (TWO_PI * endFrequency) / static_cast<double>(kSampleRate);
+    double f2PhaseEnd = startPhase + f2PhaseIncrement * audioDurationSamples;
+
+    // This is where the phase accumulation would end "naturally" if there were no concept of an
+    // end phase target.
+    double fullPhaseEnd = (f1PhaseEnd + f2PhaseEnd) / 2.0;
+    double onlyIncompletePhaseEnd = std::fmod(fullPhaseEnd, TWO_PI);
+
+    // Postconditions
+    // Incomplete cycles must be within the allowed range.
+    assert(onlyIncompletePhaseEnd >= ZERO_PI && onlyIncompletePhaseEnd < TWO_PI);
+    // Check that natural phase end is within the possible limit.
+    assert(fullPhaseEnd >= onlyIncompletePhaseEnd);
+
+    return onlyIncompleteCycles ? onlyIncompletePhaseEnd : fullPhaseEnd;
 }
 
 }  // namespace RAINBOHz

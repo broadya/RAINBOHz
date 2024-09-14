@@ -161,4 +161,18 @@ int testPartial() {
     return EXIT_SUCCESS;
 }
 
-int main(int argc, char* argv[]) { return testPartial(); }
+int testPartialEnvelope() {
+    using namespace RAINBOHz;
+
+    AmplitudeEnvelope amplitudeEnvelope{{0.1, 0.2, 0.3, 0.4, 0.5}, {1.0, 2.0, 3.0, 4.0}, {}};
+    FrequencyEnvelope frequencyEnvelope{{1000, 2000}, {5.0}, {}};
+    std::vector<PhaseCoordinate> phaseCoordinates{{ZERO_PI, 0.0}, {ZERO_PI, 10.0}};
+
+    PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope, phaseCoordinates};
+
+    PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, kSampleRate, 0};
+
+    return EXIT_SUCCESS;
+}
+
+int main(int argc, char* argv[]) { return testPartialEnvelope(); }

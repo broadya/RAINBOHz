@@ -233,14 +233,14 @@ struct Envelope {
         // is like a constant value.
         assert(levels.size() >= 1);
         // It is allowed to have extra time elements, they are ignored. This is to emulate sclang.
+        // It is allowed to have zero time elements. This represents a constant value.
         assert(timesSeconds.size() >= levels.size() - 1);
         // Time values must not be negative
         assert(std::none_of(timesSeconds.begin(), timesSeconds.end(),
                             [](const double& time) { return time < 0.0; }));
         // Times in seconds and in samples must be similar
         assert(timesSeconds.size() == timesSamples.size());
-        // Check one value for correct transformation
-        assert(static_cast<uint32_t>(timesSeconds.back() * kSampleRate) == timesSamples.back());
+
         // Curves are optional, so there are no invariants for curves.
     }
 
@@ -291,14 +291,22 @@ struct AmplitudeEnvelope : public Envelope {
 /// This is not a concept in sclang, and therefore is not intended to provide interoperability.
 struct PhaseCoordinate {
    public:
-    PhaseCoordinate(double value, double time) : value(value), time(time) {
+    PhaseCoordinate(double value, double time)
+        : value(value), timeSeconds(time), timeSamples(secondsToSamples(time)) {
         // Invariants
         assert(!(time < 0.0));
         assert(value >= ZERO_PI && value <= TWO_PI);
+        assert(timeSamples == static_cast<uint32_t>(timeSeconds * kSampleRate));
     }
 
     const double value;
-    const double time;
+    const double timeSeconds;
+    const uint32_t timeSamples;
+
+   private:
+    uint32_t secondsToSamples(double timesSeconds) {
+        return static_cast<uint32_t>(timesSeconds * kSampleRate);  // Scale and convert to uint32_t
+    }
 };
 
 // PhaseCoordinates also define the limits on the partial. The start phase coordinate must be on
@@ -313,18 +321,21 @@ struct PhaseCoordinates {
         // Invariants
         // At a minimum the start and end phase must be determined.
         assert(coordinates.size() >= 2);
+
+        // The first coordinate must be at time zero. It defines the start of the partial.
+        assert(coordinates.front().timeSamples == 0);
+        assert(coordinates.front().timeSeconds == 0.0);
+
+        // Phase at start and end of the partial must be 0 or π
+        assert(coordinates.front().value != ZERO_PI || coordinates.front().value != PI);
+        assert(coordinates.back().value != ZERO_PI || coordinates.back().value != PI);
+
         // The more complex invariants
         assert([&]() {
-            // Phase at start and end of the partial must be 0 or π
-            double startPhase = coordinates.front().value;
-            double endPhase = coordinates.back().value;
-            if (startPhase != ZERO_PI && startPhase != PI) return false;
-            if (endPhase != ZERO_PI && endPhase != PI) return false;
-
             // Check that time coordinates are in ascending order
             return std::adjacent_find(coordinates.begin(), coordinates.end(),
                                       [](const PhaseCoordinate& a, const PhaseCoordinate& b) {
-                                          return b.time <= a.time;
+                                          return b.timeSeconds <= a.timeSeconds;
                                       }) == coordinates.end();
         }());
     }

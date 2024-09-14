@@ -2,6 +2,8 @@
 #define PARTIAL_GENERATOR_H
 
 #include <cstdint>
+#include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -27,8 +29,11 @@ class PartialGenerator {
     /// @brief Constructs a Partial based on an envelope and phase coordinate specification.
     /// @param partialEnvelopers A specification of the partial.
     /// @param labels A vector of labels to associate with this partial
+    /// @param paxelDurationSamples The size of the standard paxel grid in terms of samples
+    /// @param offsetSamples Offset of the standard paxel grid relative to the envelopes
     PartialGenerator(const PartialEnvelopes& partialEnvelopes,
-                     const std::vector<std::string>& labels);
+                     const std::vector<std::string>& labels, uint32_t paxelDurationSamples,
+                     uint32_t offsetSamples);
 
     /// @brief Generate to floating point audio for the entire partial and return it in
     /// a vector
@@ -38,7 +43,85 @@ class PartialGenerator {
     std::vector<SamplePaxelFP> generatePartial();
 
    private:
-    PartialSpecification mapEnvelopesToPaxels(const PartialEnvelopes& partialEnvelopes);
+    /// @brief Generates a partial based on a specificaiton in terms of envelopers.
+    /// @param partialEnvelopes
+    /// @param paxelDurationSamples
+    /// @param offsetSamples The offset in samples relative to the "grid" of paxelDurationSamples.
+    /// @return A specification in terms of partials (a vector of MultiPaxels)
+    PartialSpecification mapEnvelopesToPaxels(const PartialEnvelopes& partialEnvelopes,
+                                              uint32_t paxelDurationSamples,
+                                              uint32_t offsetSamples);
+
+    /// @brief A very simple struct allowing for manipulation of paxel specification. Not acceptable
+    /// as a means to generate a paxel directly (because invariants are not guaranteed), but can be
+    /// used to generate a valid PaxelSpecification once fully populated.
+    struct UnrestrictedPaxelSpecification {
+       public:
+        PaxelSpecification generatePaxelSpecification() {
+            // Validate that all values are set
+            assert(startFrequency != kRogueValueDouble);
+            assert(endFrequency != kRogueValueDouble);
+            assert(startAmplitude != kRogueValueDouble);
+            assert(endAmplitude != kRogueValueDouble);
+            assert(startPhase != kRogueValueDouble);
+            assert(endPhase != kRogueValueDouble);
+            assert(durationSamples != kRogueValueInt);
+            assert(startSample != kRogueValueInt);
+            assert(endSample != kRogueValueInt);
+
+            return PaxelSpecification{startFrequency,  endFrequency, startAmplitude,
+                                      endAmplitude,    startPhase,   endPhase,
+                                      durationSamples, startSample,  endSample};
+        }
+
+        // Define the == operator for equality comparisons
+        bool operator==(const UnrestrictedPaxelSpecification& other) const {
+            return startFrequency == other.startFrequency && endFrequency == other.endFrequency &&
+                   startAmplitude == other.startAmplitude && endAmplitude == other.endAmplitude &&
+                   startPhase == other.startPhase && endPhase == other.endPhase &&
+                   durationSamples == other.durationSamples && startSample == other.startSample;
+        }
+
+        // Convenient rogue value that is conveniently out of range for all paxel parameters
+        static constexpr double kRogueValueDouble = -10.0;
+        static constexpr uint32_t kRogueValueInt = 0xFFFFFFFF;
+
+        // Initialize with a rogue value to ensure early fail if not set.
+        double startFrequency{kRogueValueDouble};
+        double endFrequency{kRogueValueDouble};
+        double startAmplitude{kRogueValueDouble};
+        double endAmplitude{kRogueValueDouble};
+        double startPhase{kRogueValueDouble};
+        double endPhase{kRogueValueDouble};
+        uint32_t durationSamples{kRogueValueInt};
+        uint32_t startSample{kRogueValueInt};
+        uint32_t endSample{kRogueValueInt};
+    };
+
+    // A specific struct that is useful during partial generation based on
+    struct PaxelInPartial {
+        PaxelInPartial(uint32_t positionInPartial)
+            : positionInPartial(positionInPartial),
+              paxel(std::make_shared<UnrestrictedPaxelSpecification>()) {}
+
+        // Define the < operator so that time ordering is maintained.
+        bool operator<(const PaxelInPartial& other) const {
+            return positionInPartial < other.positionInPartial;
+        }
+
+        // Define the == operator for equality comparisons
+        bool operator==(const PaxelInPartial& other) const {
+            return (*paxel) == (*(other.paxel)) && positionInPartial == other.positionInPartial;
+        }
+
+        // Additional member that is used to track the position of the paxel within a partial.
+        // This is necessary only when paxels of different lengths are used in low-level
+        // calculations, which is the purpose of this struct.
+        uint32_t positionInPartial{0};
+
+        //
+        std::shared_ptr<UnrestrictedPaxelSpecification> paxel;
+    };
 
     const PartialSpecification partialSpecification_;
     const std::vector<std::string> labels_;
