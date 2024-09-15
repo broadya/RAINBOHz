@@ -49,7 +49,7 @@ enable_testing()
 
 # Add the test executable
 add_executable(testSuite
-    tests/testSineWaveGenerator.cpp
+    tests/testPartialGenerator.cpp
     # Add more test files as needed...
 )
 

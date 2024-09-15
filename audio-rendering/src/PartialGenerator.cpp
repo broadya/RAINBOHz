@@ -12,7 +12,7 @@
 using namespace RAINBOHz;
 
 PartialGenerator::PartialGenerator(const PartialSpecification& partialSpecification,
-                                   const std::vector<std::string>& labels)
+                                   const std::set<std::string>& labels)
     : partialSpecification_(partialSpecification), labels_(labels) {
     // Invariants
     // It is allowed to have zero labels, but if they are present none may be empty
@@ -21,7 +21,7 @@ PartialGenerator::PartialGenerator(const PartialSpecification& partialSpecificat
 }
 
 PartialGenerator::PartialGenerator(const PartialEnvelopes& partialEnvelopes,
-                                   const std::vector<std::string>& labels,
+                                   const std::set<std::string>& labels,
                                    uint32_t paxelDurationSamples, uint32_t offsetSamples)
     : labels_(labels),
       partialSpecification_(
@@ -33,6 +33,12 @@ PartialGenerator::PartialGenerator(const PartialEnvelopes& partialEnvelopes,
 }
 
 PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
+    // ------------------------------------------
+    // This is a multi-layered calculation that is at the heart of the
+    // synthesis concept. Currently this code is not optimised and it is clear that this method must
+    // be refactored into smaller modules.
+    // ------------------------------------------
+
     const PartialEnvelopes& partialEnvelopes, uint32_t paxelDurationSamples,
     uint32_t offsetSamples) {
     // Preconditions
@@ -50,8 +56,8 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
     std::set<PaxelInPartial> prePaxels;
 
     // First insert the phase coordinates because these also determine the end time of the partial.
-    // Adding the phase value is actually only necessary for the very first paxel, but it is
-    // available information and may prove useful during future optimisation and debugging.
+    // Adding the phase value is necessary to allow calculation of the "natural" phase end points in
+    // the first pass that processes the frequency envelope.
     for (const auto& phaseCoordinate : partialEnvelopes.phaseCoordinates.coordinates) {
         PaxelInPartial phasePaxel{phaseCoordinate.timeSamples};
         phasePaxel.paxel->startPhase = phaseCoordinate.value;
@@ -155,11 +161,13 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
         // Because the calculations work "backwards", this means that all durations are defined for
         // the inner loop.
         if (timePointIterator != prePaxels.end()) {
-            (*paxelInPartial.paxel).durationSamples =
-                (*timePointIterator).positionInPartial - paxelInPartial.positionInPartial;
+            paxelInPartial.paxel->durationSamples =
+                timePointIterator->positionInPartial - paxelInPartial.positionInPartial;
+        } else {
+            paxelInPartial.paxel->durationSamples = paxelDurationSamples;
         }
 
-        UnrestrictedPaxelSpecification timePointPaxel = *paxelInPartial.paxel;
+        UnrestrictedPaxelSpecification& timePointPaxel = *paxelInPartial.paxel;
 
         // ------------------------------------------
         // Amplitude envelope matching and processing
@@ -181,7 +189,7 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
             assert((*timePointIterator).positionInPartial > previousAmplitudeTimeSamples);
 
             // The paxel corresponding the last envelope point
-            UnrestrictedPaxelSpecification innerTimePointPaxel = *(*innerTimePointIterator).paxel;
+            UnrestrictedPaxelSpecification& innerTimePointPaxel = *(innerTimePointIterator->paxel);
 
             // Fill in known information
             innerTimePointPaxel.startAmplitude = previousAmplitudeLevel;
@@ -205,13 +213,13 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
 
                 innerTimePointPaxel.endAmplitude = boundaryAmplitude;
                 ++innerTimePointIterator;
-                innerTimePointPaxel = *(*innerTimePointIterator).paxel;
+                innerTimePointPaxel = *(innerTimePointIterator->paxel);
                 innerTimePointPaxel.startAmplitude = boundaryAmplitude;
             } while ((*innerTimePointIterator).positionInPartial != currentAmplitudeTimeSamples);
 
             // Ensure that rounding errors do not affect the final boundary point
             --innerTimePointIterator;
-            (*(*innerTimePointIterator).paxel).endAmplitude = *amplitudeLevelIterator;
+            innerTimePointIterator->paxel->endAmplitude = *amplitudeLevelIterator;
             timePointPaxel.startAmplitude = *amplitudeLevelIterator;
 
             // Move on to the next point in the amplitude envelope
@@ -227,8 +235,23 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
         // Frequency envelope matching and processing
         // ------------------------------------------
         if (frequencyTimeIterator == partialEnvelopes.frequencyEnvelope.timesSamples.end()) {
+            // If the envelope has ended (or never started), it is still necessary to set the
+            // frequency values and calculate the natural pahse.
             timePointPaxel.startFrequency = previousFrequencyLevel;
             timePointPaxel.endFrequency = previousFrequencyLevel;
+            double naturalBoundaryPhase =
+                naturalPhase(timePointPaxel.startPhase, timePointPaxel.startFrequency,
+                             timePointPaxel.endFrequency, timePointPaxel.durationSamples, true);
+            timePointPaxel.endPhase = naturalBoundaryPhase;
+
+            // At the boundary, need to set the start phase of the next paxel, if it is available.
+            if (timePointIterator != prePaxels.end()) {
+                UnrestrictedPaxelSpecification& nextPointPaxel = *(timePointIterator->paxel);
+                // Only set the startPhase if it has not been specified by a phase coordinate.
+                if (nextPointPaxel.startPhase == nextPointPaxel.kHasNoValueDouble) {
+                    nextPointPaxel.startPhase = naturalBoundaryPhase;
+                }
+            }
         } else if (currentFrequencyTimeSamples == paxelInPartial.positionInPartial) {
             // Search to find where in the set the paxel corresponding the previous frequency
             // envelope point is.
@@ -243,7 +266,7 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
             assert((*timePointIterator).positionInPartial > previousFrequencyTimeSamples);
 
             // The paxel corresponding the last envelope point
-            UnrestrictedPaxelSpecification innerTimePointPaxel = *(*innerTimePointIterator).paxel;
+            UnrestrictedPaxelSpecification& innerTimePointPaxel = *(innerTimePointIterator->paxel);
 
             // Fill in known information
             innerTimePointPaxel.startFrequency = previousFrequencyLevel;
@@ -270,9 +293,13 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
                     innerTimePointPaxel.endFrequency, innerTimePointPaxel.durationSamples, true);
                 innerTimePointPaxel.endPhase = naturalBoundaryPhase;
                 ++innerTimePointIterator;
-                innerTimePointPaxel = *(*innerTimePointIterator).paxel;
+                innerTimePointPaxel = *(innerTimePointIterator->paxel);
                 innerTimePointPaxel.startFrequency = boundaryFrequency;
-                innerTimePointPaxel.startPhase = naturalBoundaryPhase;
+
+                // Only set the startPhase if it has not been specified by a phase coordinate.
+                if (innerTimePointPaxel.startPhase == innerTimePointPaxel.kHasNoValueDouble) {
+                    innerTimePointPaxel.startPhase = naturalBoundaryPhase;
+                }
             } while ((*innerTimePointIterator).positionInPartial != currentFrequencyTimeSamples);
 
             // Ensure that rounding errors do not affect the final boundary point
@@ -294,11 +321,18 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
     // Pass 2 - Phase Correction
     // ------------------------------------------
 
-    // Note that initial phase is already set.
+    // There must always be two phase coordinates. These specify the stat and end of the partial.
     assert(partialEnvelopes.phaseCoordinates.coordinates.size() >= 2);
-    auto previousPhaseIterator = partialEnvelopes.phaseCoordinates.coordinates.begin();
-    auto currentPhaseIterator = previousPhaseIterator;
-    ++currentPhaseIterator;
+    // Initial phase is guaranteed to be already set.
+    assert(prePaxels.begin()->paxel->startPhase ==
+           partialEnvelopes.phaseCoordinates.coordinates.begin()->value);
+
+    auto currentPhaseIterator = partialEnvelopes.phaseCoordinates.coordinates.begin();
+    // Intentionally x++ not ++x. We want the old value as the previous iterator.
+    auto previousPhaseIterator = currentPhaseIterator++;
+
+    // Every valid partial must consist of at least one paxel.
+    assert(prePaxels.size() > 0);
     auto previousPaxelIterator = prePaxels.begin();  // First paxel must be first phase point
 
     while (currentPhaseIterator != partialEnvelopes.phaseCoordinates.coordinates.end()) {
@@ -307,18 +341,30 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
         uint32_t previousTimeSamples = previousPhaseIterator->timeSamples;
         uint32_t currentTimeSamples = currentPhaseIterator->timeSamples;
 
+        // Locate the paxel that corresponds to the current phase coordinate
+        // Provided that the intiial population of the paxel set was correct, this is guaranteed to
+        // be present.
         auto currentPaxelIterator =
             std::find_if(prePaxels.begin(), prePaxels.end(),
                          [currentTimeSamples](const PaxelInPartial& paxelSpecification) {
                              return paxelSpecification.positionInPartial == currentTimeSamples;
                          });
 
-        double naturalBoundaryPhase = currentPaxelIterator->paxel->startPhase;
-        double phaseShift = coherenceCompensation(naturalBoundaryPhase, currentPhase);
+        // At this paxel, there is expected to be a discontinuity between the endPhase of the
+        // previous paxel and the start phase of the "current" paxel. The startPhase of the current
+        // paxel must already be correct according to the phase coordinates. This was set during
+        // the initialisation of the paxels and used by the frequency envelope processing to
+        // calculate the other "natural" phase values. We now use these "natural" phase values to
+        // calulate the required phase shifts.
+        assert(currentPaxelIterator->paxel->startPhase == currentPhase);
 
+        // Go back to the previous paxel. This will hold the "natural" phase that emerged at the
+        // boundary.
+        --currentPaxelIterator;
+        double naturalBoundaryPhase = currentPaxelIterator->paxel->endPhase;
+        double phaseShift = coherenceCompensation(naturalBoundaryPhase, currentPhase);
         double phaseGradient = phaseShift / (currentTimeSamples - previousTimeSamples);
 
-        --currentPaxelIterator;  // Because we set it after this loop directly.
         while (previousPaxelIterator != currentPaxelIterator) {
             double paxelPhaseShift = phaseGradient * previousPaxelIterator->paxel->durationSamples;
             double boundaryPhase =
@@ -333,19 +379,35 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
         // This way there can be no rounding calculations where envelopes are simple and time
         // periods are short.
         currentPaxelIterator->paxel->endPhase = currentPhase;
-        ++currentPaxelIterator->paxel->startPhase = currentPhase;
+        // Note that we went backwards by one element already, this is the compensation for that.
+        ++currentPaxelIterator;
+        // This must already be set (and has been asserted before), but just to be certain.
+        assert(currentPaxelIterator->paxel->startPhase == currentPhase);
 
+        // This is the "normal" iteration forwards in the phase coordinates that allow the next
+        // iteration of the loop.
         ++previousPhaseIterator;
         ++currentPhaseIterator;
     }
 
     // ------------------------------------------
-    // Pass 3 - Convert to correct MultiPaxels
+    // Pass 3 - Convert to correctly offset and combined MultiPaxels
     // ------------------------------------------
+    // Every valid partial must consist of at least one paxel.
+    assert(prePaxels.size() > 0);
+    // Duration and offset must be sensible values. In particular, the maximum offset is
+    // paxelDurationSamples - 1.
+    assert(paxelDurationSamples > 0);
+    assert(offsetSamples < paxelDurationSamples);
+
     auto paxelIterator = prePaxels.begin();
     uint32_t paxelStartTime{0};
     uint32_t paxelEndTime{paxelDurationSamples};
+    // inverseOffset is the gap between the start of the first paxel and the first sample with
+    // audio. It is important for alignment during optimisation of partial summing.
     uint32_t inverseOffset = (paxelDurationSamples - offsetSamples) % paxelDurationSamples;
+
+    // Data structures to hold the results of the transformation.
     std::vector<MultiPaxelSpecification> completeMultiPaxelVector;
     std::vector<PaxelSpecification> currentMultiPaxel;
     do {
@@ -363,13 +425,19 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
         currentMultiPaxel.push_back(currentPaxelSpecification);
 
         ++paxelIterator;
-        if (paxelIterator == prePaxels.end() || paxelIterator->positionInPartial == paxelEndTime) {
+        if (paxelIterator->positionInPartial == paxelEndTime) {
+            assert(currentMultiPaxel.size() > 0);
+            // Note that the invariants of a MultiPaxel are assert tested in this constructor.
             MultiPaxelSpecification currentMultiPaxelSpecification{currentMultiPaxel};
             completeMultiPaxelVector.push_back(currentMultiPaxelSpecification);
             paxelStartTime += paxelDurationSamples;
             paxelEndTime += paxelDurationSamples;
+            currentMultiPaxel.clear();  // Ready to start with the next MultiPaxel;
         }
-    } while (paxelIterator != prePaxels.end());
+        // Note that there is always at least one extra paxel that is used for computation purposes
+        // only. These extra paxels are used to store the final phase target and to allow for
+        // envelopes that extend over the end of the partial.
+    } while (paxelIterator->positionInPartial != endTime);
 
     PartialSpecification completePartialSpecificaion{completeMultiPaxelVector};
     return completePartialSpecificaion;
@@ -398,3 +466,7 @@ std::vector<SamplePaxelFP> PartialGenerator::generatePartial() {
 
     return result;
 }
+
+PartialSpecification PartialGenerator::getPartialSpecification() { return partialSpecification_; }
+
+std::set<std::string> PartialGenerator::getLabels() { return labels_; }

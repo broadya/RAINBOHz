@@ -143,7 +143,7 @@ int testPartial() {
 
     std::vector<RAINBOHz::MultiPaxelSpecification> partialSpecification{
         multiPaxelSpecification0, multiPaxelSpecification1, multiPaxelSpecification2};
-    std::vector<std::string> labels{"Label0", "Label1"};
+    std::set<std::string> labels{"Label0", "Label1"};
 
     // Generate paxel test
     RAINBOHz::PartialGenerator generator(partialSpecification, labels);
@@ -164,13 +164,23 @@ int testPartial() {
 int testPartialEnvelope() {
     using namespace RAINBOHz;
 
-    AmplitudeEnvelope amplitudeEnvelope{{0.1, 0.2, 0.3, 0.4, 0.5}, {1.0, 2.0, 3.0, 4.0}, {}};
-    FrequencyEnvelope frequencyEnvelope{{1000, 2000}, {5.0}, {}};
-    std::vector<PhaseCoordinate> phaseCoordinates{{ZERO_PI, 0.0}, {ZERO_PI, 10.0}};
+    AmplitudeEnvelope amplitudeEnvelope{{0.1}, {}, {}};
+    FrequencyEnvelope frequencyEnvelope{{1000}, {}, {}};
+    std::vector<PhaseCoordinate> phaseCoordinates{{ZERO_PI, 0.0}, {ZERO_PI, 1.0}};
 
     PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope, phaseCoordinates};
 
     PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, kSampleRate, 0};
+    auto samples = partialGenerator.generatePartial();
+
+    // Write samples to WAV file
+    RAINBOHz::WavWriter writer(RAINBOHz::kSampleRate);
+    if (writer.writeToFile("paxeltest.wav", samples)) {
+        std::cout << "WAV file generated successfully: " << std::endl;
+    } else {
+        std::cerr << "Failed to write WAV file.\n";
+        return EXIT_FAILURE;
+    }
 
     return EXIT_SUCCESS;
 }

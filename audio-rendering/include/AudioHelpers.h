@@ -54,13 +54,9 @@ inline double naturalPhase(double startPhase, double startFrequency, double endF
     assert(startPhase >= ZERO_PI && startPhase <= TWO_PI);
     // There must be at least one sample present. It is allowed to have a single sample.
     assert(durationSamples > 0);
-    // Frequency values must not be negative
+    // Frequency values must not be negative or zero
     assert(startFrequency > 0);
     assert(endFrequency > 0);
-
-    // Compute actual audio portion, paxels may have silence at begin / end to allow for envlope
-    // points. Add one due to the fencepost problem.
-    uint32_t audioDurationSamples = ++durationSamples;
 
     // Calculate rates, note that here the calculation is based on the start time and end time of
     // the paxel so it starts from the begin time of the first sample and ends on the end time of
@@ -70,10 +66,10 @@ inline double naturalPhase(double startPhase, double startFrequency, double endF
     // calculations do not "wrap around" on 2π. This is intentional because it can be required to
     // calculate the rate at which phase needs to change on each sample.
     double f1PhaseIncrement = (TWO_PI * startFrequency) / static_cast<double>(kSampleRate);
-    double f1PhaseEnd = startPhase + f1PhaseIncrement * audioDurationSamples;
+    double f1PhaseEnd = startPhase + f1PhaseIncrement * durationSamples;
 
     double f2PhaseIncrement = (TWO_PI * endFrequency) / static_cast<double>(kSampleRate);
-    double f2PhaseEnd = startPhase + f2PhaseIncrement * audioDurationSamples;
+    double f2PhaseEnd = startPhase + f2PhaseIncrement * durationSamples;
 
     // This is where the phase accumulation would end "naturally" if there were no concept of an
     // end phase target.

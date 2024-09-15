@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -22,18 +23,17 @@ class PartialGenerator {
     /// @brief Constructs a Partial ready to create an audio fragment based on a set of sequential
     /// multipaxel specifications.
     /// @param multiPaxelSpecification A specification of the multipaxels to be used.
-    /// @param labels A vector of labels to associate with this partial
+    /// @param labels A set of labels to associate with this partial
     PartialGenerator(const PartialSpecification& partialSpecification,
-                     const std::vector<std::string>& labels);
+                     const std::set<std::string>& labels);
 
     /// @brief Constructs a Partial based on an envelope and phase coordinate specification.
     /// @param partialEnvelopers A specification of the partial.
-    /// @param labels A vector of labels to associate with this partial
+    /// @param labels A set of labels to associate with this partial
     /// @param paxelDurationSamples The size of the standard paxel grid in terms of samples
     /// @param offsetSamples Offset of the standard paxel grid relative to the envelopes
-    PartialGenerator(const PartialEnvelopes& partialEnvelopes,
-                     const std::vector<std::string>& labels, uint32_t paxelDurationSamples,
-                     uint32_t offsetSamples);
+    PartialGenerator(const PartialEnvelopes& partialEnvelopes, const std::set<std::string>& labels,
+                     uint32_t paxelDurationSamples, uint32_t offsetSamples);
 
     /// @brief Generate to floating point audio for the entire partial and return it in
     /// a vector
@@ -41,6 +41,15 @@ class PartialGenerator {
     /// start and end (but neither start nor end sample are guaranteed to be zero) and will be free
     /// from discontinuties with multipaxel specifications within reasonable boundaries.
     std::vector<SamplePaxelFP> generatePartial();
+
+    /// @brief Obtain the complete specification of the partial.
+    /// @return The specification of the partial, expressed as a time ordered vector of
+    /// MultiPaxelSpecification objects.
+    PartialSpecification getPartialSpecification();
+
+    /// @brief Obtain the set of labels for the partial.
+    /// @return A set of std::string corresponding to all labels associated with the partial.
+    std::set<std::string> getLabels();
 
    private:
     /// @brief Generates a partial based on a specificaiton in terms of envelopers.
@@ -59,15 +68,15 @@ class PartialGenerator {
        public:
         PaxelSpecification generatePaxelSpecification() {
             // Validate that all values are set
-            assert(startFrequency != kRogueValueDouble);
-            assert(endFrequency != kRogueValueDouble);
-            assert(startAmplitude != kRogueValueDouble);
-            assert(endAmplitude != kRogueValueDouble);
-            assert(startPhase != kRogueValueDouble);
-            assert(endPhase != kRogueValueDouble);
-            assert(durationSamples != kRogueValueInt);
-            assert(startSample != kRogueValueInt);
-            assert(endSample != kRogueValueInt);
+            assert(startFrequency != kHasNoValueDouble);
+            assert(endFrequency != kHasNoValueDouble);
+            assert(startAmplitude != kHasNoValueDouble);
+            assert(endAmplitude != kHasNoValueDouble);
+            assert(startPhase != kHasNoValueDouble);
+            assert(endPhase != kHasNoValueDouble);
+            assert(durationSamples != kHasNoValueInt);
+            assert(startSample != kHasNoValueInt);
+            assert(endSample != kHasNoValueInt);
 
             return PaxelSpecification{startFrequency,  endFrequency, startAmplitude,
                                       endAmplitude,    startPhase,   endPhase,
@@ -83,19 +92,19 @@ class PartialGenerator {
         }
 
         // Convenient rogue value that is conveniently out of range for all paxel parameters
-        static constexpr double kRogueValueDouble = -10.0;
-        static constexpr uint32_t kRogueValueInt = 0xFFFFFFFF;
+        static constexpr double kHasNoValueDouble = -10.0;
+        static constexpr uint32_t kHasNoValueInt = 0xFFFFFFFF;
 
         // Initialize with a rogue value to ensure early fail if not set.
-        double startFrequency{kRogueValueDouble};
-        double endFrequency{kRogueValueDouble};
-        double startAmplitude{kRogueValueDouble};
-        double endAmplitude{kRogueValueDouble};
-        double startPhase{kRogueValueDouble};
-        double endPhase{kRogueValueDouble};
-        uint32_t durationSamples{kRogueValueInt};
-        uint32_t startSample{kRogueValueInt};
-        uint32_t endSample{kRogueValueInt};
+        double startFrequency{kHasNoValueDouble};
+        double endFrequency{kHasNoValueDouble};
+        double startAmplitude{kHasNoValueDouble};
+        double endAmplitude{kHasNoValueDouble};
+        double startPhase{kHasNoValueDouble};
+        double endPhase{kHasNoValueDouble};
+        uint32_t durationSamples{kHasNoValueInt};
+        uint32_t startSample{kHasNoValueInt};
+        uint32_t endSample{kHasNoValueInt};
     };
 
     // A specific struct that is useful during partial generation based on
@@ -124,7 +133,7 @@ class PartialGenerator {
     };
 
     const PartialSpecification partialSpecification_;
-    const std::vector<std::string> labels_;
+    const std::set<std::string> labels_;
 };
 
 }  // namespace RAINBOHz
