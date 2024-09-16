@@ -363,10 +363,13 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
         --currentPaxelIterator;
         double naturalBoundaryPhase = currentPaxelIterator->paxel->endPhase;
         double phaseShift = coherenceCompensation(naturalBoundaryPhase, currentPhase);
-        double phaseGradient = phaseShift / (currentTimeSamples - previousTimeSamples);
+        uint32_t timeShiftSamples = (currentTimeSamples - previousTimeSamples);
+        uint32_t cumulativeTimeSamples{0};
 
         while (previousPaxelIterator != currentPaxelIterator) {
-            double paxelPhaseShift = phaseGradient * previousPaxelIterator->paxel->durationSamples;
+            cumulativeTimeSamples += previousPaxelIterator->paxel->durationSamples;
+            // Add fraction of the overall phase shift, proportional to the total time of the shift.
+            double paxelPhaseShift = (phaseShift * cumulativeTimeSamples) / timeShiftSamples;
             double boundaryPhase =
                 std::fmod(previousPaxelIterator->paxel->endPhase + paxelPhaseShift, TWO_PI);
             previousPaxelIterator->paxel->endPhase = boundaryPhase;

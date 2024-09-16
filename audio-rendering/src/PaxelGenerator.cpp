@@ -16,7 +16,7 @@ PaxelGenerator::PaxelGenerator(const PaxelSpecification& paxelSpecification)
 std::vector<SamplePaxelFP> PaxelGenerator::generatePaxel() {
     // Compute actual audio portion, paxels may have silence at begin / end to allow for envlope
     // points. Add one due to the fencepost problem.
-    double audioDurationSamples =
+    uint32_t audioDurationSamples =
         1 + paxelSpecification_.endSample - paxelSpecification_.startSample;
 
     // Calculate rates, note that here the calculation is based on the start time and end time of
