@@ -25,10 +25,10 @@ constexpr double HALF_PI = 0.5 * PI;          // Useful for test cases
 constexpr double ONE_AND_HALF_PI = 1.5 * PI;  // Useful for test cases
 
 // To be used when scaling from FP to INT. 23 due to possibility of negative values.
-constexpr uint32_t kMaxSamplePaxelInt = 1 << 23;
+constexpr uint32_t kMaxSamplePaxelInt = (1 << 23) - 1;
 
-constexpr uint32_t kMaxSamplePaxelGroupInt = 1 << 31;
-constexpr uint64_t kMaxSampleLabelFullRange = 1LL << 63;
+constexpr uint32_t kMaxSamplePaxelGroupInt = (1 << 31);  // Also needs to be -1, to be solved.
+constexpr uint64_t kMaxSampleLabelFullRange = (1LL << 63);
 
 // Actual scaling will take place using user defined (or perhaps autoscale)
 // attenuation / bit shift value.
@@ -113,24 +113,19 @@ struct MultiPaxelSpecification {
         assert([&]() {
             // Check that there are no overlaps.
             // Note that invariants of PaxelSpecification itself already provide some protections.
-            uint32_t paxelDurationSamples = paxels[0].durationSamples;
-            uint32_t endSample = paxels[0].endSample + 1;
-            double endFrequency = paxels[0].endFrequency;
-            double endPhase = paxels[0].endPhase;
-            double endAmplitude = paxels[0].endAmplitude;
             // If there is only one paxel in the vector then it is inherent that there are no
-            // discontinuities.
+            // discontinuities, hence safe to start loop from 1.
             for (int i = 1; i < paxels.size(); ++i) {
-                if (paxels[i].durationSamples != paxelDurationSamples) {
+                if (paxels[i].durationSamples != paxels[i - 1].durationSamples) {
                     return false;  // Fail if there is a length mismatch
                 }
-                if (paxels[i].startSample != endSample ||
-                    paxels[i].startFrequency != endFrequency || paxels[i].startPhase != endPhase ||
-                    paxels[i].startAmplitude != endAmplitude) {
+                if (paxels[i].startSample != (paxels[i - 1].endSample + 1) ||
+                    paxels[i].startFrequency != paxels[i - 1].endFrequency ||
+                    paxels[i].startPhase != paxels[i - 1].endPhase ||
+                    paxels[i].startAmplitude != paxels[i - 1].endAmplitude) {
                     return false;  // Fail if the transition between paxels would generate a
                                    // discontinuity.
                 }
-                endSample = paxels[i].endSample + 1;
             }
             return true;  // If there are no discontinuities, pass the assert
         }());

@@ -77,14 +77,15 @@ std::vector<SamplePaxelFP> PaxelGenerator::generatePaxel() {
     std::fill(samples.begin(), samples.begin() + paxelSpecification_.startSample, 0.0);
 
     for (size_t i = paxelSpecification_.startSample; i <= paxelSpecification_.endSample; ++i) {
+        assert(amplitude >= -1.0 && amplitude <= 1.0);
         samples[i] = static_cast<SamplePaxelFP>(amplitude * sin(phaseAccumulator));
         assert((samples[i] >= -1.0) && (samples[i] <= 1.0));
         phaseIncrement += phaseIncrementRate;
         phaseAccumulator += phaseIncrement;
         amplitude += amplitudeIncrement;
 
-        // Keep phase accumulator within 0 to 2π
-        phaseAccumulator = std::fmod(phaseAccumulator, TWO_PI);
+        // Keep phase accumulator within [0:2π)
+        phaseAccumulator = phaseMod(phaseAccumulator);
     }
 
     // The +1 here is because of the half-open semantics of std::fill

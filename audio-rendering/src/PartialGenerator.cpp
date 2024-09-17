@@ -91,7 +91,7 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
         // Insert the running total into the set, if it is within the range of the partial
         // and also add the last envelope point that is beyond the endTime, if it is present.
         prePaxels.insert(PaxelInPartial{total});
-        if (total >= endTime) break;
+        if (total > endTime) break;
     }
 
     // Insert all the times found in the frequency envelope points
@@ -102,7 +102,7 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
         // Insert the running total into the set, if it is within the range of the partial
         // and also add the last envelope point that is beyond the endTime, if it is present.
         prePaxels.insert(PaxelInPartial{total});
-        if (total >= endTime) break;
+        if (total > endTime) break;
     }
 
     // The number of paxels needed is the number of boundary points - 1
@@ -131,7 +131,7 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
     // point is implicit but first level point is explicit)
     uint32_t currentAmplitudeTimeSamples{endTime + 1};
     if (partialEnvelopes.amplitudeEnvelope.timesSamples.size() > 0) {
-        currentAmplitudeTimeSamples = *amplitudeTimeIterator++;
+        currentAmplitudeTimeSamples = *amplitudeTimeIterator;
     }
 
     // Frequency state
@@ -145,7 +145,7 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
     // point is implicit but first level point is explicit)
     uint32_t currentFrequencyTimeSamples{endTime + 1};
     if (partialEnvelopes.frequencyEnvelope.timesSamples.size() > 0) {
-        currentFrequencyTimeSamples = *frequencyTimeIterator++;
+        currentFrequencyTimeSamples = *frequencyTimeIterator;
     }
 
     // This is an iterator into the set of PaxelInPartial
@@ -167,14 +167,14 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
             paxelInPartial.paxel->durationSamples = paxelDurationSamples;
         }
 
-        UnrestrictedPaxelSpecification& timePointPaxel = *paxelInPartial.paxel;
+        std::shared_ptr<UnrestrictedPaxelSpecification> timePointPaxel = paxelInPartial.paxel;
 
         // ------------------------------------------
         // Amplitude envelope matching and processing
         // ------------------------------------------
         if (amplitudeTimeIterator == partialEnvelopes.amplitudeEnvelope.timesSamples.end()) {
-            timePointPaxel.startAmplitude = previousAmplitudeLevel;
-            timePointPaxel.endAmplitude = previousAmplitudeLevel;
+            timePointPaxel->startAmplitude = previousAmplitudeLevel;
+            timePointPaxel->endAmplitude = previousAmplitudeLevel;
         } else if (currentAmplitudeTimeSamples == paxelInPartial.positionInPartial) {
             // Search to find where in the set the paxel corresponding the previous amplitude
             // envelope point is.
@@ -189,16 +189,17 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
             assert((*timePointIterator).positionInPartial > previousAmplitudeTimeSamples);
 
             // The paxel corresponding the last envelope point
-            UnrestrictedPaxelSpecification& innerTimePointPaxel = *(innerTimePointIterator->paxel);
+            std::shared_ptr<UnrestrictedPaxelSpecification> innerTimePointPaxel =
+                innerTimePointIterator->paxel;
 
             // Fill in known information
-            innerTimePointPaxel.startAmplitude = previousAmplitudeLevel;
+            innerTimePointPaxel->startAmplitude = previousAmplitudeLevel;
 
             // Now we can calculate the gradient.
             // This calculation is not about the mean value in a sample, it is about the
             // boundary values. It is about the "fenceposts".
             double amplitudeGradient =
-                (*amplitudeLevelIterator - innerTimePointPaxel.startAmplitude) /
+                (*amplitudeLevelIterator - innerTimePointPaxel->startAmplitude) /
                 (currentAmplitudeTimeSamples - previousAmplitudeTimeSamples);
 
             // Now loop through the set and write the boundary values, noting that the start
@@ -208,19 +209,21 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
             // opposed to dealing with the actual amplitude of real samples, where we need to take
             // the mean value of the time period of the sample in question.
             do {
-                double boundaryAmplitude = innerTimePointPaxel.startAmplitude +
-                                           innerTimePointPaxel.durationSamples * amplitudeGradient;
+                double boundaryAmplitude = innerTimePointPaxel->startAmplitude +
+                                           innerTimePointPaxel->durationSamples * amplitudeGradient;
 
-                innerTimePointPaxel.endAmplitude = boundaryAmplitude;
+                innerTimePointPaxel->endAmplitude = boundaryAmplitude;
                 ++innerTimePointIterator;
-                innerTimePointPaxel = *(innerTimePointIterator->paxel);
-                innerTimePointPaxel.startAmplitude = boundaryAmplitude;
+                innerTimePointPaxel = innerTimePointIterator->paxel;
+                innerTimePointPaxel->startAmplitude = boundaryAmplitude;
             } while ((*innerTimePointIterator).positionInPartial != currentAmplitudeTimeSamples);
 
             // Ensure that rounding errors do not affect the final boundary point
             --innerTimePointIterator;
             innerTimePointIterator->paxel->endAmplitude = *amplitudeLevelIterator;
-            timePointPaxel.startAmplitude = *amplitudeLevelIterator;
+            timePointPaxel->startAmplitude = *amplitudeLevelIterator;
+            // Also set the endAmplitude because this might be the final point in the envelope.
+            timePointPaxel->endAmplitude = *amplitudeLevelIterator;
 
             // Move on to the next point in the amplitude envelope
             // Envelope time is relative, so need to sum here
@@ -237,19 +240,21 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
         if (frequencyTimeIterator == partialEnvelopes.frequencyEnvelope.timesSamples.end()) {
             // If the envelope has ended (or never started), it is still necessary to set the
             // frequency values and calculate the natural pahse.
-            timePointPaxel.startFrequency = previousFrequencyLevel;
-            timePointPaxel.endFrequency = previousFrequencyLevel;
+            timePointPaxel->startFrequency = previousFrequencyLevel;
+            timePointPaxel->endFrequency = previousFrequencyLevel;
             double naturalBoundaryPhase =
-                naturalPhase(timePointPaxel.startPhase, timePointPaxel.startFrequency,
-                             timePointPaxel.endFrequency, timePointPaxel.durationSamples, true);
-            timePointPaxel.endPhase = naturalBoundaryPhase;
+                naturalPhase(timePointPaxel->startPhase, timePointPaxel->startFrequency,
+                             timePointPaxel->endFrequency, timePointPaxel->durationSamples, true);
+            assert(naturalBoundaryPhase >= ZERO_PI && naturalBoundaryPhase < TWO_PI);
+            timePointPaxel->endPhase = naturalBoundaryPhase;
 
             // At the boundary, need to set the start phase of the next paxel, if it is available.
             if (timePointIterator != prePaxels.end()) {
-                UnrestrictedPaxelSpecification& nextPointPaxel = *(timePointIterator->paxel);
+                std::shared_ptr<UnrestrictedPaxelSpecification> nextPointPaxel =
+                    timePointIterator->paxel;
                 // Only set the startPhase if it has not been specified by a phase coordinate.
-                if (nextPointPaxel.startPhase == nextPointPaxel.kHasNoValueDouble) {
-                    nextPointPaxel.startPhase = naturalBoundaryPhase;
+                if (nextPointPaxel->startPhase == nextPointPaxel->kHasNoValueDouble) {
+                    nextPointPaxel->startPhase = naturalBoundaryPhase;
                 }
             }
         } else if (currentFrequencyTimeSamples == paxelInPartial.positionInPartial) {
@@ -262,20 +267,20 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
                 });
 
             // Validate conditions at this point in processing
-            assert((*innerTimePointIterator).positionInPartial == previousFrequencyTimeSamples);
-            assert((*timePointIterator).positionInPartial > previousFrequencyTimeSamples);
+            assert(innerTimePointIterator->positionInPartial == previousFrequencyTimeSamples);
 
             // The paxel corresponding the last envelope point
-            UnrestrictedPaxelSpecification& innerTimePointPaxel = *(innerTimePointIterator->paxel);
+            std::shared_ptr<UnrestrictedPaxelSpecification> innerTimePointPaxel =
+                innerTimePointIterator->paxel;
 
             // Fill in known information
-            innerTimePointPaxel.startFrequency = previousFrequencyLevel;
+            innerTimePointPaxel->startFrequency = previousFrequencyLevel;
 
             // Now we can calculate the gradient.
             // This calculation is not about the mean value in a sample, it is about the
             // boundary values. It is about the "fenceposts".
             double frequencyGradient =
-                (*frequencyLevelIterator - innerTimePointPaxel.startFrequency) /
+                (*frequencyLevelIterator - innerTimePointPaxel->startFrequency) /
                 (currentFrequencyTimeSamples - previousFrequencyTimeSamples);
 
             // Now loop through the set and write the boundary values, noting that the start
@@ -285,35 +290,55 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
             // opposed to dealing with the actual frequency of real samples, where we need to take
             // the mean value of the time period of the sample in question.
             do {
-                double boundaryFrequency = innerTimePointPaxel.startFrequency +
-                                           innerTimePointPaxel.durationSamples * frequencyGradient;
-                innerTimePointPaxel.endFrequency = boundaryFrequency;
+                double boundaryFrequency = innerTimePointPaxel->startFrequency +
+                                           innerTimePointPaxel->durationSamples * frequencyGradient;
+                innerTimePointPaxel->endFrequency = boundaryFrequency;
                 double naturalBoundaryPhase = naturalPhase(
-                    innerTimePointPaxel.startPhase, innerTimePointPaxel.startFrequency,
-                    innerTimePointPaxel.endFrequency, innerTimePointPaxel.durationSamples, true);
-                innerTimePointPaxel.endPhase = naturalBoundaryPhase;
+                    innerTimePointPaxel->startPhase, innerTimePointPaxel->startFrequency,
+                    innerTimePointPaxel->endFrequency, innerTimePointPaxel->durationSamples, true);
+                assert(naturalBoundaryPhase >= ZERO_PI && naturalBoundaryPhase < TWO_PI);
+                innerTimePointPaxel->endPhase = naturalBoundaryPhase;
                 ++innerTimePointIterator;
-                innerTimePointPaxel = *(innerTimePointIterator->paxel);
-                innerTimePointPaxel.startFrequency = boundaryFrequency;
+                innerTimePointPaxel = innerTimePointIterator->paxel;
+                innerTimePointPaxel->startFrequency = boundaryFrequency;
 
                 // Only set the startPhase if it has not been specified by a phase coordinate.
-                if (innerTimePointPaxel.startPhase == innerTimePointPaxel.kHasNoValueDouble) {
-                    innerTimePointPaxel.startPhase = naturalBoundaryPhase;
+                if (innerTimePointPaxel->startPhase == innerTimePointPaxel->kHasNoValueDouble) {
+                    innerTimePointPaxel->startPhase = naturalBoundaryPhase;
                 }
             } while ((*innerTimePointIterator).positionInPartial != currentFrequencyTimeSamples);
 
             // Ensure that rounding errors do not affect the final boundary point
             --innerTimePointIterator;
-            (*(*innerTimePointIterator).paxel).endFrequency = *frequencyLevelIterator;
-            timePointPaxel.startFrequency = *frequencyLevelIterator;
+            innerTimePointIterator->paxel->endFrequency = *frequencyLevelIterator;
+            timePointPaxel->startFrequency = *frequencyLevelIterator;
+            // Also set the end frequency and phase because this might be the last point in the
+            // frequency envelope. Basically the same logic as above, which needs to be refactored
+            // soon(TODO).
+            timePointPaxel->endFrequency = *frequencyLevelIterator;
+            double naturalBoundaryPhase =
+                naturalPhase(timePointPaxel->startPhase, timePointPaxel->startFrequency,
+                             timePointPaxel->endFrequency, timePointPaxel->durationSamples, true);
+            assert(naturalBoundaryPhase >= ZERO_PI && naturalBoundaryPhase < TWO_PI);
+            timePointPaxel->endPhase = naturalBoundaryPhase;
+
+            // At the boundary, need to set the start phase of the next paxel, if it is available.
+            if (timePointIterator != prePaxels.end()) {
+                std::shared_ptr<UnrestrictedPaxelSpecification> nextPointPaxel =
+                    timePointIterator->paxel;
+                // Only set the startPhase if it has not been specified by a phase coordinate.
+                if (nextPointPaxel->startPhase == nextPointPaxel->kHasNoValueDouble) {
+                    nextPointPaxel->startPhase = naturalBoundaryPhase;
+                }
+            }
 
             // Move on to the next point in the frequency envelope
-            // Envelope time is relative, so need to sum here
             previousFrequencyTimeSamples = currentFrequencyTimeSamples;
-            currentFrequencyTimeSamples += *frequencyTimeIterator;
             previousFrequencyLevel = *frequencyLevelIterator;
             ++frequencyLevelIterator;
             ++frequencyTimeIterator;
+            // Envelope time is relative, so need to sum here
+            currentFrequencyTimeSamples += *frequencyTimeIterator;
         }
     }
 
@@ -371,7 +396,8 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
             // Add fraction of the overall phase shift, proportional to the total time of the shift.
             double paxelPhaseShift = (phaseShift * cumulativeTimeSamples) / timeShiftSamples;
             double boundaryPhase =
-                std::fmod(previousPaxelIterator->paxel->endPhase + paxelPhaseShift, TWO_PI);
+                phaseMod(previousPaxelIterator->paxel->endPhase + paxelPhaseShift);
+            assert(boundaryPhase >= ZERO_PI && naturalBoundaryPhase < TWO_PI);
             previousPaxelIterator->paxel->endPhase = boundaryPhase;
             ++previousPaxelIterator;
             previousPaxelIterator->paxel->startPhase = boundaryPhase;
@@ -381,6 +407,7 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
         // inaccuracies that could arise from rounding errors in the floating point calculations.
         // This way there can be no rounding calculations where envelopes are simple and time
         // periods are short.
+        assert(currentPhase >= ZERO_PI && currentPhase < TWO_PI);
         currentPaxelIterator->paxel->endPhase = currentPhase;
         // Note that we went backwards by one element already, this is the compensation for that.
         ++currentPaxelIterator;
@@ -428,7 +455,8 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
         currentMultiPaxel.push_back(currentPaxelSpecification);
 
         ++paxelIterator;
-        if (paxelIterator->positionInPartial == paxelEndTime) {
+        if ((paxelIterator->positionInPartial == paxelEndTime) ||
+            (paxelIterator->positionInPartial == endTime)) {
             assert(currentMultiPaxel.size() > 0);
             // Note that the invariants of a MultiPaxel are assert tested in this constructor.
             MultiPaxelSpecification currentMultiPaxelSpecification{currentMultiPaxel};

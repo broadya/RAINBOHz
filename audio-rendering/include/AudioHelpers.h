@@ -8,6 +8,17 @@
 
 namespace RAINBOHz {
 
+/// @brief Modulus phase operation, take a phase value and shift it into the range [0,2π)
+/// @param phase Input phase
+/// @return Output phase
+inline double phaseMod(double phase) {
+    double phaseModResult = std::fmod(phase, TWO_PI);
+    if (phaseModResult < 0) {
+        phaseModResult += TWO_PI;
+    }
+    return phaseModResult;
+}
+
 /// @brief Calculate the smallest compensation value to add to sourcePhase to achieve phase
 /// coherence with the targetPhase. Both values may have values > 2π.
 /// @param sourcePhase The phase of the signal that requires compensation.
@@ -18,8 +29,8 @@ inline double coherenceCompensation(double sourcePhase, double targetPhase) {
     if (sourcePhase == targetPhase) return 0.0;
 
     // Ensure the phases are within the correct range [0, 2π)
-    sourcePhase = std::fmod(sourcePhase, TWO_PI);
-    targetPhase = std::fmod(targetPhase, TWO_PI);
+    sourcePhase = phaseMod(sourcePhase);
+    targetPhase = phaseMod(targetPhase);
 
     // Calculate the difference
     double difference = targetPhase - sourcePhase;
@@ -45,8 +56,8 @@ inline double coherenceCompensation(double sourcePhase, double targetPhase) {
 /// @param onlyIncompleteCycles If true, limits the phase returned to a value in the range [0,2π).
 /// If false, returns the full natural phase that also provides an indication of the number of
 /// complete cycles (multiples of 2π)
-/// @return The end phase, in radians. If applyFmod is true, this is limited to a value in the range
-/// [0,2π)
+/// @return The end phase, in radians. If onlyIncompleteCycles is true, this is limited to a value
+/// in the range [0,2π)
 inline double naturalPhase(double startPhase, double startFrequency, double endFrequency,
                            uint32_t durationSamples, bool onlyIncompleteCycles) {
     // Preconditions
@@ -74,7 +85,7 @@ inline double naturalPhase(double startPhase, double startFrequency, double endF
     // This is where the phase accumulation would end "naturally" if there were no concept of an
     // end phase target.
     double fullPhaseEnd = (f1PhaseEnd + f2PhaseEnd) / 2.0;
-    double onlyIncompletePhaseEnd = std::fmod(fullPhaseEnd, TWO_PI);
+    double onlyIncompletePhaseEnd = phaseMod(fullPhaseEnd);
 
     // Postconditions
     // Incomplete cycles must be within the allowed range.
