@@ -33,14 +33,14 @@ PartialGenerator::PartialGenerator(const PartialEnvelopes& partialEnvelopes,
 }
 
 PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
+    const PartialEnvelopes& partialEnvelopes, uint32_t paxelDurationSamples,
+    uint32_t offsetSamples) {
     // ------------------------------------------
     // This is a multi-layered calculation that is at the heart of the
     // synthesis concept. Currently this code is not optimised and it is clear that this method must
     // be refactored into smaller modules.
-    // ------------------------------------------
+    // -----------------------------------------
 
-    const PartialEnvelopes& partialEnvelopes, uint32_t paxelDurationSamples,
-    uint32_t offsetSamples) {
     // Preconditions
     // Invariants or partialEnvelope are set witin PartialEnvelope istels.
     // In principle it is allowed to have a paxel duration of one sample.
@@ -186,7 +186,6 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
 
             // Validate conditions at this point in processing
             assert((*innerTimePointIterator).positionInPartial == previousAmplitudeTimeSamples);
-            assert((*timePointIterator).positionInPartial > previousAmplitudeTimeSamples);
 
             // The paxel corresponding the last envelope point
             std::shared_ptr<UnrestrictedPaxelSpecification> innerTimePointPaxel =
@@ -455,7 +454,7 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
         currentMultiPaxel.push_back(currentPaxelSpecification);
 
         ++paxelIterator;
-        if ((paxelIterator->positionInPartial == paxelEndTime) ||
+        if ((paxelIterator->positionInPartial == (paxelEndTime - inverseOffset)) ||
             (paxelIterator->positionInPartial == endTime)) {
             assert(currentMultiPaxel.size() > 0);
             // Note that the invariants of a MultiPaxel are assert tested in this constructor.

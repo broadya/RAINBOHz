@@ -164,13 +164,13 @@ int testPartial() {
 int testPartialEnvelope() {
     using namespace RAINBOHz;
 
-    AmplitudeEnvelope amplitudeEnvelope{{1.0, 0.5}, {1.5}, {}};
-    FrequencyEnvelope frequencyEnvelope{{1000, 2000, 4000, 100}, {2.5, 0.3, 0.3}, {}};
+    AmplitudeEnvelope amplitudeEnvelope{{1.0}, {}, {}};
+    FrequencyEnvelope frequencyEnvelope{{1000, 2000}, {2.5}, {}};
     std::vector<PhaseCoordinate> phaseCoordinates{{ZERO_PI, 0.0}, {ZERO_PI, 3.0}};
 
     PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope, phaseCoordinates};
+    PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, kSampleRate, 1000};
 
-    PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, kSampleRate, 0};
     auto samples = partialGenerator.generatePartial();
 
     // Write samples to WAV file

@@ -3,6 +3,25 @@
 
 using namespace RAINBOHz;
 
+TEST(PartialGeneratorTest, OffsetTest) {
+    // A three second sample, whereby the second multipaxel is split to accomodate the amplitude
+    // envelope.
+    AmplitudeEnvelope amplitudeEnvelope{{1.0}, {}, {}};
+    FrequencyEnvelope frequencyEnvelope{{1000, 2000}, {2.5}, {}};
+    std::vector<PhaseCoordinate> phaseCoordinates{{ZERO_PI, 0.0}, {ZERO_PI, 3.0}};
+
+    PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope, phaseCoordinates};
+    PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, kSampleRate, 1000};
+
+    PartialSpecification partialSpecification = partialGenerator.getPartialSpecification();
+
+    EXPECT_EQ(partialSpecification.multiPaxels.size(), 4);
+    EXPECT_EQ(partialSpecification.multiPaxels[0].paxels.size(), 1);
+    EXPECT_EQ(partialSpecification.multiPaxels[1].paxels.size(), 1);
+    EXPECT_EQ(partialSpecification.multiPaxels[2].paxels.size(), 1);
+    EXPECT_EQ(partialSpecification.multiPaxels[3].paxels.size(), 2);
+}
+
 TEST(PartialGeneratorTest, EnvelopeFrequencyTransitionSimple) {
     // A three second sample, whereby the second multipaxel is split to accomodate the amplitude
     // envelope.

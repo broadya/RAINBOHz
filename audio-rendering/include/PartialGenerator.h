@@ -56,6 +56,8 @@ class PartialGenerator {
     /// @param partialEnvelopes
     /// @param paxelDurationSamples
     /// @param offsetSamples The offset in samples relative to the "grid" of paxelDurationSamples.
+    /// This "pushes" the grid "to the right" by a certain number of samples, and adds space before
+    /// the first phase coordinate to remain aligned on whole paxel boundaries.
     /// @return A specification in terms of partials (a vector of MultiPaxels)
     PartialSpecification mapEnvelopesToPaxels(const PartialEnvelopes& partialEnvelopes,
                                               uint32_t paxelDurationSamples,

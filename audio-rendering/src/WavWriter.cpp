@@ -85,7 +85,7 @@ std::vector<uint8_t> WavWriter::convertSamplesToPCM(const std::vector<SamplePaxe
 
     for (size_t i = 0; i < totalSamples; ++i) {
         SamplePaxelInt sample = static_cast<SamplePaxelInt>(samples[i] * kMaxSamplePaxelInt);
-        //        assert((sample >= 0 && samples[i] >= 0.0) || (sample < 0 && samples[i] < 0.0));
+        assert((sample >= 0 && samples[i] >= 0.0) || (sample <= 0 && samples[i] <= 0.0));
         std::memcpy(&pcmData[i * kPaxelBytesPerSample], &sample, kPaxelBytesPerSample);
     }
 
