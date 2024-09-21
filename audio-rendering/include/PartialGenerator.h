@@ -14,7 +14,7 @@ namespace RAINBOHz {
 
 /**
  * @class MultiPaxelGenerator
- * @brief Generates a floating point vector with the length of a single paxel, based on a
+ * @brief Generates a vector of audio samples with the length of a single paxel, based on a
  * specification of a vector of contiguous paxels that is called a multipaxel. Phase is expressed in
  * radians.
  */
@@ -35,12 +35,12 @@ class PartialGenerator {
     PartialGenerator(const PartialEnvelopes& partialEnvelopes, const std::set<std::string>& labels,
                      uint32_t paxelDurationSamples, uint32_t offsetSamples);
 
-    /// @brief Generate to floating point audio for the entire partial and return it in
+    /// @brief Generate to samples for the entire partial and return it in
     /// a vector
-    /// @return A vector of floating point values representing an audio signal that will smoothly
+    /// @return A vector of values representing an audio signal that will smoothly
     /// start and end (but neither start nor end sample are guaranteed to be zero) and will be free
     /// from discontinuties with multipaxel specifications within reasonable boundaries.
-    std::vector<SamplePaxelFP> generatePartial();
+    std::vector<SamplePaxelInt> generatePartial();
 
     /// @brief Obtain the complete specification of the partial.
     /// @return The specification of the partial, expressed as a time ordered vector of

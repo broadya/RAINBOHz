@@ -21,9 +21,9 @@ class PaxelGenerator {
     /// @param paxelSpecification A specification of the paxel.
     PaxelGenerator(const PaxelSpecification& paxelSpecification);
 
-    /// @brief Generate to floating point audio and return it in a vector
-    /// @return A vector of floating point values represneting the wave.
-    std::vector<SamplePaxelFP> generatePaxel();
+    /// @brief Generate audio and return it in a vector
+    /// @return A vector of signed integer values representing the audio signal.
+    std::vector<SamplePaxelInt> generatePaxel();
 
    private:
     const PaxelSpecification paxelSpecification_;

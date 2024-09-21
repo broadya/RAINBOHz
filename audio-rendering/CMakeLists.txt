@@ -23,6 +23,7 @@ add_library(audio_rendering_lib STATIC
     src/PaxelGenerator.cpp
     src/MultiPaxelGenerator.cpp
     src/PartialGenerator.cpp
+    src/MultiPartialGenerator.cpp
     src/WavWriter.cpp
     # Add more source files as needed...
 )
@@ -50,6 +51,7 @@ enable_testing()
 # Add the test executable
 add_executable(testSuite
     tests/testPartialGenerator.cpp
+    tests/testMultiPartialGenerator.cpp
     # Add more test files as needed...
 )
 

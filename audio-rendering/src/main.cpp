@@ -4,6 +4,7 @@
 #include <string>
 
 #include "AudioTypes.h"
+#include "MultiPartialGenerator.h"
 #include "MultiPaxelGenerator.h"
 #include "PartialGenerator.h"
 #include "PaxelGenerator.h"
@@ -115,7 +116,7 @@ int testMultiPaxel() {
 
     // Write samples to WAV file
     RAINBOHz::WavWriter writer(RAINBOHz::kSampleRate);
-    if (writer.writeToFile("paxeltest.wav", samples)) {
+    if (writer.writeToFile("paxeltest.wav", samples, RAINBOHz::AudioSampleType::kPaxelInt)) {
         std::cout << "WAV file generated successfully: " << std::endl;
     } else {
         std::cerr << "Failed to write WAV file.\n";
@@ -151,7 +152,7 @@ int testPartial() {
 
     // Write samples to WAV file
     RAINBOHz::WavWriter writer(RAINBOHz::kSampleRate);
-    if (writer.writeToFile("paxeltest.wav", samples)) {
+    if (writer.writeToFile("paxeltest.wav", samples, RAINBOHz::AudioSampleType::kPaxelInt)) {
         std::cout << "WAV file generated successfully: " << std::endl;
     } else {
         std::cerr << "Failed to write WAV file.\n";
@@ -164,18 +165,18 @@ int testPartial() {
 int testPartialEnvelope() {
     using namespace RAINBOHz;
 
-    AmplitudeEnvelope amplitudeEnvelope{{1.0}, {}, {}};
-    FrequencyEnvelope frequencyEnvelope{{1000, 2000}, {2.5}, {}};
-    std::vector<PhaseCoordinate> phaseCoordinates{{ZERO_PI, 0.0}, {ZERO_PI, 3.0}};
+    AmplitudeEnvelope amplitudeEnvelope{{0.4}, {}, {}};
+    FrequencyEnvelope frequencyEnvelope{{2000, 1000}, {5.0}, {}};
+    std::vector<PhaseCoordinate> phaseCoordinates{{ZERO_PI, 0.0}, {ZERO_PI, 1.0}};
 
     PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope, phaseCoordinates};
-    PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, kSampleRate, 1000};
+    PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, kSampleRate, 0};
 
     auto samples = partialGenerator.generatePartial();
 
     // Write samples to WAV file
     RAINBOHz::WavWriter writer(RAINBOHz::kSampleRate);
-    if (writer.writeToFile("paxeltest.wav", samples)) {
+    if (writer.writeToFile("paxeltest.wav", samples, AudioSampleType::kPaxelInt)) {
         std::cout << "WAV file generated successfully: " << std::endl;
     } else {
         std::cerr << "Failed to write WAV file.\n";
@@ -185,4 +186,115 @@ int testPartialEnvelope() {
     return EXIT_SUCCESS;
 }
 
-int main(int argc, char* argv[]) { return testPartialEnvelope(); }
+int testMultiPartialEnvelope() {
+    using namespace RAINBOHz;
+
+    // A one second envelope with the paxel duration equal to the sample rate for one paxel in the
+    // result.
+    AmplitudeEnvelope amplitudeEnvelope1{{1.0}, {}, {}};
+    FrequencyEnvelope frequencyEnvelope1{{2000, 1000}, {1.0}, {}};
+    std::vector<PhaseCoordinate> phaseCoordinates1{{ZERO_PI, 0.0}, {ZERO_PI, 1.0}};
+    PartialEnvelopes partialEnvelopes1{amplitudeEnvelope1, frequencyEnvelope1, phaseCoordinates1};
+    PartialGenerator partialGenerator1{partialEnvelopes1, {"label_1"}, kSampleRate, 0};
+    PartialSpecification partialSpecification1 = partialGenerator1.getPartialSpecification();
+
+    // A one second envelope with the paxel duration equal to the sample rate for one paxel in the
+    // result.
+    AmplitudeEnvelope amplitudeEnvelope2{{1.0}, {}, {}};
+    FrequencyEnvelope frequencyEnvelope2{{20, 1001}, {5.0}, {}};
+    std::vector<PhaseCoordinate> phaseCoordinates2{{ZERO_PI, 0.0}, {ZERO_PI, 7.0}};
+    PartialEnvelopes partialEnvelopes2{amplitudeEnvelope2, frequencyEnvelope2, phaseCoordinates2};
+    PartialGenerator partialGenerator2{partialEnvelopes2, {"label_1"}, kSampleRate, 0};
+    PartialSpecification partialSpecification2 = partialGenerator2.getPartialSpecification();
+
+    MultiPartialSpecification multiPartialSpecification{
+        {partialSpecification1, partialSpecification2}};
+
+    MultiPartialGenerator multiPartialGenerator{multiPartialSpecification, {"label_1"}};
+    auto samples = multiPartialGenerator.renderAudio();
+
+    // Write samples to WAV file
+    WavWriter writer(kSampleRate);
+    if (writer.writeToFile("paxeltest.wav", samples, AudioSampleType::kPaxelBundleInt)) {
+        std::cout << "WAV file generated successfully: " << std::endl;
+    } else {
+        std::cerr << "Failed to write WAV file.\n";
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
+}
+
+int testPulseWave(double dutyCycle) {
+    using namespace RAINBOHz;
+
+    std::vector<PartialSpecification> partials;
+
+    // "Oscillator One"
+
+    double frequency = 100.123;
+    double frequencyIncrement = 100.123;
+    int harmonicNumber = 1;
+
+    while (frequency < 40000) {
+        double amplitude = (2 * sin(harmonicNumber * PI * dutyCycle)) / (harmonicNumber * PI);
+        //        if (signSwitch > 0) amplitude = -amplitude;
+        std::cout << amplitude << std::endl;
+        AmplitudeEnvelope amplitudeEnvelope{{amplitude}, {}, {}};
+        FrequencyEnvelope frequencyEnvelope{{frequency * 2, frequency}, {1.0}, {}};
+        std::vector<PhaseCoordinate> phaseCoordinates{
+            {HALF_PI, 0.0}, {HALF_PI, 3.0}, {HALF_PI, 6.0}};
+        PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope, phaseCoordinates};
+        PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, kSampleRate, 0};
+        PartialSpecification partialSpecification = partialGenerator.getPartialSpecification();
+
+        partials.push_back(partialSpecification);
+
+        harmonicNumber += 1;
+        frequency += frequencyIncrement;
+    }
+
+    // "Oscillator Two"
+    /*
+        frequency = 100.123;
+        frequencyIncrement = 100.123;
+        harmonicNumber = 1;
+
+        while (frequency < 40000) {
+            double amplitude = (2 * sin(harmonicNumber * PI * dutyCycle)) / (harmonicNumber * PI);
+            //        if (signSwitch > 0) amplitude = -amplitude;
+            std::cout << amplitude << std::endl;
+            AmplitudeEnvelope amplitudeEnvelope{{amplitude}, {}, {}};
+            FrequencyEnvelope frequencyEnvelope{{frequency / 4, frequency}, {2.0}, {}};
+            std::vector<PhaseCoordinate> phaseCoordinates{
+                {HALF_PI, 0.0}, {HALF_PI, 3.002496928777604}, {HALF_PI, 6.0}};
+            PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope,
+       phaseCoordinates}; PartialGenerator partialGenerator{partialEnvelopes, {"label_1"},
+       kSampleRate, 0}; PartialSpecification partialSpecification =
+       partialGenerator.getPartialSpecification();
+
+            partials.push_back(partialSpecification);
+
+            harmonicNumber += 1;
+            frequency += frequencyIncrement;
+        }
+    */
+
+    MultiPartialSpecification multiPartialSpecification{partials};
+
+    MultiPartialGenerator multiPartialGenerator{multiPartialSpecification, {"label_1"}};
+    auto samples = multiPartialGenerator.renderAudio();
+
+    // Write samples to WAV file
+    WavWriter writer(kSampleRate);
+    if (writer.writeToFile("paxeltest.wav", samples, AudioSampleType::kPaxelBundleInt)) {
+        std::cout << "WAV file generated successfully: " << std::endl;
+    } else {
+        std::cerr << "Failed to write WAV file.\n";
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
+}
+
+int main(int argc, char* argv[]) { return testPulseWave(0.25); }

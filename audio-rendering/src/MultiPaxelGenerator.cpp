@@ -14,18 +14,18 @@ MultiPaxelGenerator::MultiPaxelGenerator(const MultiPaxelSpecification& multiPax
     // Invariants are already defined in the MultiPaxelSpecification struct
 }
 
-std::vector<SamplePaxelFP> MultiPaxelGenerator::generatePaxel() {
+std::vector<SamplePaxelInt> MultiPaxelGenerator::generatePaxel() {
     // Preconditions
     assert(multiPaxelSpecification_.paxels.size() > 0);
 
     PaxelGenerator paxelGenerator{multiPaxelSpecification_.paxels[0]};
-    std::vector<SamplePaxelFP> result = paxelGenerator.generatePaxel();
+    std::vector<SamplePaxelInt> result = paxelGenerator.generatePaxel();
 
     for (int i = 1; i < multiPaxelSpecification_.paxels.size(); ++i) {
         PaxelGenerator paxelGeneratorI{multiPaxelSpecification_.paxels[i]};
-        std::vector<SamplePaxelFP> resultI = paxelGeneratorI.generatePaxel();
+        std::vector<SamplePaxelInt> resultI = paxelGeneratorI.generatePaxel();
         std::transform(result.begin(), result.end(), resultI.begin(), result.begin(),
-                       [](SamplePaxelFP a, SamplePaxelFP b) { return a + b; });
+                       [](SamplePaxelInt a, SamplePaxelInt b) { return a + b; });
     }
 
     return result;

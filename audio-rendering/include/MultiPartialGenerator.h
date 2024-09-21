@@ -1,7 +1,9 @@
-#ifndef MULTIPAXEL_GENERATOR_H
-#define MULTIPAXEL_GENERATOR_H
+#ifndef MULTIPARTIAL_GENERATOR_H
+#define MULTIPARTIAL_GENERATOR_H
 
 #include <cstdint>
+#include <set>
+#include <string>
 #include <vector>
 
 #include "AudioTypes.h"
@@ -9,29 +11,31 @@
 namespace RAINBOHz {
 
 /**
- * @class MultiPaxelGenerator
- * @brief Generates a floating point vector with the length of a single paxel, based on a
- * specification of a vector of contiguous paxels that is called a multipaxel. Phase is expressed in
- * radians.
+ * @class MultiPartialGenerator
+ * @brief Container for a set of partials. Can generates an integer vector with the length of the
+ * longest partial it contains.
  */
-class MultiPaxelGenerator {
+class MultiPartialGenerator {
    public:
     /// @brief Constructs a MultiPaxelGenerator ready to create a paxel based on a set of paxel
     /// specifications. This is useful when a paxel cannot be fully specificed with a single
     /// PaxelSpecification. This is typically because there is one or more envelope points within
     /// the paxel.
     /// @param multiPaxelSpecification A specification of the paxels to be used.
-    MultiPaxelGenerator(const MultiPaxelSpecification& multiPaxelSpecification);
+    /// @param labels A vector of labels to association with this MultiPartial.
+    MultiPartialGenerator(const MultiPartialSpecification& multiPartialSpecification,
+                          const std::set<std::string>& labels);
 
     /// @brief Generate to floating point audio with the duration of a single paxel and return it in
     /// a vector
     /// @return A vector of floating point values represneting the wave.
-    std::vector<SamplePaxelInt> generatePaxel();
+    std::vector<SamplePaxelInt> renderAudio();
 
    private:
-    const MultiPaxelSpecification multiPaxelSpecification_;
+    const MultiPartialSpecification multiPartialSpecification_;
+    const std::set<std::string> labels_;
 };
 
 }  // namespace RAINBOHz
 
-#endif  // MULTIPAXEL_GENERATOR_H
+#endif  // MULTIPARTIAL_GENERATOR_H

@@ -26,14 +26,20 @@ void WavWriter::writeUint8Vector(std::ofstream& outFile, const std::vector<uint8
     outFile.write(reinterpret_cast<const char*>(values.data()), values.size());
 }
 
+bool WavWriter::writeToFile(const std::string& filename, const std::vector<int32_t>& samples,
+                            const AudioSampleType audioSampleType) {
+    return writeToFile(filename, convertSamplesToPCM(samples, audioSampleType));
+}
+
 bool WavWriter::writeToFile(const std::string& filename,
                             const std::vector<SamplePaxelFP>& samples) {
-    // Preconditions
-    assert(samples.size() > 0);
-    assert(filename.length() > 0);
+    return writeToFile(filename, convertSamplesToPCM(samples));
+}
 
-    std::vector<uint8_t> pcmData = convertSamplesToPCM(samples);
-    assert(pcmData.size() == (samples.size() * kPaxelBytesPerSample));
+bool WavWriter::writeToFile(const std::string& filename, const std::vector<uint8_t>& pcmData) {
+    // Preconditions
+    assert(pcmData.size() > 0);
+    assert(filename.length() > 0);
 
     // Inherently part of the WAV file format
     constexpr uint32_t fmtChunkSize = 16;
@@ -79,6 +85,35 @@ bool WavWriter::writeToFile(const std::string& filename,
     }
 }
 
+std::vector<uint8_t> WavWriter::convertSamplesToPCM(const std::vector<int32_t>& samples,
+                                                    const AudioSampleType audioSampleType) {
+    size_t totalSamples = samples.size();
+    assert(totalSamples > 0);
+    std::vector<uint8_t> pcmData(totalSamples * kPaxelBytesPerSample);
+
+    switch (audioSampleType) {
+        case AudioSampleType::kPaxelInt:
+            for (size_t i = 0; i < totalSamples; ++i) {
+                assert(samples[i] >= -kMaxSamplePaxelInt && samples[i] <= kMaxSamplePaxelInt);
+                std::memcpy(&pcmData[i * kPaxelBytesPerSample], &samples[i], kPaxelBytesPerSample);
+            }
+            break;
+        case AudioSampleType::kPaxelBundleInt:
+            for (size_t i = 0; i < totalSamples; ++i) {
+                // Scale 32-bit audio to 24-bit audio
+                //                SamplePaxelInt scaledSample = samples[i] / 0x10;
+                SamplePaxelInt scaledSample = samples[i] / 4;
+                assert(scaledSample >= -kMaxSamplePaxelInt && scaledSample <= kMaxSamplePaxelInt);
+                std::memcpy(&pcmData[i * kPaxelBytesPerSample], &scaledSample,
+                            kPaxelBytesPerSample);
+            }
+            break;
+    }
+
+    assert(pcmData.size() == (samples.size() * kPaxelBytesPerSample));
+    return pcmData;
+}
+
 std::vector<uint8_t> WavWriter::convertSamplesToPCM(const std::vector<SamplePaxelFP>& samples) {
     size_t totalSamples = samples.size();
     std::vector<uint8_t> pcmData(totalSamples * kPaxelBytesPerSample);
@@ -89,5 +124,6 @@ std::vector<uint8_t> WavWriter::convertSamplesToPCM(const std::vector<SamplePaxe
         std::memcpy(&pcmData[i * kPaxelBytesPerSample], &sample, kPaxelBytesPerSample);
     }
 
+    assert(pcmData.size() == (samples.size() * kPaxelBytesPerSample));
     return pcmData;
 }

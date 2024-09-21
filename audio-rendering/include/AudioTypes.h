@@ -8,11 +8,14 @@
 
 namespace RAINBOHz {
 
+/// @brief Possible types of a single audio sample
+enum class AudioSampleType { kPaxelFP, kPaxelInt, kPaxelBundleInt, kFullRange, kScaled };
+
 using SamplePaxelFP = float;           // FP32 audio for individual paxel compute
-using SamplePaxelInt = int32_t;        // 24-bit audio stored in 32-bit int
-using SamplePaxelGroupInt = int32_t;   // 32-bit audio stored in 32-bit int
-using SampleLabelFullRange = int64_t;  // 64-bit audio stored in 64-bit int
-using SampleLabelScaled = int32_t;     // 24-bit audio stored in 32-bit int;
+using SamplePaxelInt = int32_t;        // 24-bit audio stored in 32-bit signed int
+using SamplePaxelBundleInt = int32_t;  // 32-bit audio stored in 32-bit signed int
+using SampleLabelFullRange = int64_t;  // 64-bit audio stored in 64-bit signed int
+using SampleLabelScaled = int32_t;     // 24-bit audio stored in 32-bit signed int;
 
 // π and 2π are values that will be needed throughout in phase calculations
 // Note that M_PI does not have constexpr semantics (it's a macro); one reason to define it here.
@@ -25,10 +28,10 @@ constexpr double HALF_PI = 0.5 * PI;          // Useful for test cases
 constexpr double ONE_AND_HALF_PI = 1.5 * PI;  // Useful for test cases
 
 // To be used when scaling from FP to INT. 23 due to possibility of negative values.
-constexpr uint32_t kMaxSamplePaxelInt = (1 << 23) - 1;
+constexpr int32_t kMaxSamplePaxelInt = (1 << 23) - 1;
 
-constexpr uint32_t kMaxSamplePaxelGroupInt = (1 << 31);  // Also needs to be -1, to be solved.
-constexpr uint64_t kMaxSampleLabelFullRange = (1LL << 63);
+constexpr int32_t kMaxSamplePaxelBundleInt = (1 << 31);  // Also needs to be -1, to be solved.
+constexpr int64_t kMaxSampleLabelFullRange = (1LL << 63);
 
 // Actual scaling will take place using user defined (or perhaps autoscale)
 // attenuation / bit shift value.
@@ -70,8 +73,8 @@ struct PaxelSpecification {
         assert(startSample >= 0 && startSample <= durationSamples);
         assert(endSample >= startSample &&
                endSample <= durationSamples);  // A one sample paxel is valid
-        assert(startAmplitude >= 0.0 && startAmplitude <= 1.0);
-        assert(endAmplitude >= 0.0 && endAmplitude <= 1.0);
+        assert(startAmplitude >= -1.0 && startAmplitude <= 1.0);
+        assert(endAmplitude >= -1.0 && endAmplitude <= 1.0);
         assert(startPhase >= 0.0 && startPhase <= TWO_PI);
         assert(endPhase >= 0.0 && endPhase <= TWO_PI);
 
@@ -150,16 +153,6 @@ struct PartialSpecification {
         // Invariants
         assert(multiPaxels.size() > 0);
 
-        // Check the phase of the start and end are correct. Note that this should be directly set
-        // as parameters, but there is some risk here of floating point errors creating false
-        // asserts here.
-        assert([&]() {
-            double startPhase = multiPaxels.front().paxels.front().startPhase;
-            double endPhase = multiPaxels.back().paxels.back().endPhase;
-            return ((startPhase == ZERO_PI || startPhase == PI) &&
-                    (endPhase == ZERO_PI || endPhase == PI));
-        }());
-
         // Lambda function with a capture by reference [&] to check that invariants that apply to
         // the vector of multipaxel specifications.
         assert([&]() {
@@ -194,6 +187,19 @@ struct PartialSpecification {
     }
 
     const std::vector<MultiPaxelSpecification> multiPaxels;
+};
+
+struct MultiPartialSpecification {
+   public:
+    MultiPartialSpecification(const std::vector<PartialSpecification>& partials)
+        : partials(partials) {
+        // Invariants
+        assert(partials.size() > 0);
+
+        // All other invariants are handled by PartialSpecification itself.
+    }
+
+    const std::vector<PartialSpecification> partials;
 };
 
 /// @brief Possible types of envelope curve, intended to be semantically equivalent to sclang
@@ -321,10 +327,6 @@ struct PhaseCoordinates {
         assert(coordinates.front().timeSamples == 0);
         assert(coordinates.front().timeSeconds == 0.0);
 
-        // Phase at start and end of the partial must be 0 or π
-        assert(coordinates.front().value != ZERO_PI || coordinates.front().value != PI);
-        assert(coordinates.back().value != ZERO_PI || coordinates.back().value != PI);
-
         // The more complex invariants
         assert([&]() {
             // Check that time coordinates are in ascending order
@@ -338,7 +340,7 @@ struct PhaseCoordinates {
     const std::vector<PhaseCoordinate> coordinates;
 };
 
-/// @brief A way to specify a partial in terms of envelopes, closer to the composer / sound
+/// @brief A means to specify a partial in terms of envelopes, closer to the composer / sound
 /// designer's view of the partial.
 struct PartialEnvelopes {
    public:

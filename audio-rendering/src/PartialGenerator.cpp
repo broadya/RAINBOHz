@@ -36,7 +36,7 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
     const PartialEnvelopes& partialEnvelopes, uint32_t paxelDurationSamples,
     uint32_t offsetSamples) {
     // ------------------------------------------
-    // This is a multi-layered calculation that is at the heart of the
+    // This is a multi-step calculation that is at the heart of the
     // synthesis concept. Currently this code is not optimised and it is clear that this method must
     // be refactored into smaller modules.
     // -----------------------------------------
@@ -401,6 +401,11 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
             ++previousPaxelIterator;
             previousPaxelIterator->paxel->startPhase = boundaryPhase;
         }
+        // While loop intentionally does not process the last paxel so that the final boundary is
+        // set exactly, therefore iterator must move one place forward. This must be possible
+        // because currentPaxelIterator was moved back by one element.
+        assert(previousPaxelIterator != prePaxels.end());
+        ++previousPaxelIterator;
 
         // The final boundary position is set exactly based on the envelope values to reduce any
         // inaccuracies that could arise from rounding errors in the floating point calculations.
@@ -409,6 +414,7 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
         assert(currentPhase >= ZERO_PI && currentPhase < TWO_PI);
         currentPaxelIterator->paxel->endPhase = currentPhase;
         // Note that we went backwards by one element already, this is the compensation for that.
+        assert(currentPaxelIterator != prePaxels.end());
         ++currentPaxelIterator;
         // This must already be set (and has been asserted before), but just to be certain.
         assert(currentPaxelIterator->paxel->startPhase == currentPhase);
@@ -420,7 +426,7 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
     }
 
     // ------------------------------------------
-    // Pass 3 - Convert to correctly offset and combined MultiPaxels
+    // Pass 3 - Convert to correct offset and combine into MultiPaxels
     // ------------------------------------------
     // Every valid partial must consist of at least one paxel.
     assert(prePaxels.size() > 0);
@@ -473,11 +479,11 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
     return completePartialSpecificaion;
 }
 
-std::vector<SamplePaxelFP> PartialGenerator::generatePartial() {
+std::vector<SamplePaxelInt> PartialGenerator::generatePartial() {
     // Preconditions
     assert(partialSpecification_.multiPaxels.size() > 0);
 
-    std::vector<SamplePaxelFP> result;
+    std::vector<SamplePaxelInt> result;
     result.reserve(partialSpecification_.multiPaxels.front().paxels.front().durationSamples *
                    partialSpecification_.multiPaxels.size());
 
@@ -486,7 +492,7 @@ std::vector<SamplePaxelFP> PartialGenerator::generatePartial() {
 
     for (int i = 0; i < partialSpecification_.multiPaxels.size(); ++i) {
         MultiPaxelGenerator multiPaxelGeneratorI{partialSpecification_.multiPaxels[i]};
-        std::vector<SamplePaxelFP> resultI = multiPaxelGeneratorI.generatePaxel();
+        std::vector<SamplePaxelInt> resultI = multiPaxelGeneratorI.generatePaxel();
         result.insert(result.end(), resultI.begin(), resultI.end());
 
         // Check that the result does correctly fill to the end;

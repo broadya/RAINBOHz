@@ -13,7 +13,7 @@ PaxelGenerator::PaxelGenerator(const PaxelSpecification& paxelSpecification)
     // Invariants are already defined in the PaxelSpecification struct
 }
 
-std::vector<SamplePaxelFP> PaxelGenerator::generatePaxel() {
+std::vector<SamplePaxelInt> PaxelGenerator::generatePaxel() {
     // Compute actual audio portion, paxels may have silence at begin / end to allow for envlope
     // points. Add one due to the fencepost problem.
     uint32_t audioDurationSamples =
@@ -72,14 +72,18 @@ std::vector<SamplePaxelFP> PaxelGenerator::generatePaxel() {
         (audioDurationSamples + 1);
     double amplitude = paxelSpecification_.startAmplitude + (amplitudeIncrement / 2.0);
 
-    std::vector<SamplePaxelFP> samples(paxelSpecification_.durationSamples);
+    std::vector<SamplePaxelInt> samples(paxelSpecification_.durationSamples);
 
     std::fill(samples.begin(), samples.begin() + paxelSpecification_.startSample, 0.0);
 
     for (size_t i = paxelSpecification_.startSample; i <= paxelSpecification_.endSample; ++i) {
         assert(amplitude >= -1.0 && amplitude <= 1.0);
-        samples[i] = static_cast<SamplePaxelFP>(amplitude * sin(phaseAccumulator));
-        assert((samples[i] >= -1.0) && (samples[i] <= 1.0));
+        SamplePaxelFP sampleFPValue = amplitude * sin(phaseAccumulator);
+        assert(sampleFPValue >= -1.0 && sampleFPValue <= 1.0);
+        samples[i] = static_cast<SamplePaxelInt>(sampleFPValue * kMaxSamplePaxelInt);
+        assert((samples[i] >= 0 && sampleFPValue >= 0.0) ||
+               (samples[i] <= 0 && sampleFPValue <= 0.0));
+
         phaseIncrement += phaseIncrementRate;
         phaseAccumulator += phaseIncrement;
         amplitude += amplitudeIncrement;
