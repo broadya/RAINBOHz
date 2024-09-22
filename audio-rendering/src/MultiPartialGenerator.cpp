@@ -45,9 +45,13 @@ std::vector<SamplePaxelBundleInt> MultiPartialGenerator::renderAudio() {
 
     for (int i = 0; i < multiPartialSpecification_.partials.size(); ++i) {
         PartialGenerator partialGeneratorI{multiPartialSpecification_.partials[i], labels_};
-        std::vector<SamplePaxelInt> resultI = partialGeneratorI.generatePartial();
+        std::vector<SamplePaxelInt> resultI = partialGeneratorI.renderAudio();
         std::transform(resultI.begin(), resultI.end(), result.begin(), result.begin(),
-                       [](SamplePaxelInt a, SamplePaxelBundleInt b) { return a + b; });
+                       [](SamplePaxelInt a, SamplePaxelBundleInt b) {
+                           assert(((a + b) >= -kMaxSamplePaxelBundleInt) &&
+                                  ((a + b) <= kMaxSamplePaxelBundleInt));
+                           return a + b;
+                       });
     }
 
     assert(result.size() > 0);

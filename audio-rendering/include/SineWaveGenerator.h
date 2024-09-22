@@ -11,7 +11,8 @@ namespace RAINBOHz {
 /**
  * @class SineWaveGenerator
  * @brief Generates a floating point vector representing a sine wave.
- * This class can be seen as a precursor to development of the paxel logic.
+ * This is a test class that was used to build up very early versions of the code.
+ * It is now superfluous and can be discarded at some later point during development.
  *
  * @note This class is a simplified example for instructional purposes.
  */

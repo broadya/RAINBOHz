@@ -13,7 +13,7 @@ PaxelGenerator::PaxelGenerator(const PaxelSpecification& paxelSpecification)
     // Invariants are already defined in the PaxelSpecification struct
 }
 
-std::vector<SamplePaxelInt> PaxelGenerator::generatePaxel() {
+std::vector<SamplePaxelInt> PaxelGenerator::renderAudio() {
     // Compute actual audio portion, paxels may have silence at begin / end to allow for envlope
     // points. Add one due to the fencepost problem.
     uint32_t audioDurationSamples =
@@ -74,6 +74,7 @@ std::vector<SamplePaxelInt> PaxelGenerator::generatePaxel() {
 
     std::vector<SamplePaxelInt> samples(paxelSpecification_.durationSamples);
 
+    // Optional gap at the start of the paxel.
     std::fill(samples.begin(), samples.begin() + paxelSpecification_.startSample, 0.0);
 
     for (size_t i = paxelSpecification_.startSample; i <= paxelSpecification_.endSample; ++i) {
@@ -88,10 +89,11 @@ std::vector<SamplePaxelInt> PaxelGenerator::generatePaxel() {
         phaseAccumulator += phaseIncrement;
         amplitude += amplitudeIncrement;
 
-        // Keep phase accumulator within [0:2π)
+        // Keep phase accumulator within [0,2π)
         phaseAccumulator = phaseMod(phaseAccumulator);
     }
 
+    // Optional gap at the end of the paxel
     // The +1 here is because of the half-open semantics of std::fill
     // samples.end() points to one after the final sample according to iterator semantics.
     std::fill(samples.begin() + paxelSpecification_.endSample + 1, samples.end(), 0.0);

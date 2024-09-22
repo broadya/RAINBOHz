@@ -6,11 +6,17 @@
 
 #include "AudioTypes.h"
 
+/*
+--------------------------------------
+Helper functions for use in additive synthesis calculations.
+--------------------------------------
+*/
+
 namespace RAINBOHz {
 
 /// @brief Modulus phase operation, take a phase value and shift it into the range [0,2π)
-/// @param phase Input phase
-/// @return Output phase
+/// @param phase Input phase, any value.
+/// @return Output phase, positive value in the range [0,2π).
 inline double phaseMod(double phase) {
     double phaseModResult = std::fmod(phase, TWO_PI);
     if (phaseModResult < 0) {
@@ -20,10 +26,11 @@ inline double phaseMod(double phase) {
 }
 
 /// @brief Calculate the smallest compensation value to add to sourcePhase to achieve phase
-/// coherence with the targetPhase. Both values may have values > 2π.
+/// coherence with the targetPhase. Both values may be > 2π.
 /// @param sourcePhase The phase of the signal that requires compensation.
 /// @param targetPhase The required phase value.
-/// @return A value
+/// @return A value to be added to the source signal to realise the required phase alignment. In the
+/// range [-π,π].
 inline double coherenceCompensation(double sourcePhase, double targetPhase) {
     // Avoid floating point errors in calculation where the values really are equal
     if (sourcePhase == targetPhase) return 0.0;
@@ -47,17 +54,17 @@ inline double coherenceCompensation(double sourcePhase, double targetPhase) {
 }
 
 /// @brief Calculate the "natural" phase at the end of an audio fragment that makes a linear
-/// frequency transition inside a given number of samples and where the start phase is known.
+/// frequency transition within a given number of samples and where the start phase is known.
 /// @param startPhase The start phase, in radians. A value in the range [0,2π]
 /// @param startFrequency The start frequency, in Hz.
-/// @param endFrequency The end frequence, in Hz.
+/// @param endFrequency The end frequency, in Hz.
 /// @param durationSamples The duration of the audio fragment in samples (sample rate is an
 /// application constant)
 /// @param onlyIncompleteCycles If true, limits the phase returned to a value in the range [0,2π).
 /// If false, returns the full natural phase that also provides an indication of the number of
-/// complete cycles (multiples of 2π)
+/// complete cycles (multiples of 2π).
 /// @return The end phase, in radians. If onlyIncompleteCycles is true, this is limited to a value
-/// in the range [0,2π)
+/// in the range [0,2π).
 inline double naturalPhase(double startPhase, double startFrequency, double endFrequency,
                            uint32_t durationSamples, bool onlyIncompleteCycles) {
     // Preconditions
@@ -71,9 +78,8 @@ inline double naturalPhase(double startPhase, double startFrequency, double endF
 
     // Calculate rates, note that here the calculation is based on the start time and end time of
     // the paxel so it starts from the begin time of the first sample and ends on the end time of
-    // the last sample. Even one sample has a duration (1/kSampleRate seconds), it is not a point in
-    // time.
-    // We are dealing in phase in terms of an accumulation for cycles. These phase
+    // the last sample. Even one sample has a duration (1/kSampleRate seconds); samples are not
+    // points in time. We are dealing in phase in terms of an accumulation for cycles. These phase
     // calculations do not "wrap around" on 2π. This is intentional because it can be required to
     // calculate the rate at which phase needs to change on each sample.
     double f1PhaseIncrement = (TWO_PI * startFrequency) / static_cast<double>(kSampleRate);

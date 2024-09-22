@@ -17,18 +17,17 @@ namespace RAINBOHz {
  */
 class MultiPartialGenerator {
    public:
-    /// @brief Constructs a MultiPaxelGenerator ready to create a paxel based on a set of paxel
-    /// specifications. This is useful when a paxel cannot be fully specificed with a single
-    /// PaxelSpecification. This is typically because there is one or more envelope points within
-    /// the paxel.
-    /// @param multiPaxelSpecification A specification of the paxels to be used.
+    /// @brief Constructs a MultiPartialGenerator ready to render audio based on a set of partial
+    /// specifications. This is useful when a partials are grouped together, typically because they
+    /// represent a concept that the composer / sound desinger has in mind.
+    /// @param multiPartialSpecification A specification of the partials to be used.
     /// @param labels A vector of labels to association with this MultiPartial.
     MultiPartialGenerator(const MultiPartialSpecification& multiPartialSpecification,
                           const std::set<std::string>& labels);
 
-    /// @brief Generate to floating point audio with the duration of a single paxel and return it in
-    /// a vector
-    /// @return A vector of floating point values represneting the wave.
+    /// @brief Render to integer audio samples with the duration of the longest partial and return
+    /// it in a vector
+    /// @return A vector of integer samples representing the sum of the partials.
     std::vector<SamplePaxelInt> renderAudio();
 
    private:

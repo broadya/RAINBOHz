@@ -102,7 +102,8 @@ std::vector<uint8_t> WavWriter::convertSamplesToPCM(const std::vector<int32_t>& 
             for (size_t i = 0; i < totalSamples; ++i) {
                 // Scale 32-bit audio to 24-bit audio
                 //                SamplePaxelInt scaledSample = samples[i] / 0x10;
-                SamplePaxelInt scaledSample = samples[i] / 4;
+                SamplePaxelInt scaledSample =
+                    samples[i] / 4;  // TODO - For test purposes, this value is set larger.
                 assert(scaledSample >= -kMaxSamplePaxelInt && scaledSample <= kMaxSamplePaxelInt);
                 std::memcpy(&pcmData[i * kPaxelBytesPerSample], &scaledSample,
                             kPaxelBytesPerSample);

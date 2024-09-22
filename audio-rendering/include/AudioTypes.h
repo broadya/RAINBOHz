@@ -6,6 +6,56 @@
 #include <cstdint>
 #include <vector>
 
+/*
+--------------------------------------
+Defines various contstants, limits, type equivalents that are useful during additive synthesis
+calculations.
+
+Defines all of the simple struct types used in additive synthesis calculations, and includes asserts
+for their invariants. These are intentionally not held in classes with encapsulation because they
+have a role simply to pass around structured data and not to perform operations on that data.
+
+The types are decoupled from the classes that can render audio based on them. This is to allow for
+distributed processing of the types, where the proess of specifying a synthesis "compute job" will
+be independent from actually performing that "compute job".
+
+The types are immutable.
+
+The main types build up in a hierarchy as follows -
+
+PaxelSpecification | A single paxel that can be of any duration.
+
+MultiPaxelSpecification | A vector of PaxelSpecification that are all of the same duration, but each
+repesents some subdivision of that duration without overlaps.
+
+PartialSpecification | A vector of MultiPaxelSpecification that describes the evolution of a single
+partial.
+
+MultiPartialSpecification | A vector of PartialSpecification that describes some bundle of partials
+that are to be rendered together.
+
+The other types describe the envelopes that specify a partial.
+
+Envelope | A generic specification of an envelope following the same approach as sclang.
+
+FrequencyEnvelope | An envelope representing evolution of the frequency of a partial.
+
+AmplitudeEnvelope | An envelope representing evolution of the amplitude of a partial.
+
+PhaseCoordinate | A point in the evolution of a partial where a certain phase must be achieved, or
+where specifically the "natural" phase must be used. Natural phase is an important concept in the
+RAINBOHz additive synthesis approach; it means "the phase that the partial it would naturally have
+at this point, if unmodified".
+
+PhaseCoordinates | A vector of PhaseCoordinate representing all points in evolution of the partial
+where the phase is defined (or at least is explicitly at the "natural" phase). These coordinates
+also define the begin and the end of a partial.
+
+PartialEnvelopes | An aggregation of FrequencyEnvelope, AmplitudeEnvelope and PhaseCoordinates. It
+fully specifies a partial, but does not place it at a particular starting point in a composition.
+--------------------------------------
+*/
+
 namespace RAINBOHz {
 
 /// @brief Possible types of a single audio sample
@@ -15,9 +65,9 @@ using SamplePaxelFP = float;           // FP32 audio for individual paxel comput
 using SamplePaxelInt = int32_t;        // 24-bit audio stored in 32-bit signed int
 using SamplePaxelBundleInt = int32_t;  // 32-bit audio stored in 32-bit signed int
 using SampleLabelFullRange = int64_t;  // 64-bit audio stored in 64-bit signed int
-using SampleLabelScaled = int32_t;     // 24-bit audio stored in 32-bit signed int;
+using SampleLabelScaled = int32_t;     // 24-bit audio stored in 32-bit signed int
 
-// π and 2π are values that will be needed throughout in phase calculations
+// π, 2π and similar are values that will be needed throughout phase calculations.
 // Note that M_PI does not have constexpr semantics (it's a macro); one reason to define it here.
 // Also, strange as it might seem, M_PI is in fact not guaranteed to be present in <cmath>
 // according to the C++ standard.
@@ -29,19 +79,17 @@ constexpr double ONE_AND_HALF_PI = 1.5 * PI;  // Useful for test cases
 constexpr double NATURAL_PHASE =
     -999999999;  // Rogue value for use in phase coordinates whre natural value is desired
 
-// To be used when scaling from FP to INT. 23 due to possibility of negative values.
-constexpr int32_t kMaxSamplePaxelInt = (1 << 23) - 1;
-
-constexpr int32_t kMaxSamplePaxelBundleInt = (1 << 31);  // Also needs to be -1, to be solved.
-constexpr int64_t kMaxSampleLabelFullRange = (1LL << 63);
-
+// To be used when scaling from FP to INT.
+// Maximum value for a 24 bit sample.
+constexpr int32_t kMaxSamplePaxelInt = 0x7FFFFF;
 // Actual scaling will take place using user defined (or perhaps autoscale)
 // attenuation / bit shift value.
-constexpr uint64_t kMaxSampleLabelScaled = 1LL << 23;
+constexpr int32_t kMaxSamplePaxelBundleInt = INT32_MAX;
+constexpr int64_t kMaxSampleLabelFullRange = 0xFFFFFFFFFFFFFFFF;
 
 constexpr uint16_t kPaxelBytesPerSample = 3;
 constexpr uint16_t kPaxelBytesPerSampleMem = 4;
-constexpr uint16_t kPaxelGroupBytesPerSample = 4;
+constexpr uint16_t kPaxelBundleBytesPerSample = 4;
 constexpr uint16_t kLabelBytesPerSample = 8;
 constexpr uint16_t kLabelScaledBytesPerSample = 3;
 constexpr uint16_t kLabelScaledBytesPerSampleMem = 3;
@@ -49,7 +97,7 @@ constexpr uint16_t kLabelScaledBytesPerSampleMem = 3;
 constexpr uint16_t kPaxelBitDepth = kPaxelBytesPerSample * 8;
 
 // Likely to move to a user configurable value early in the project
-constexpr uint32_t kSampleRate = 96000;
+constexpr uint32_t kSampleRate = 96000;  // 96kHz
 
 // Limits on audio frequencies
 constexpr double kMinAudioFrequency = 20;
@@ -85,29 +133,29 @@ struct PaxelSpecification {
         // especially for high frequencies. It can be interesting when a transformation takes place
         // that a partial reaches over the limits, then moves back into the audio frequency range.
         // This is expected to be something sound designers could exploit creatively - but it does
-        // require special features in the generation code.
+        // require special features in the generation code that are not yet present.
         assert(startFrequency > 0);
         assert(endFrequency > 0);
     }
 
-    const double startFrequency;
-    const double endFrequency;
-    const double startAmplitude;
-    const double endAmplitude;
-    const double startPhase;
-    const double endPhase;
-    const uint32_t durationSamples;
-    const uint32_t startSample;
-    const uint32_t endSample;
+    const double startFrequency;    /**< Start frequency of the paxel, Hz */
+    const double endFrequency;      /**< End frequency of the paxel, Hz */
+    const double startAmplitude;    /**< Start amplitude of the paxel in the range [-1.0,1.0] */
+    const double endAmplitude;      /**< End amplitude of the paxel in the range [-1.0,1.0] */
+    const double startPhase;        /**< Start phase of the paxel in the range [0,2π] */
+    const double endPhase;          /**< End phase of the paxel in the range [0,2π] */
+    const uint32_t durationSamples; /**< Total duration of the paxel in samples */
+    const uint32_t startSample;     /**< Sample number at which to start rendering (from zero) */
+    const uint32_t endSample;       /**< Sample number at which to end rendering (from zero) */
 };
 
 /// @brief A MultiPaxel represents an immutable single complete paxel in terms of a vector of paxels
 /// that are intended to be merged into a single paxel within a single partial. It is an invariant
 /// that the paxels are in time order. It is an invariant that the paxels do not overlap. It is not
 /// an invariant that the paxels cover the entire paxel - there may be gaps at either or both ends
-/// which will be rendered to zero value samples - but no overlaps. All of the paxels must be of the
-/// same length. The paxels must also have exactly aligned frequency, amplitude and phase value
-/// where they join.
+/// which will be rendered to zero value samples, which may occur at the srart or end of a partial.
+/// All of the paxels must be of the same length. The paxels must also have exactly aligned
+/// frequency, amplitude and phase value where they join.
 struct MultiPaxelSpecification {
    public:
     MultiPaxelSpecification(const std::vector<PaxelSpecification>& paxels) : paxels(paxels) {
@@ -136,18 +184,17 @@ struct MultiPaxelSpecification {
         }());
     }
 
-    const std::vector<PaxelSpecification> paxels;
+    const std::vector<PaxelSpecification> paxels; /**< The paxels that define this MultiPaxel */
 };
 
 /// @brief A PartialSpecification represents the specification of a timeline of an individual
-/// partial, expressed as a vector of MultiPaxelSpecification. The timeline is a sequence in time
-/// order, representing relative time (not absolute time). A partial also has a label, which
-/// connects it to concepts in the composition; the label is a way to group partials together.
-/// It is a constraint that there are no gaps, that the initial phase is 0 or π, that the final
-/// phase is 0 or π, and that thhere are no discontinuities during the sequence of paxels. This
-/// means that at every multipaxel boundary, the frequency, amplitude and phase must be exactly
-/// aligned. There is also a constraint that all of the paxels are the same length. This isn't
-/// strictly necessary, but it is related to the overall concept of paxel-based additive synthesis.
+/// partial, expressed as a vector of MultiPaxelSpecification. The vector is a sequence in time
+/// order, representing relative time (not absolute time).
+/// It is an invariant that there are no gaps and that thhere are no discontinuities during the
+/// sequence of paxels. This means that at every multipaxel boundary, the frequency, amplitude and
+/// phase must be exactly aligned. It is also an invariant that all of the paxels are the same
+/// length. This isn't strictly necessary, but it is related to the overall concept of paxel-based
+/// additive synthesis.
 struct PartialSpecification {
    public:
     PartialSpecification(const std::vector<MultiPaxelSpecification>& multiPaxels)
@@ -188,9 +235,11 @@ struct PartialSpecification {
         }());
     }
 
-    const std::vector<MultiPaxelSpecification> multiPaxels;
+    const std::vector<MultiPaxelSpecification>
+        multiPaxels; /**< The multipaxels that define this partial */
 };
 
+/// @brief A set of partials that are related in some way and are to be rendered together.
 struct MultiPartialSpecification {
    public:
     MultiPartialSpecification(const std::vector<PartialSpecification>& partials)
@@ -201,26 +250,31 @@ struct MultiPartialSpecification {
         // All other invariants are handled by PartialSpecification itself.
     }
 
-    const std::vector<PartialSpecification> partials;
+    const std::vector<PartialSpecification>
+        partials; /**< The partials that define this multipartial  */
 };
 
-/// @brief Possible types of envelope curve, intended to be semantically equivalent to sclang
+/// @brief Possible types of envelope curve, intended to be semantically equivalent to sclang.
+/// \warning Envelope curves are not yet implemented!
 enum class EnvelopeCurveType { lin, exp, sine, welch, step, numeric };
 
-/// @brief Represents a single point on an envelope curve
+/// @brief Represents a single point on an envelope curve.
+/// \warning Envelope curves are not yet implemented!
 struct EnvelopeCurvePoint {
    public:
     EnvelopeCurvePoint(EnvelopeCurveType envelopeCurveType)
         : envelopeCurveType(envelopeCurveType), numericValue(0) {};
     EnvelopeCurvePoint(double numericValue)
         : envelopeCurveType(EnvelopeCurveType::numeric), numericValue(numericValue) {};
-    const EnvelopeCurveType envelopeCurveType;
-    const double numericValue;  // this value is ignored if the curve type is not numeric
+    const EnvelopeCurveType
+        envelopeCurveType; /**< The type of curve to use at this envelope point  */
+    //  numericValue is ignored if the curve type is not numeric
+    const double numericValue; /**< The value for the curve to use at this envelope point  */
 };
 
 /// @brief A generic envelope, based on and intended to have the same semantics as, the Env
 /// structure in sclang.
-/// (TODO) Curves are not yet implemented and may only be implemented much later in this project.
+/// \todo Curves are not yet implemented and may only be implemented much later in this project.
 struct Envelope {
    public:
     Envelope(const std::vector<double>& levels, const std::vector<double>& times,
@@ -247,10 +301,10 @@ struct Envelope {
         // Curves are optional, so there are no invariants for curves.
     }
 
-    const std::vector<double> levels;
-    const std::vector<double> timesSeconds;
-    const std::vector<uint32_t> timesSamples;
-    const std::vector<EnvelopeCurvePoint> curves;
+    const std::vector<double> levels;             /**< Levels in order of the steps  */
+    const std::vector<double> timesSeconds;       /**< Durations in order of the steps (secs) */
+    const std::vector<uint32_t> timesSamples;     /**< Durations in order of the steps (samples) */
+    const std::vector<EnvelopeCurvePoint> curves; /**< Curves to apply to each step  */
 
    private:
     std::vector<uint32_t> secondsToSamples(const std::vector<double>& timesSeconds) {
@@ -265,6 +319,7 @@ struct Envelope {
     }
 };
 
+/// @brief An envelope to be applied to the frequency of a partial.
 struct FrequencyEnvelope : public Envelope {
     FrequencyEnvelope(const std::vector<double>& levels, const std::vector<double>& times,
                       const std::vector<EnvelopeCurvePoint>& curves)
@@ -277,23 +332,29 @@ struct FrequencyEnvelope : public Envelope {
     }
 };
 
+/// @brief An envelope to be applied to the amplitude of a partial.
+/// Amplitudes must remain in the range [-1.0,1.0].
+/// It is allowed to use negative values, which correspond to phase inversion.
 struct AmplitudeEnvelope : public Envelope {
     AmplitudeEnvelope(const std::vector<double>& levels, const std::vector<double>& times,
                       const std::vector<EnvelopeCurvePoint>& curves)
         : Envelope(levels, times, curves) {
         // Invariants
-        // The levels of an amplitude envelope must remain with an absolute value between 0 and 1.
-        // Negative levels are unusual but are allowed and are expected to cause phase reversal.
+        // The levels of an amplitude envelope must remain within the range [-1.0,1.0].
+        // Negative levels are unusual but are allowed and correspond to phase reversal.
         // This also emulates behaviour in sclang.
         assert(std::all_of(levels.begin(), levels.end(),
                            [](const double& level) { return (level >= -1.0 && level <= 1.0); }));
     }
 };
 
-/// @brief  Sets the positions where phase is expected to reach a certain set value.
+/// @brief Specifies positions where phase is expected to reach a certain set value.
 /// This is not a concept in sclang, and therefore is not intended to provide interoperability.
 struct PhaseCoordinate {
    public:
+    /// @brief Set a phase coordinate at a certain point in a partial.
+    /// @param time The time of the pahse coordinate, expressed in seconds.
+    /// @param value The phase, expressed in radians, in the range [0,2π].
     PhaseCoordinate(double time, double value)
         : timeSeconds(time), timeSamples(secondsToSamples(time)), value(value), natural(false) {
         // Invariants
@@ -318,10 +379,10 @@ struct PhaseCoordinate {
         assert(timeSamples == static_cast<uint32_t>(timeSeconds * kSampleRate));
     }
 
-    const double timeSeconds;
-    const uint32_t timeSamples;
-    const double value;
-    const bool natural;
+    const double timeSeconds;   /**< Time of the phase coordinate in seconds  */
+    const uint32_t timeSamples; /**< Time of the phase coordinate in samples  */
+    const double value;         /**< Phase value, if not "natural", in radians  */
+    const bool natural;         /**< Flag indicating that "natural" phase is intended  */
 
    private:
     uint32_t secondsToSamples(double timesSeconds) {
@@ -329,12 +390,15 @@ struct PhaseCoordinate {
     }
 };
 
-// PhaseCoordinates also define the limits on the partial. The start phase coordinate must be on
-// time zero and the final phase coordinate corresponds to the end of the partial. This is necessary
-// because it is a requirement to specify the phase (0 or π) at both the start and the end of the
-// partial. The coordinates must be provided in time order.
-// Note that times here represent coordinates, they are not relative to the previous coordinate like
-// in Envelopes.
+/// @brief PhaseCoordinates also define the limits on the phase of the partial. The start phase
+/// coordinate must be on time zero and the final phase coordinate corresponds to the end of the
+/// partial. It is a requirement to explicitly specify the phase at the start of the partial. The
+/// end coordinate may specify "natural" phase. The coordinates must be provided in time order. Note
+/// that times here represent coordinates, they are not relative to the previous coordinate like in
+/// Envelopes.
+/// Note that phase coordinates do not really define an envelope as such, it may be
+/// more useful to think of them as "target values".
+
 struct PhaseCoordinates {
    public:
     PhaseCoordinates(const std::vector<PhaseCoordinate>& coordinates) : coordinates(coordinates) {
@@ -345,6 +409,8 @@ struct PhaseCoordinates {
         // The first coordinate must be at time zero. It defines the start of the partial.
         assert(coordinates.front().timeSamples == 0);
         assert(coordinates.front().timeSeconds == 0.0);
+        // First coordinate must have a defined phase.
+        assert(!coordinates.front().natural);
 
         // The more complex invariants
         assert([&]() {
@@ -356,7 +422,7 @@ struct PhaseCoordinates {
         }());
     }
 
-    const std::vector<PhaseCoordinate> coordinates;
+    const std::vector<PhaseCoordinate> coordinates; /**< Vector of the coordinates in time order */
 };
 
 /// @brief A means to specify a partial in terms of envelopes, closer to the composer / sound
@@ -372,9 +438,9 @@ struct PartialEnvelopes {
         // Invariants are handled by the three structs theselves.
     }
 
-    const AmplitudeEnvelope amplitudeEnvelope;
-    const FrequencyEnvelope frequencyEnvelope;
-    const PhaseCoordinates phaseCoordinates;
+    const AmplitudeEnvelope amplitudeEnvelope; /**< Tha amplitude envelope of the partial */
+    const FrequencyEnvelope frequencyEnvelope; /**< Tha frequency envelope of the partial */
+    const PhaseCoordinates phaseCoordinates;   /**< Tha phase coordinates of the partial */
 };
 
 }  // namespace RAINBOHz

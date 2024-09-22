@@ -10,20 +10,19 @@ namespace RAINBOHz {
 
 /**
  * @class PaxelGenerator
- * @brief Generates a floating point vector representing a single paxel.
- * Phase is expressed in radians.
- * This class can be seen as a precursor to development of the more complex, parallelised paxel
- * logic.
+ * @brief Render a integer vector representing a single paxel.
+ * This class performs the core audio rendering logic that is used to build up the hierarchy of
+ * other classes.
  */
 class PaxelGenerator {
    public:
-    /// @brief Constructs a PaxelGenerator ready to create a paxel with fixed parameters.
+    /// @brief Constructs a PaxelGenerator ready to render a paxel with a fixed specification.
     /// @param paxelSpecification A specification of the paxel.
     PaxelGenerator(const PaxelSpecification& paxelSpecification);
 
-    /// @brief Generate audio and return it in a vector
+    /// @brief Render audio and return it in a vector of integer samples.
     /// @return A vector of signed integer values representing the audio signal.
-    std::vector<SamplePaxelInt> generatePaxel();
+    std::vector<SamplePaxelInt> renderAudio();
 
    private:
     const PaxelSpecification paxelSpecification_;
