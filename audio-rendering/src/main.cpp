@@ -225,60 +225,55 @@ int testMultiPartialEnvelope() {
     return EXIT_SUCCESS;
 }
 
-int testPulseWave(double dutyCycle) {
+int testSquareToSaw() {
     using namespace RAINBOHz;
 
     std::vector<PartialSpecification> partials;
 
     // "Oscillator One"
 
-    double frequency = 100.123;
-    double frequencyIncrement = 100.123;
-    int harmonicNumber = 1;
+    double frequency{100.123};
+    double frequencyIncrement{100.123};
+    int harmonicNumber{1};
+    bool evenHarmonic{false};
+    double amplitudeSquare;
+    double amplitudeSawtooth;
 
-    while (frequency < 40000) {
-        double amplitude = (2 * sin(harmonicNumber * PI * dutyCycle)) / (harmonicNumber * PI);
-        //        if (signSwitch > 0) amplitude = -amplitude;
-        std::cout << amplitude << std::endl;
-        AmplitudeEnvelope amplitudeEnvelope{{amplitude}, {}, {}};
-        FrequencyEnvelope frequencyEnvelope{{frequency * 2, frequency}, {1.0}, {}};
-        std::vector<PhaseCoordinate> phaseCoordinates{
-            {HALF_PI, 0.0}, {HALF_PI, 3.0}, {HALF_PI, 6.0}};
-        PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope, phaseCoordinates};
-        PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, kSampleRate, 0};
-        PartialSpecification partialSpecification = partialGenerator.getPartialSpecification();
-
-        partials.push_back(partialSpecification);
+    while (frequency < 48000) {
+        if (evenHarmonic) {
+            amplitudeSawtooth = (2 * (pow(-1.0, harmonicNumber + 1))) / (harmonicNumber * PI);
+            AmplitudeEnvelope amplitudeEnvelope{
+                {amplitudeSquare / 2, amplitudeSquare / 2, amplitudeSawtooth}, {1.0, 2.0}, {}};
+            FrequencyEnvelope frequencyEnvelope{
+                {frequency - frequencyIncrement, frequency - frequencyIncrement, frequency},
+                {1.0, 2.0},
+                {}};
+            std::vector<PhaseCoordinate> phaseCoordinates{
+                {0.0, ZERO_PI}, {1.0}, {3.0, ZERO_PI}, {6.0}};
+            PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope,
+                                              phaseCoordinates};
+            PartialGenerator partialGenerator{partialEnvelopes, {"even"}, kSampleRate, 0};
+            PartialSpecification partialSpecification = partialGenerator.getPartialSpecification();
+            partials.push_back(partialSpecification);
+        } else {
+            amplitudeSquare = 2 / (harmonicNumber * PI);  // 2 instead of 4, avoid going over 1.0
+            amplitudeSawtooth = (2 * (pow(-1.0, harmonicNumber + 1))) / (harmonicNumber * PI);
+            AmplitudeEnvelope amplitudeEnvelope{
+                {amplitudeSquare / 2, amplitudeSquare / 2, amplitudeSawtooth}, {1.0, 2.0}, {}};
+            FrequencyEnvelope frequencyEnvelope{{frequency}, {}, {}};
+            std::vector<PhaseCoordinate> phaseCoordinates{
+                {0.0, ZERO_PI}, {1.0}, {3.0, ZERO_PI}, {6.0}};
+            PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope,
+                                              phaseCoordinates};
+            PartialGenerator partialGenerator{partialEnvelopes, {"odd"}, kSampleRate, 0};
+            PartialSpecification partialSpecification = partialGenerator.getPartialSpecification();
+            partials.push_back(partialSpecification);
+        }
 
         harmonicNumber += 1;
         frequency += frequencyIncrement;
+        evenHarmonic = !evenHarmonic;
     }
-
-    // "Oscillator Two"
-    /*
-        frequency = 100.123;
-        frequencyIncrement = 100.123;
-        harmonicNumber = 1;
-
-        while (frequency < 40000) {
-            double amplitude = (2 * sin(harmonicNumber * PI * dutyCycle)) / (harmonicNumber * PI);
-            //        if (signSwitch > 0) amplitude = -amplitude;
-            std::cout << amplitude << std::endl;
-            AmplitudeEnvelope amplitudeEnvelope{{amplitude}, {}, {}};
-            FrequencyEnvelope frequencyEnvelope{{frequency / 4, frequency}, {2.0}, {}};
-            std::vector<PhaseCoordinate> phaseCoordinates{
-                {HALF_PI, 0.0}, {HALF_PI, 3.002496928777604}, {HALF_PI, 6.0}};
-            PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope,
-       phaseCoordinates}; PartialGenerator partialGenerator{partialEnvelopes, {"label_1"},
-       kSampleRate, 0}; PartialSpecification partialSpecification =
-       partialGenerator.getPartialSpecification();
-
-            partials.push_back(partialSpecification);
-
-            harmonicNumber += 1;
-            frequency += frequencyIncrement;
-        }
-    */
 
     MultiPartialSpecification multiPartialSpecification{partials};
 
@@ -297,4 +292,47 @@ int testPulseWave(double dutyCycle) {
     return EXIT_SUCCESS;
 }
 
-int main(int argc, char* argv[]) { return testPulseWave(0.25); }
+int testPulseWave(double dutyCycle) {
+    using namespace RAINBOHz;
+
+    std::vector<PartialSpecification> partials;
+
+    // "Oscillator One"
+
+    double frequency = 100.123;
+    double frequencyIncrement = 100.123;
+    int harmonicNumber = 1;
+
+    while (frequency < 40000) {
+        double amplitude = (2 * sin(harmonicNumber * PI * dutyCycle)) / (harmonicNumber * PI);
+        AmplitudeEnvelope amplitudeEnvelope{{amplitude}, {}, {}};
+        FrequencyEnvelope frequencyEnvelope{{frequency * 2, frequency}, {1.0}, {}};
+        std::vector<PhaseCoordinate> phaseCoordinates{{0.0, HALF_PI}, {3.0}, {6.0}};
+        PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope, phaseCoordinates};
+        PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, kSampleRate, 0};
+        PartialSpecification partialSpecification = partialGenerator.getPartialSpecification();
+
+        partials.push_back(partialSpecification);
+
+        harmonicNumber += 1;
+        frequency += frequencyIncrement;
+    }
+
+    MultiPartialSpecification multiPartialSpecification{partials};
+
+    MultiPartialGenerator multiPartialGenerator{multiPartialSpecification, {"label_1"}};
+    auto samples = multiPartialGenerator.renderAudio();
+
+    // Write samples to WAV file
+    WavWriter writer(kSampleRate);
+    if (writer.writeToFile("paxeltest.wav", samples, AudioSampleType::kPaxelBundleInt)) {
+        std::cout << "WAV file generated successfully: " << std::endl;
+    } else {
+        std::cerr << "Failed to write WAV file.\n";
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
+}
+
+int main(int argc, char* argv[]) { return testSquareToSaw(); }

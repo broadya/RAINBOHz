@@ -26,6 +26,8 @@ constexpr double ZERO_PI = 0.0;
 constexpr double TWO_PI = 2.0 * PI;
 constexpr double HALF_PI = 0.5 * PI;          // Useful for test cases
 constexpr double ONE_AND_HALF_PI = 1.5 * PI;  // Useful for test cases
+constexpr double NATURAL_PHASE =
+    -999999999;  // Rogue value for use in phase coordinates whre natural value is desired
 
 // To be used when scaling from FP to INT. 23 due to possibility of negative values.
 constexpr int32_t kMaxSamplePaxelInt = (1 << 23) - 1;
@@ -292,17 +294,34 @@ struct AmplitudeEnvelope : public Envelope {
 /// This is not a concept in sclang, and therefore is not intended to provide interoperability.
 struct PhaseCoordinate {
    public:
-    PhaseCoordinate(double value, double time)
-        : value(value), timeSeconds(time), timeSamples(secondsToSamples(time)) {
+    PhaseCoordinate(double time, double value)
+        : timeSeconds(time), timeSamples(secondsToSamples(time)), value(value), natural(false) {
         // Invariants
-        assert(!(time < 0.0));
+        assert(time >= 0.0);
         assert(value >= ZERO_PI && value <= TWO_PI);
         assert(timeSamples == static_cast<uint32_t>(timeSeconds * kSampleRate));
     }
 
-    const double value;
+   public:
+    /// @brief Set a phase coordinate indicating "natural" phase - the phase that would be achieved
+    /// by simply continuing the cycles to this point. This is useful in order to set a kind of
+    /// anchor point from which no control over phase is desired to another point at which control
+    /// over phase is desired.
+    /// @param time The time, in seconds, of the phase coordinate.
+    PhaseCoordinate(double time)
+        : timeSeconds(time),
+          timeSamples(secondsToSamples(time)),
+          value(NATURAL_PHASE),
+          natural(true) {
+        // Invariants
+        assert(time > 0.0);  // natural phase not allowed as first coordinate
+        assert(timeSamples == static_cast<uint32_t>(timeSeconds * kSampleRate));
+    }
+
     const double timeSeconds;
     const uint32_t timeSamples;
+    const double value;
+    const bool natural;
 
    private:
     uint32_t secondsToSamples(double timesSeconds) {

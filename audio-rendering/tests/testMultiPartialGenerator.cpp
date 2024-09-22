@@ -9,7 +9,7 @@ TEST(MultiPartialGeneratorTest, Envelope1Paxel) {
     // result.
     AmplitudeEnvelope amplitudeEnvelope1{{0.4}, {}, {}};
     FrequencyEnvelope frequencyEnvelope1{{1000}, {}, {}};
-    std::vector<PhaseCoordinate> phaseCoordinates1{{ZERO_PI, 0.0}, {ZERO_PI, 1.0}};
+    std::vector<PhaseCoordinate> phaseCoordinates1{{0.0, ZERO_PI}, {1.0, ZERO_PI}};
     PartialEnvelopes partialEnvelopes1{amplitudeEnvelope1, frequencyEnvelope1, phaseCoordinates1};
     PartialGenerator partialGenerator1{partialEnvelopes1, {"label_1"}, kSampleRate, 0};
     PartialSpecification partialSpecification1 = partialGenerator1.getPartialSpecification();
@@ -18,7 +18,7 @@ TEST(MultiPartialGeneratorTest, Envelope1Paxel) {
     // result.
     AmplitudeEnvelope amplitudeEnvelope2{{0.4}, {}, {}};
     FrequencyEnvelope frequencyEnvelope2{{1500}, {}, {}};
-    std::vector<PhaseCoordinate> phaseCoordinates2{{ZERO_PI, 0.0}, {ZERO_PI, 1.0}};
+    std::vector<PhaseCoordinate> phaseCoordinates2{{0.0, ZERO_PI}, {1.0, ZERO_PI}};
     PartialEnvelopes partialEnvelopes2{amplitudeEnvelope2, frequencyEnvelope2, phaseCoordinates2};
     PartialGenerator partialGenerator2{partialEnvelopes2, {"label_1"}, kSampleRate, 0};
     PartialSpecification partialSpecification2 = partialGenerator2.getPartialSpecification();

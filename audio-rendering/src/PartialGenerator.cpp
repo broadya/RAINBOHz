@@ -60,7 +60,9 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
     // the first pass that processes the frequency envelope.
     for (const auto& phaseCoordinate : partialEnvelopes.phaseCoordinates.coordinates) {
         PaxelInPartial phasePaxel{phaseCoordinate.timeSamples};
-        phasePaxel.paxel->startPhase = phaseCoordinate.value;
+        if (!phaseCoordinate.natural) {
+            phasePaxel.paxel->startPhase = phaseCoordinate.value;
+        }
         prePaxels.insert(phasePaxel);
     }
 
@@ -361,9 +363,24 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
 
     while (currentPhaseIterator != partialEnvelopes.phaseCoordinates.coordinates.end()) {
         double previousPhase = (*previousPhaseIterator).value;
+        bool previousPhaseNatural = (*previousPhaseIterator).natural;
         double currentPhase = (*currentPhaseIterator).value;
+        double currentPhaseNatural = (*currentPhaseIterator).natural;
         uint32_t previousTimeSamples = previousPhaseIterator->timeSamples;
         uint32_t currentTimeSamples = currentPhaseIterator->timeSamples;
+
+        // If the current phase coordinate requires the "natural" phase, then there is no need to do
+        // phase correction. It is necessary to record the previous point
+        if (currentPhaseNatural) {
+            ++previousPhaseIterator;
+            ++currentPhaseIterator;
+            previousPaxelIterator =
+                std::find_if(prePaxels.begin(), prePaxels.end(),
+                             [currentTimeSamples](const PaxelInPartial& paxelSpecification) {
+                                 return paxelSpecification.positionInPartial == currentTimeSamples;
+                             });
+            continue;
+        }
 
         // Locate the paxel that corresponds to the current phase coordinate
         // Provided that the intiial population of the paxel set was correct, this is guaranteed to
@@ -401,23 +418,22 @@ PartialSpecification PartialGenerator::mapEnvelopesToPaxels(
             ++previousPaxelIterator;
             previousPaxelIterator->paxel->startPhase = boundaryPhase;
         }
-        // While loop intentionally does not process the last paxel so that the final boundary is
-        // set exactly, therefore iterator must move one place forward. This must be possible
-        // because currentPaxelIterator was moved back by one element.
-        assert(previousPaxelIterator != prePaxels.end());
-        ++previousPaxelIterator;
-
         // The final boundary position is set exactly based on the envelope values to reduce any
         // inaccuracies that could arise from rounding errors in the floating point calculations.
         // This way there can be no rounding calculations where envelopes are simple and time
         // periods are short.
         assert(currentPhase >= ZERO_PI && currentPhase < TWO_PI);
-        currentPaxelIterator->paxel->endPhase = currentPhase;
-        // Note that we went backwards by one element already, this is the compensation for that.
-        assert(currentPaxelIterator != prePaxels.end());
-        ++currentPaxelIterator;
-        // This must already be set (and has been asserted before), but just to be certain.
-        assert(currentPaxelIterator->paxel->startPhase == currentPhase);
+        previousPaxelIterator->paxel->endPhase = currentPhase;
+
+        // While loop intentionally does not process the last paxel so that the final boundary is
+        // set exactly, therefore iterator must move one place forward. This must be possible
+        // because currentPaxelIterator (the loop exit condition) was moved back by one element.
+        assert(previousPaxelIterator != prePaxels.end());
+        ++previousPaxelIterator;
+
+        // This must already be set (and has been asserted before), but just to be certain iterators
+        // are now in the right place.
+        assert(previousPaxelIterator->paxel->startPhase == currentPhase);
 
         // This is the "normal" iteration forwards in the phase coordinates that allow the next
         // iteration of the loop.

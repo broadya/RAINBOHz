@@ -8,7 +8,7 @@ TEST(PartialGeneratorTest, EnvelopePointsOutsideMainAudio) {
     // envelope.
     AmplitudeEnvelope amplitudeEnvelope{{0.4}, {}, {}};
     FrequencyEnvelope frequencyEnvelope{{2000, 1000}, {5.0}, {}};
-    std::vector<PhaseCoordinate> phaseCoordinates{{ZERO_PI, 0.0}, {ZERO_PI, 1.0}};
+    std::vector<PhaseCoordinate> phaseCoordinates{{0.0, ZERO_PI}, {1.0, ZERO_PI}};
 
     PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope, phaseCoordinates};
     PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, kSampleRate, 0};
@@ -23,7 +23,7 @@ TEST(PartialGeneratorTest, OffsetTest) {
     // envelope.
     AmplitudeEnvelope amplitudeEnvelope{{1.0}, {}, {}};
     FrequencyEnvelope frequencyEnvelope{{1000, 2000}, {2.5}, {}};
-    std::vector<PhaseCoordinate> phaseCoordinates{{ZERO_PI, 0.0}, {ZERO_PI, 3.0}};
+    std::vector<PhaseCoordinate> phaseCoordinates{{0.0, ZERO_PI}, {3.0, ZERO_PI}};
 
     PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope, phaseCoordinates};
     PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, kSampleRate, 1000};
@@ -42,7 +42,7 @@ TEST(PartialGeneratorTest, EnvelopeFrequencyTransitionSimple) {
     // envelope.
     AmplitudeEnvelope amplitudeEnvelope{{1.0}, {}, {}};
     FrequencyEnvelope frequencyEnvelope{{1000, 2000}, {2.5}, {}};
-    std::vector<PhaseCoordinate> phaseCoordinates{{ZERO_PI, 0.0}, {ZERO_PI, 3.0}};
+    std::vector<PhaseCoordinate> phaseCoordinates{{0.0, ZERO_PI}, {3.0, ZERO_PI}};
 
     PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope, phaseCoordinates};
     PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, kSampleRate, 0};
@@ -60,7 +60,7 @@ TEST(PartialGeneratorTest, EvelopeAmplitudeFadeOut) {
     // envelope.
     AmplitudeEnvelope amplitudeEnvelope{{1.0, 0.0}, {1.5}, {}};
     FrequencyEnvelope frequencyEnvelope{{1000}, {}, {}};
-    std::vector<PhaseCoordinate> phaseCoordinates{{ZERO_PI, 0.0}, {ZERO_PI, 3.0}};
+    std::vector<PhaseCoordinate> phaseCoordinates{{0.0, ZERO_PI}, {3.0, ZERO_PI}};
 
     PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope, phaseCoordinates};
     PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, kSampleRate, 0};
@@ -78,7 +78,7 @@ TEST(PartialGeneratorTest, Evelope3Seconds) {
     // paxels in the result.
     AmplitudeEnvelope amplitudeEnvelope{{0.1}, {}, {}};
     FrequencyEnvelope frequencyEnvelope{{1000}, {}, {}};
-    std::vector<PhaseCoordinate> phaseCoordinates{{ZERO_PI, 0.0}, {ZERO_PI, 3.0}};
+    std::vector<PhaseCoordinate> phaseCoordinates{{0.0, ZERO_PI}, {3.0, ZERO_PI}};
 
     PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope, phaseCoordinates};
     PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, kSampleRate, 0};
@@ -93,7 +93,7 @@ TEST(PartialGeneratorTest, Envelope2Seconds) {
     // paxels in the result.
     AmplitudeEnvelope amplitudeEnvelope{{0.1}, {}, {}};
     FrequencyEnvelope frequencyEnvelope{{1000}, {}, {}};
-    std::vector<PhaseCoordinate> phaseCoordinates{{ZERO_PI, 0.0}, {ZERO_PI, 2.0}};
+    std::vector<PhaseCoordinate> phaseCoordinates{{0.0, ZERO_PI}, {2.0, ZERO_PI}};
 
     PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope, phaseCoordinates};
     PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, kSampleRate, 0};
@@ -108,7 +108,7 @@ TEST(PartialGeneratorTest, Envelope1Paxel1Sample) {
     // paxels in the result.
     AmplitudeEnvelope amplitudeEnvelope{{0.1}, {}, {}};
     FrequencyEnvelope frequencyEnvelope{{1000}, {}, {}};
-    std::vector<PhaseCoordinate> phaseCoordinates{{ZERO_PI, 0.0}, {ZERO_PI, 0.001}};
+    std::vector<PhaseCoordinate> phaseCoordinates{{0.0, ZERO_PI}, {0.001, ZERO_PI}};
 
     PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope, phaseCoordinates};
     PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, 1, 0};
@@ -123,7 +123,7 @@ TEST(PartialGeneratorTest, Envelope1Paxel) {
     // result.
     AmplitudeEnvelope amplitudeEnvelope{{0.1}, {}, {}};
     FrequencyEnvelope frequencyEnvelope{{1000}, {}, {}};
-    std::vector<PhaseCoordinate> phaseCoordinates{{ZERO_PI, 0.0}, {ZERO_PI, 1.0}};
+    std::vector<PhaseCoordinate> phaseCoordinates{{0.0, ZERO_PI}, {1.0, ZERO_PI}};
 
     PartialEnvelopes partialEnvelopes{amplitudeEnvelope, frequencyEnvelope, phaseCoordinates};
     PartialGenerator partialGenerator{partialEnvelopes, {"label_1"}, kSampleRate, 0};
