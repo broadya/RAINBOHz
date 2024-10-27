@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "AudioTypes.h"
+#include "audio_types.h"
 
 namespace RAINBOHz {
 

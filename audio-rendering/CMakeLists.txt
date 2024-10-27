@@ -19,12 +19,13 @@ file(GLOB SOURCES "src/*.cpp")
 
 # Create a static library with the core application code.
 add_library(audio_rendering_lib STATIC
-    src/SineWaveGenerator.cpp
-    src/PaxelGenerator.cpp
-    src/MultiPaxelGenerator.cpp
-    src/PartialGenerator.cpp
-    src/MultiPartialGenerator.cpp
-    src/WavWriter.cpp
+    src/sine_wave_generator.cpp
+    src/paxel_generator.cpp
+    src/multi_paxel_generator.cpp
+    src/partial_generator.cpp
+    src/multi_partial_generator.cpp
+    src/wav_writer.cpp
+    src/physical_envelope_generator.cpp
     # Add more source files as needed...
 )
 
@@ -50,8 +51,8 @@ enable_testing()
 
 # Add the test executable
 add_executable(testSuite
-    tests/testPartialGenerator.cpp
-    tests/testMultiPartialGenerator.cpp
+    tests/test_partial_generator.cpp
+    tests/test_multi_partial_generator.cpp
     # Add more test files as needed...
 )
 

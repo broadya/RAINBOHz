@@ -1,5 +1,5 @@
-#include "PartialGenerator.h"
 #include "gtest/gtest.h"
+#include "partial_generator.h"
 
 using namespace RAINBOHz;
 

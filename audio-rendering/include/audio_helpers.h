@@ -4,7 +4,7 @@
 #include <cassert>
 #include <cmath>
 
-#include "AudioTypes.h"
+#include "audio_types.h"
 
 /*
 --------------------------------------
@@ -100,6 +100,14 @@ inline double naturalPhase(double startPhase, double startFrequency, double endF
     assert(fullPhaseEnd >= onlyIncompletePhaseEnd);
 
     return onlyIncompleteCycles ? onlyIncompletePhaseEnd : fullPhaseEnd;
+}
+
+inline uint32_t secondsToSamples(double timesSeconds) {
+    return static_cast<uint32_t>(timesSeconds * kSampleRate);  // Scale and convert to uint32_t
+}
+
+inline double samplesToSeconds(uint32_t timeSamples) {
+    return (timeSamples / static_cast<double>(kSampleRate));  // Scale and convert to double
 }
 
 }  // namespace RAINBOHz

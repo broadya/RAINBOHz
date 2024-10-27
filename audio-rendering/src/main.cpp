@@ -3,13 +3,13 @@
 #include <iostream>
 #include <string>
 
-#include "AudioTypes.h"
-#include "MultiPartialGenerator.h"
-#include "MultiPaxelGenerator.h"
-#include "PartialGenerator.h"
-#include "PaxelGenerator.h"
-#include "SineWaveGenerator.h"
-#include "WavWriter.h"
+#include "audio_types.h"
+#include "multi_partial_generator.h"
+#include "multi_paxel_generator.h"
+#include "partial_generator.h"
+#include "paxel_generator.h"
+#include "sine_wave_generator.h"
+#include "wav_writer.h"
 
 void printUsage(const std::string& programName) {
     /*

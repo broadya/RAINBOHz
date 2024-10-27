@@ -1,6 +1,6 @@
-#include "MultiPartialGenerator.h"
-#include "PartialGenerator.h"
 #include "gtest/gtest.h"
+#include "multi_partial_generator.h"
+#include "partial_generator.h"
 
 using namespace RAINBOHz;
 

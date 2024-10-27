@@ -1,4 +1,4 @@
-#include "WavWriter.h"
+#include "wav_writer.h"
 
 #include <cassert>
 #include <cstring>

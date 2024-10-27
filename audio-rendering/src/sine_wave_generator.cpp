@@ -1,4 +1,4 @@
-#include "SineWaveGenerator.h"
+#include "sine_wave_generator.h"
 
 #include <cassert>
 #include <cmath>

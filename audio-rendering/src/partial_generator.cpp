@@ -1,4 +1,4 @@
-#include "PartialGenerator.h"
+#include "partial_generator.h"
 
 #include <algorithm>
 #include <cassert>
@@ -6,8 +6,8 @@
 #include <set>
 #include <string>
 
-#include "AudioHelpers.h"
-#include "MultiPaxelGenerator.h"
+#include "audio_helpers.h"
+#include "multi_paxel_generator.h"
 
 using namespace RAINBOHz;
 

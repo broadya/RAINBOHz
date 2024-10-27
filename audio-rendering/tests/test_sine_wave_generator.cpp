@@ -1,5 +1,5 @@
 #include "gtest/gtest.h"
-#include "SineWaveGenerator.h"
+#include "sine_wave_generator.h"
 
 using namespace RAINBOHz;
 

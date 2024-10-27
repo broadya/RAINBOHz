@@ -1,10 +1,10 @@
-#include "MultiPartialGenerator.h"
+#include "multi_partial_generator.h"
 
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 
-#include "PartialGenerator.h"
+#include "partial_generator.h"
 
 using namespace RAINBOHz;
 

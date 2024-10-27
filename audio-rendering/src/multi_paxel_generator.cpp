@@ -1,11 +1,11 @@
-#include "MultiPaxelGenerator.h"
+#include "multi_paxel_generator.h"
 
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 
-#include "AudioHelpers.h"
-#include "PaxelGenerator.h"
+#include "audio_helpers.h"
+#include "paxel_generator.h"
 
 using namespace RAINBOHz;
 

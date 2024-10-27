@@ -8,7 +8,8 @@
 #include <string>
 #include <vector>
 
-#include "AudioTypes.h"
+#include "audio_types.h"
+#include "envelope_types.h"
 
 namespace RAINBOHz {
 
