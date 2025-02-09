@@ -3,103 +3,83 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstring>  // to get memcpy
+#include <execution>
+#include <iostream>
 
 #include "audio_helpers.h"
+#include "envelope_types.h"
+#include "paxel_types.h"
 
 using namespace RAINBOHz;
 
-PaxelGenerator::PaxelGenerator(const PaxelSpecification& paxelSpecification)
-    : paxelSpecification_(paxelSpecification) {
-    // Invariants are already defined in the PaxelSpecification struct
+PaxelGenerator::PaxelGenerator(const PhysicalPartialEnvelope& physicalPartialEnvelope)
+    : physicalPartialEnvelope(physicalPartialEnvelope) {}
+
+PaxelSpecification precomputePaxel(const std::vector<PhysicalEnvelopePoint>& coords) {
+    PaxelSpecification returnPaxel{};
+    auto coordsIter = coords.begin();
+
+    while (coordsIter != coords.end()) {
+        uint32_t fillToSampleIndex{0};
+        const PhysicalEnvelopePoint& currentStage{*coordsIter};
+        ++coordsIter;
+        if (coordsIter != coords.end()) {
+            fillToSampleIndex = coordsIter->timeSamples;
+        } else {
+            fillToSampleIndex = kSamplesPerPaxel;
+        }
+
+        for (uint32_t sampleIndex = 0; sampleIndex < fillToSampleIndex; sampleIndex++) {
+            double amplitude = currentStage.amplitude + currentStage.amplitudeRate * sampleIndex;
+            double cycleAccumulator =
+                computeCycleAccumulator(currentStage.cycleAccumulator, currentStage.frequency,
+                                        currentStage.frequencyRate, sampleIndex);
+            returnPaxel.paxelSampleSpecifications.push_back(
+                PaxelSampleSpecification{cycleAccumulator, amplitude});
+        }
+    }
+
+    return returnPaxel;
+}
+
+std::vector<SamplePaxelInt> PaxelGenerator::renderSinglePaxelAudio(
+    const std::vector<PhysicalEnvelopePoint>& coords) {
+    PaxelSpecification paxelSpecification = precomputePaxel(coords);
+
+    // Compute the audio for a single paxel.
+    std::vector<SamplePaxelInt> samples;
+    samples.resize(kSamplesPerPaxel);  // looks wasteul, but allows parallel sine calculation
+    std::cout << "Number of elements: " << paxelSpecification.paxelSampleSpecifications.size()
+              << "\n";
+
+    // Generate samples
+    std::transform(/*std::execution::par,*/ paxelSpecification.paxelSampleSpecifications.begin(),
+                   paxelSpecification.paxelSampleSpecifications.end(), samples.begin(),
+                   [](const PaxelSampleSpecification& in) {
+                       return (std::sin(in.cycleAccumulator) * in.amplitude) * kMaxSamplePaxelInt;
+                   });
+
+    return samples;
 }
 
 std::vector<SamplePaxelInt> PaxelGenerator::renderAudio() {
-    // Compute actual audio portion, paxels may have silence at begin / end to allow for envlope
-    // points. Add one due to the fencepost problem.
-    uint32_t audioDurationSamples =
-        1 + paxelSpecification_.endSample - paxelSpecification_.startSample;
+    // Compute an entire partial built up from paxels.
+    // This is useful in testing and early development, but this will be replaced in the target
+    // rendering system by the build process or some other higher level component.
+    std::vector<SamplePaxelInt> samples;
+    samples.resize(kSamplesPerPaxel * physicalPartialEnvelope.paxelPoints.size());
 
-    // Calculate rates, note that here the calculation is based on the start time and end time of
-    // the paxel so it starts from the begin time of the first sample and ends on the end time of
-    // the last sample.
-    // We are dealing in phase in terms of an accumulation for cycles. These phase calculations do
-    // not "wrap around" on 2π. This is intentional because it leads on to the rate at which
-    // phase needs to change on each sample.
-    double f1PhaseIncrement =
-        (TWO_PI * paxelSpecification_.startFrequency) / static_cast<double>(kSampleRate);
-    double f1PhaseEnd = paxelSpecification_.startPhase + f1PhaseIncrement * audioDurationSamples;
+    auto paxelIterator = physicalPartialEnvelope.paxelPoints.begin();
+    uint32_t paxelCount{0};
 
-    double f2PhaseIncrement =
-        (TWO_PI * paxelSpecification_.endFrequency) / static_cast<double>(kSampleRate);
-    double f2PhaseEnd = paxelSpecification_.startPhase + f2PhaseIncrement * audioDurationSamples;
-
-    // This is where the phase accumulation would end "naturally" if there were no concept of an
-    // end phase target.
-    double naturalPhaseEnd = (f1PhaseEnd + f2PhaseEnd) / 2.0;
-
-    // However, phase and frequency are of course not orthogonal, so we need to perform compensation
-    // of max half a cycle (π) in order to end the paxel at the end phase target.
-    // This is the small amout to add to the phase in order to hit the end phase target.
-    double phaseCompensation = coherenceCompensation(naturalPhaseEnd, paxelSpecification_.endPhase);
-
-    // The phase compensation needs to be multiplied by 2 as the inverse of the mean calculation
-    // that led to the natural phase end calculation, where there was a division by 2.
-    double compensatedf2PhaseEnd = f2PhaseEnd + (phaseCompensation * 2.0);
-    double compensatedf2PhaseIncrement =
-        (compensatedf2PhaseEnd - paxelSpecification_.startPhase) / audioDurationSamples;
-
-    // Set generation parameters. Now the calculation is based on the centre point in time for each
-    // sample. This is the reason for dividing by durationSamples + 1 and adding the
-    // phaseIncrementRate_ / 2. The value for phase (and also for frequency and amplitude)
-    // for a particular sample is the mean of the phase at the start time of the sample and the
-    // phase at the end time of the sample.
-
-    // The starting rate of phase change
-    double phaseIncrement = f1PhaseIncrement;
-
-    // The second deviation, rate of rate of phase change.
-    double phaseIncrementRate =
-        (compensatedf2PhaseIncrement - f1PhaseIncrement) / (audioDurationSamples + 1);
-
-    // Initial value for phase is, perhaps surprisingly, not startPhase_ because this is not the
-    // mean value for the first sample.
-    double phaseAccumulator = paxelSpecification_.startPhase + (phaseIncrementRate / 2.0);
-
-    // The calculation for amplitude is just a straight interpolation, although again the mean of
-    // the sample must be taken into account.
-    double amplitudeIncrement =
-        (paxelSpecification_.endAmplitude - paxelSpecification_.startAmplitude) /
-        (audioDurationSamples + 1);
-    double amplitude = paxelSpecification_.startAmplitude + (amplitudeIncrement / 2.0);
-
-    std::vector<SamplePaxelInt> samples(paxelSpecification_.durationSamples);
-
-    // Optional gap at the start of the paxel.
-    std::fill(samples.begin(), samples.begin() + paxelSpecification_.startSample, 0.0);
-
-    for (size_t i = paxelSpecification_.startSample; i <= paxelSpecification_.endSample; ++i) {
-        assert(amplitude >= -1.0 && amplitude <= 1.0);
-        SamplePaxelFP sampleFPValue = amplitude * sin(phaseAccumulator);
-        assert(sampleFPValue >= -1.0 && sampleFPValue <= 1.0);
-        samples[i] = static_cast<SamplePaxelInt>(sampleFPValue * kMaxSamplePaxelInt);
-        assert((samples[i] >= 0 && sampleFPValue >= 0.0) ||
-               (samples[i] <= 0 && sampleFPValue <= 0.0));
-
-        phaseIncrement += phaseIncrementRate;
-        phaseAccumulator += phaseIncrement;
-        amplitude += amplitudeIncrement;
-
-        // Keep phase accumulator within [0,2π)
-        phaseAccumulator = phaseMod(phaseAccumulator);
+    while (paxelIterator != physicalPartialEnvelope.paxelPoints.end()) {
+        auto paxelSamples = renderSinglePaxelAudio(*paxelIterator);
+        std::memcpy(samples.data() + kSamplesPerPaxel * paxelCount, paxelSamples.data(),
+                    kSamplesPerPaxel * sizeof(SamplePaxelInt));
+        ++paxelCount;
+        ++paxelIterator;
     }
-
-    // Optional gap at the end of the paxel
-    // The +1 here is because of the half-open semantics of std::fill
-    // samples.end() points to one after the final sample according to iterator semantics.
-    std::fill(samples.begin() + paxelSpecification_.endSample + 1, samples.end(), 0.0);
-
-    // Postconditions
-    assert(samples.size() > 0);
 
     return samples;
 }

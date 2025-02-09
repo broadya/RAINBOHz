@@ -110,6 +110,45 @@ inline double samplesToSeconds(uint32_t timeSamples) {
     return (timeSamples / static_cast<double>(kSampleRate));  // Scale and convert to double
 }
 
+inline double normalizeFrequency(double frequencyHz) {
+    return ((frequencyHz * TWO_PI) / kSampleRate);  // Convert to samples time base
+}
+
+/// @brief Interpolates cycle accumulator between two points in the physical coordinate space.
+/// @return Interpolated cycle accumulator value.
+
+/// @brief Calulates the cycle accumulator value at an arbitrary time given initial conditions.
+/// @param startCycleAccumulator The initial value of the cycle accumulator.
+/// @param startFrequency The initial frequency (normalized)
+/// @param startFrequencyRate THe initial frequency rate (normalized)
+/// @param samplesSinceStart The point in time at which to calculate the accumulator value.
+/// @return
+inline double computeCycleAccumulator(double startCycleAccumulator, double startFrequency,
+                                      double startFrequencyRate, uint32_t samplesSinceStart) {
+    // Accumulator value can be derived using integral calculus.
+    // Cycles at t = ½frequencyRate * t² + frequency₀ * t + cycles at t₀ (for the current
+    // envelope stage)
+    return 0.5 * startFrequencyRate * samplesSinceStart * samplesSinceStart +
+           startFrequency * samplesSinceStart + startCycleAccumulator;
+}
+
+/// @brief Calculates the (normalized) frequency rate to achieve a given cycle accumulator value and
+/// other initial conditions.
+/// @param startCycleAccumulator The initial value of the cycle accumulator.
+/// @param startFrequency The initial frequenct (normalized)
+/// @param endCycleAccumulator THe final value of the cycle accumulator, the target that requires a
+/// certain rate.
+/// @param samplesSinceStart The point in time at which the final cycle accumulator value must be
+/// reached.
+/// @return
+inline double computeFrequencyRate(double startCycleAccumulator, double startFrequency,
+                                   double endCycleAccumulator, uint32_t samplesSinceStart) {
+    // Frequency rate can be derived using integral calculus.
+    // Rate at t = 2 * (cycles at t - cycles at t₀ - frequency₀ * t) / t²
+    return 2 * (endCycleAccumulator - startCycleAccumulator - startFrequency * samplesSinceStart) /
+           (samplesSinceStart * samplesSinceStart);
+}
+
 }  // namespace RAINBOHz
 
 #endif  // AUDIO_HELPERS_H

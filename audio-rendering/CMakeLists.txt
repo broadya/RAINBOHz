@@ -11,6 +11,16 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -O0 -fno-omit-frame-point
 # Ensure the Debug build type is used
 set(CMAKE_BUILD_TYPE Debug)
 
+# Sanitize in debug mode
+#if (CMAKE_BUILD_TYPE MATCHES "Debug")
+#add_compile_options(
+#    -Wall -Wextra -Wpedantic
+#    -Wshadow=local -Wnon-virtual-dtor -Wold-style-cast -Wcast-align
+#    -Woverloaded-virtual -Wconversion -Wsign-conversion
+#    -Wnull-dereference -Wdouble-promotion -Wformat=2 -Wmisleading-indentation
+#    )
+#endif()
+
 # Include directories (if you have headers in an include directory)
 include_directories(include)
 
@@ -19,13 +29,11 @@ file(GLOB SOURCES "src/*.cpp")
 
 # Create a static library with the core application code.
 add_library(audio_rendering_lib STATIC
-    src/sine_wave_generator.cpp
+#    src/sine_wave_generator.cpp
     src/paxel_generator.cpp
-    src/multi_paxel_generator.cpp
-    src/partial_generator.cpp
-    src/multi_partial_generator.cpp
     src/wav_writer.cpp
     src/physical_envelope_generator.cpp
+    src/paxel_generator.cpp
     # Add more source files as needed...
 )
 
@@ -51,9 +59,11 @@ enable_testing()
 
 # Add the test executable
 add_executable(testSuite
-    tests/test_partial_generator.cpp
-    tests/test_multi_partial_generator.cpp
-    # Add more test files as needed...
+#    tests/test_partial_generator.cpp
+#    tests/test_multi_partial_generator.cpp
+#    tests/test_physical_envelope_generator.cpp
+    tests/test_paxel_generator.cpp
+# Add more test files as needed...
 )
 
 # Link the test executable against Google Test

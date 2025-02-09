@@ -4,7 +4,9 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <list>
 #include <numeric>
+#include <ranges>
 #include <vector>
 
 #include "audio_helpers.h"
@@ -12,33 +14,7 @@
 
 /*
 --------------------------------------
-Defines various contstants, limits, type equivalents that are useful during additive synthesis
-calculations.
-
-Defines all of the simple struct types used in additive synthesis calculations, and includes asserts
-for their invariants. These are intentionally not held in classes with encapsulation because they
-have a role simply to pass around structured data and not to perform operations on that data.
-
-The types are decoupled from the classes that can render audio based on them. This is to allow for
-distributed processing of the types, where the proess of specifying a synthesis "compute job" will
-be independent from actually performing that "compute job".
-
-The types are immutable.
-
-The main types build up in a hierarchy as follows -
-
-PaxelSpecification | A single paxel that can be of any duration.
-
-MultiPaxelSpecification | A vector of PaxelSpecification that are all of the same duration, but each
-repesents some subdivision of that duration without overlaps.
-
-PartialSpecification | A vector of MultiPaxelSpecification that describes the evolution of a single
-partial.
-
-MultiPartialSpecification | A vector of PartialSpecification that describes some bundle of partials
-that are to be rendered together.
-
-The other types describe the envelopes that specify a partial.
+Describes all of the types that are used in processing envelopes.
 
 Envelope | A generic specification of an envelope following the same approach as sclang.
 
@@ -65,6 +41,8 @@ namespace RAINBOHz {
 /*
 --------------------------------------
 Logical envelope, closer to concepts in the mind of the composer or sound designer.
+
+The logical envelopes are based on the envelope concept from sclang.
 --------------------------------------
 */
 
@@ -95,7 +73,7 @@ struct Envelope {
              const std::vector<EnvelopeCurvePoint>& curves)
         : levels(levels),
           timesSeconds(times),
-          timesSamples(secondsToSamples(times)),
+          timesSamples(initConvertSecondsToSamples(times)),
           curves(curves)
 
     {
@@ -121,15 +99,13 @@ struct Envelope {
     const std::vector<EnvelopeCurvePoint> curves; /**< Curves to apply to each step  */
 
    private:
-    std::vector<uint32_t> secondsToSamples(const std::vector<double>& timesSeconds) {
-        std::vector<uint32_t> timesSamples(timesSeconds.size());
-        double scaleFactor = kSampleRate;
-        std::transform(
-            timesSeconds.begin(), timesSeconds.end(), timesSamples.begin(),
-            [scaleFactor](double val) {
-                return static_cast<uint32_t>(val * scaleFactor);  // Scale and convert to uint32_t
-            });
-        return timesSamples;
+    static std::vector<uint32_t> initConvertSecondsToSamples(
+        const std::vector<double>& convertTimesSeconds) {
+        std::vector<uint32_t> convertTimesSamples(convertTimesSeconds.size());
+        std::ranges::transform(convertTimesSeconds, convertTimesSamples.begin(), [](double val) {
+            return secondsToSamples(val);  // Scale and convert to uint32_t
+        });
+        return convertTimesSamples;
     }
 };
 
@@ -247,9 +223,9 @@ struct PartialEnvelopes {
         // Invariants are handled by the three structs theselves.
     }
 
-    const AmplitudeEnvelope amplitudeEnvelope; /**< Tha amplitude envelope of the partial */
-    const FrequencyEnvelope frequencyEnvelope; /**< Tha frequency envelope of the partial */
-    const PhaseCoordinates phaseCoordinates;   /**< Tha phase coordinates of the partial */
+    const AmplitudeEnvelope amplitudeEnvelope; /**< The amplitude envelope of the partial */
+    const FrequencyEnvelope frequencyEnvelope; /**< The frequency envelope of the partial */
+    const PhaseCoordinates phaseCoordinates;   /**< The phase coordinates of the partial */
 };
 
 /*
@@ -257,7 +233,7 @@ struct PartialEnvelopes {
 Physical envelope, closer to the rendering engine.
 --------------------------------------
 
-- Curves mapped to a set of linear approximations.
+- Curves mapped to a set of linear approximations. (TODO!)
 
 - Frequency envelope and phase coordinates merged into a single concept of cycle coordinates.
 
@@ -265,87 +241,171 @@ Physical envelope, closer to the rendering engine.
 
 - Time expressed in samples not in seconds.
 
+- The frequency is the normalised frequency, "cycles per sample"
+
 */
+
+struct PhysicalFrequencyCoordinate {
+   public:
+    /// @brief Constructor that also normalises the frequency.
+    /// @param frequencyHz Frequency in Hz.
+    /// @param timeSeconds Time in seconds
+    PhysicalFrequencyCoordinate(double frequencyHz, double timeSeconds)
+        : frequency(normalizeFrequency(frequencyHz)), timeSamples(secondsToSamples(timeSeconds)) {
+        // Preconditions
+        assert(timeSeconds >= 0);
+        // Invariants
+        assert(frequency > 0);
+    }
+
+    PhysicalFrequencyCoordinate(double frequency, uint32_t timeSamples)
+        : frequency(frequency), timeSamples(timeSamples) {
+        // Invariants
+        assert(frequency > 0);
+    }
+
+    const double frequency;      // normalised
+    const uint32_t timeSamples;  // relative to the start of the envelope
+};
+
+inline double frequencyRate(PhysicalFrequencyCoordinate coord1,
+                            PhysicalFrequencyCoordinate coord2) {
+    return (coord2.frequency - coord1.frequency) / (coord2.timeSamples - coord1.timeSamples);
+}
+
+struct PhysicalAmplitudeCoordinate {
+    PhysicalAmplitudeCoordinate(double amplitude, double timeSeconds)
+        : amplitude(amplitude), timeSamples(secondsToSamples(timeSeconds)) {
+        // Preconditions
+        assert(timeSeconds >= 0);
+        // Invariants
+        assert(amplitude >= -1.0 && amplitude <= 1.0);
+    }
+
+    PhysicalAmplitudeCoordinate(double amplitude, uint32_t timeSamples)
+        : amplitude(amplitude), timeSamples(timeSamples) {
+        // Invariants
+        assert(amplitude >= -1.0 && amplitude <= 1.0);
+    }
+
+    const double amplitude;
+    const uint32_t timeSamples;  // relative to the start of the envelope
+};
+
+inline double amplitudeRate(PhysicalAmplitudeCoordinate coord1,
+                            PhysicalAmplitudeCoordinate coord2) {
+    return (coord2.amplitude - coord1.amplitude) / (coord2.timeSamples - coord1.timeSamples);
+}
+
+struct PhysicalPhaseCoordinate {
+    PhysicalPhaseCoordinate(double phase, double timeSeconds, bool natural)
+        : phase(phase), timeSamples(secondsToSamples(timeSeconds)), natural(natural) {
+        // Preconditions
+        assert(timeSeconds >= 0);
+        // Invariants
+        assert(phase >= ZERO_PI && phase <= TWO_PI);
+    }
+
+    PhysicalPhaseCoordinate(double phase, uint32_t timeSamples, bool natural)
+        : phase(phase), timeSamples(timeSamples), natural(natural) {
+        // Invariants
+        assert(phase >= ZERO_PI && phase <= TWO_PI);
+    }
+
+    PhysicalPhaseCoordinate(PhaseCoordinate phaseCoordinate)
+        : phase(phaseCoordinate.value),
+          timeSamples(secondsToSamples(phaseCoordinate.timeSeconds)),
+          natural(phaseCoordinate.natural) {
+        // Preconditions
+        assert(phaseCoordinate.timeSeconds >= 0);
+        // Invariants
+        assert(phase >= ZERO_PI && phase <= TWO_PI);
+    }
+
+    double phase;
+    bool natural;
+    uint32_t timeSamples;  // relative to the start of the envelope
+};
 
 /// @brief A point (coordinate) in a physical envelope
 struct PhysicalEnvelopePoint {
    public:
-    PhysicalEnvelopePoint(const uint32_t sampleNumber, const double value)
-        : sampleNumber(sampleNumber), value(value) {
-        // No invariants.
-        // sampleNumber is unsigned, and 0 is allowed.
-        // Negative values are allowed.
+    PhysicalEnvelopePoint(const uint32_t timeSamples, const double cycleAccumulator,
+                          const double frequency, const double frequencyRate,
+                          const double amplitude, const double amplitudeRate)
+        : timeSamples(timeSamples),
+          cycleAccumulator(cycleAccumulator),
+          frequency(frequency),
+          frequencyRate(frequencyRate),
+          amplitude(amplitude),
+          amplitudeRate(amplitudeRate) {
+        // invariants
+        assert(frequency >= 0);  // Zero value is theoretically well defined, and is useful for
+                                 // silent sections of paxels
+        assert(cycleAccumulator >= 0);  // ? perhaps negative cycles are useful in some contexts
+        assert(amplitude >= -1.0 && amplitude <= 1.0);
     }
 
-    const uint32_t sampleNumber;
-    double value;  // intentionally not const to allow efficient manipulation
+    uint32_t timeSamples;
+    // Values are intentionally not const to allow manipulation
+    // Units of time are samples not seconds
+    double cycleAccumulator; /**< Total cycles until this point (including fractional part -
+                                determines phase) */
+    double frequency;        /**< The normalised frequency of the partial at this point */
+    double frequencyRate;    /**< The rate of change of frequency for the next envelope stage, df/dt
+                                normalised */
+    double amplitude;        /**< The amplitude of the partial at this point */
+    double amplitudeRate;    /**< The rate of change of amplitude for the next envelope stage da/dt
+                                normalised */
+    auto operator<=>(const PhysicalEnvelopePoint&) const = default;
 };
 
-/// @brief A generic physical envelope, expressed in terms of coordinates.
-/// Values are floting point from -1.0 to 1.0.
-/// PhysicalEnvlope always has at least two points (begin and end)
-/// All PhysicalEnvelopes for the same partial have the same begin and end.
-struct PhysicalEnvelope {
+/// @brief Factory that creates a PhysicalEnvelopePoint between two existing PhysicalEnvelopePoints.
+/// @param pointA The PhysicalEnvelopePoint that is earlier in time.
+/// @param pointB The PhsuicalEnveloperPoint that is later in time,
+/// @param samplesSincePointA The number of samples between the two (zero means at pointA)
+/// @return A PhysicalEnveloperPoint that is interpolated between the two points.
+inline PhysicalEnvelopePoint interpolate(const PhysicalEnvelopePoint& pointA,
+                                         const PhysicalEnvelopePoint& pointB,
+                                         uint32_t timeSamples) {
+    // Preconditions
+    assert(timeSamples >= pointA.timeSamples);
+    assert(timeSamples <= pointB.timeSamples);
+
+    double ratio = static_cast<double>(timeSamples - pointA.timeSamples) /
+                   (pointB.timeSamples - pointA.timeSamples);
+
+    return PhysicalEnvelopePoint{
+        timeSamples,
+        computeCycleAccumulator(pointA.cycleAccumulator, pointA.frequency, pointA.frequencyRate,
+                                timeSamples - pointA.timeSamples),
+        ratio * (pointB.frequency - pointA.frequency) + pointA.frequency,
+        pointA.frequencyRate,
+        ratio * (pointB.amplitude - pointA.amplitude) + pointA.amplitude,
+        pointA.amplitudeRate};
+};
+
+/// @brief A means to specify a partial in terms of a single envelope, closer to the rendering
+/// process.
+struct PhysicalPartialEnvelope {
    public:
-    PhysicalEnvelope(const std::vector<PhysicalEnvelopePoint>& coords) : coords(coords) {
-        // Invariants
-        // Points are coordinates describing the complete shape of the partial.
-        // At a minimum they must have a start and an end coordinate.
-        assert(coords.size() > 1);
+    PhysicalPartialEnvelope(const std::vector<std::vector<PhysicalEnvelopePoint>>& paxelPoints,
+                            uint32_t firstPaxelIndex, double firstSampleFraction,
+                            double lastSampleFraction)
+        : paxelPoints(paxelPoints),
+          firstPaxelIndex(firstPaxelIndex),
+          firstSampleFraction(firstSampleFraction),
+          lastSampleFraction(lastSampleFraction) {
+        // Invariants to be defined.
     }
 
-    const std::vector<PhysicalEnvelopePoint> coords;
-};
-
-/// @brief An envelope to be applied to the cycles of a partial.
-/// Values are in radians.
-/// This is a concept similar to the concept of a phase accumulator, but it does not "wrap around".
-/// Because of this, its "rate of change" corresponds to frequency, and it also allows for exact
-/// phase coordinates to be achieved.
-struct PhysicalCycleEnvelope : public PhysicalEnvelope {
-    PhysicalCycleEnvelope(const std::vector<PhysicalEnvelopePoint>& physicalEnvelopePoints)
-        : PhysicalEnvelope(physicalEnvelopePoints) {
-        // Invariants are handled by the superclass.
-    }
-};
-
-/// @brief An envelope to be applied to the amplitude of a partial.
-/// Amplitudes must remain in the range [-1.0,1.0].
-/// It is allowed to use negative values, which correspond to phase inversion.
-struct PhysicalAmplitudeEnvelope : public PhysicalEnvelope {
-    PhysicalAmplitudeEnvelope(const std::vector<PhysicalEnvelopePoint>& physicalEnvelopePoints)
-        : PhysicalEnvelope(physicalEnvelopePoints) {
-        // Invariants are handled by the superclass.
-    }
-};
-
-/// @brief A means to specify a partial in terms of envelopes, closer to the composer / sound
-/// designer's view of the partial.
-struct PhysicalPartialEnvelopes {
-   public:
-    PhysicalPartialEnvelopes(const PhysicalAmplitudeEnvelope& physicalAmplitudeEnvelope,
-                             const PhysicalCycleEnvelope& physicalCycleEnvelope,
-                             const uint32_t startSample)
-        : physicalAmplitudeEnvelope(physicalAmplitudeEnvelope),
-          physicalCycleEnvelope(physicalCycleEnvelope),
-          startSample(startSample),
-          endSample(startSample + physicalCycleEnvelope.coords.back().sampleNumber) {
-        // Invariants
-        // The two envelopes must start and end at the same point.
-        // These envelopes are at absolute positions in the piece, so they do not always start at
-        // sample zero.
-        assert(physicalAmplitudeEnvelope.coords.front().sampleNumber ==
-               physicalCycleEnvelope.coords.front().sampleNumber);
-        assert(physicalAmplitudeEnvelope.coords.back().sampleNumber ==
-               physicalCycleEnvelope.coords.back().sampleNumber);
-    }
-
-    const PhysicalAmplitudeEnvelope physicalAmplitudeEnvelope; /**< The amplitude envelope */
-    const PhysicalCycleEnvelope physicalCycleEnvelope;         /**< The cycle envelope */
-    const uint32_t startSample; /**< The first sample in the envelope ("front") */
-    const uint32_t endSample;   /**< The last sample in the envelope ("back") */
+    // Data structure holding the coordinates mapped to paxels
+    std::vector<std::vector<PhysicalEnvelopePoint>> paxelPoints;
+    const uint32_t firstPaxelIndex;
+    const double firstSampleFraction;
+    const double lastSampleFraction;
 };
 
 }  // namespace RAINBOHz
 
-#endif  // AUDIOTYPES_H
+#endif  // ENVELOPETYPES_H
