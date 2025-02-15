@@ -122,14 +122,35 @@ inline double normalizeFrequency(double frequencyHz) {
 /// @param startFrequency The initial frequency (normalized)
 /// @param startFrequencyRate THe initial frequency rate (normalized)
 /// @param samplesSinceStart The point in time at which to calculate the accumulator value.
-/// @return
+/// @return The value of the cycle accumulator at the time after the initial conditions.
 inline double computeCycleAccumulator(double startCycleAccumulator, double startFrequency,
                                       double startFrequencyRate, uint32_t samplesSinceStart) {
+    // Cast to all doubles to prevent side effects, especially because 96000 * 96000 is out of range
+    // for uint32_t
+    double doubleSamplesSinceStart{static_cast<double>(samplesSinceStart)};
     // Accumulator value can be derived using integral calculus.
     // Cycles at t = ½frequencyRate * t² + frequency₀ * t + cycles at t₀ (for the current
     // envelope stage)
-    return 0.5 * startFrequencyRate * samplesSinceStart * samplesSinceStart +
-           startFrequency * samplesSinceStart + startCycleAccumulator;
+    return 0.5 * startFrequencyRate * doubleSamplesSinceStart * doubleSamplesSinceStart +
+           startFrequency * doubleSamplesSinceStart + startCycleAccumulator;
+}
+
+/// @brief Calculates the cycle accumulator value when the exact end frequency is known (i.e. not
+/// interpolating). This is useful when calculating physical envelope points that correspond to
+/// exact points in the original frequency envelope.
+/// @param startCycleAccumulator The initial value of the cycle accumulator.
+/// @param startFrequency The initial frequency (normalized)
+/// @param endFrequency THe final frequency rate (normalized)
+/// @param samplesBetween The number of samples between the start and end frequencies.
+/// @return The value of the cycle accumulator at the end point.
+inline double computeCycleAccumulatorToExactEnd(double startCycleAccumulator, double startFrequency,
+                                                double endFrequency, uint32_t samplesBetween) {
+    // Cast to all doubles to prevent side effects, especially because 96000 * 96000 is out of range
+    // for uint32_t
+    double doubleSamplesBetween{static_cast<double>(samplesBetween)};
+
+    return startCycleAccumulator + (startFrequency * doubleSamplesBetween) +
+           ((endFrequency - startFrequency) * doubleSamplesBetween / 2.0);
 }
 
 /// @brief Calculates the (normalized) frequency rate to achieve a given cycle accumulator value and
@@ -140,13 +161,18 @@ inline double computeCycleAccumulator(double startCycleAccumulator, double start
 /// certain rate.
 /// @param samplesSinceStart The point in time at which the final cycle accumulator value must be
 /// reached.
-/// @return
+/// @return The normalized frequency rate at the interpolated point
 inline double computeFrequencyRate(double startCycleAccumulator, double startFrequency,
                                    double endCycleAccumulator, uint32_t samplesSinceStart) {
+    // Cast to all doubles to prevent side effects, especially because 96000 * 96000 is out of range
+    // for uint32_t
+    double doubleSamplesSinceStart{static_cast<double>(samplesSinceStart)};
     // Frequency rate can be derived using integral calculus.
     // Rate at t = 2 * (cycles at t - cycles at t₀ - frequency₀ * t) / t²
-    return 2 * (endCycleAccumulator - startCycleAccumulator - startFrequency * samplesSinceStart) /
-           (samplesSinceStart * samplesSinceStart);
+    return 2.0 *
+           (endCycleAccumulator - startCycleAccumulator -
+            startFrequency * doubleSamplesSinceStart) /
+           (doubleSamplesSinceStart * doubleSamplesSinceStart);
 }
 
 }  // namespace RAINBOHz

@@ -63,6 +63,7 @@ add_executable(testSuite
 #    tests/test_multi_partial_generator.cpp
 #    tests/test_physical_envelope_generator.cpp
     tests/test_paxel_generator.cpp
+#    tests/test_audio_helpers.cpp
 # Add more test files as needed...
 )
 

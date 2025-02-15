@@ -150,7 +150,7 @@ void PhysicalEnvelopeGenerator::populatePhysicalAmplitudeCoords(
         if (timeEnvelopeStageIterator != amplitudeTimes.end()) {
             physicalAmplitudeCoords.push_back(
                 PhysicalAmplitudeCoordinate{*levelEnvelopeStageIterator, timeAccumulator});
-            timeAccumulator += secondsToSamples(*timeEnvelopeStageIterator);
+            timeAccumulator += *timeEnvelopeStageIterator;
             ++timeEnvelopeStageIterator;
         } else {
             physicalAmplitudeCoords.push_back(
@@ -184,7 +184,7 @@ void PhysicalEnvelopeGenerator::populatePhysicalFrequencyCoords(
             // This constructor converts to normalized, with time in seconds.
             physicalFrequencyCoords.push_back(
                 PhysicalFrequencyCoordinate{*levelEnvelopeStageIterator, timeAccumulator});
-            timeAccumulator += secondsToSamples(*timeEnvelopeStageIterator);
+            timeAccumulator += *timeEnvelopeStageIterator;
             ++timeEnvelopeStageIterator;
         } else {
             // This constructor does not convert to normalized, hence the need to normalize here.
@@ -231,6 +231,7 @@ void PhysicalEnvelopeGenerator::populateEnvelope() {
     uint32_t currentTimeSamples{0};
     uint32_t endTimeSamples{physicalPhaseCoords_.back().timeSamples};
     double cycleAccumulator{0.0};  // If initial phase is not zero, this is corrected later
+    double lastFreqPointCycleAccumulator{0.0};
 
     double currentFrequencyRate{
         frequencyRate(*currentFrequencyCoordinatesIterator, *nextFrequencyCoordinatesIterator)};
@@ -256,10 +257,9 @@ void PhysicalEnvelopeGenerator::populateEnvelope() {
         // Accumulator value can be derived using integral calculus.
         // Cycles at t = ½frequencyRate * t² + frequency₀ * t + cycles at t₀ (for the current
         // envelope stage)
-        cycleAccumulator =
-            0.5 * currentFrequencyRate * elapsedFrequencyTimeSamples * elapsedFrequencyTimeSamples +
-            currentFrequencyCoordinatesIterator->frequency * elapsedFrequencyTimeSamples +
-            (--coords.end())->cycleAccumulator;
+        cycleAccumulator = computeCycleAccumulator(
+            lastFreqPointCycleAccumulator, currentFrequencyCoordinatesIterator->frequency,
+            currentFrequencyRate, elapsedFrequencyTimeSamples);
 
         uint32_t elapsedAmplitudeTimeSamples =
             nextTimeSamples - currentAmplitudeCoordinatesIterator->timeSamples;
@@ -271,9 +271,11 @@ void PhysicalEnvelopeGenerator::populateEnvelope() {
             currentFrequency = nextFrequencyCoordinatesIterator->frequency;
             // Another way to calculate the accumulator if you have the start and finish frequency.
             // This again can avoid rounding errors / inconsistencies.
-            cycleAccumulator =
-                (--coords.end())->cycleAccumulator +
-                ((--coords.end())->frequency + currentFrequency) * elapsedFrequencyTimeSamples / 2;
+            cycleAccumulator = computeCycleAccumulatorToExactEnd(
+                lastFreqPointCycleAccumulator, currentFrequencyCoordinatesIterator->frequency,
+                currentFrequency, elapsedFrequencyTimeSamples);
+
+            lastFreqPointCycleAccumulator = cycleAccumulator;
 
             if (nextTimeSamples != endTimeSamples) {
                 currentFrequencyCoordinatesIterator = nextFrequencyCoordinatesIterator++;
@@ -370,7 +372,7 @@ void PhysicalEnvelopeGenerator::interpolateControlledPhasePoints() {
 
             // Don't iterate through the controlledPhaseIterators vector itself, but get a copy of
             // the iterator into physicalCycleEnvelope
-            auto interpolationIterator = *controlledPhaseIterIteratorPrevious;
+            auto interpolationIterator{*controlledPhaseIterIteratorPrevious};
 
             // Go through all the points between two controlled phase points. This might be just two
             // controlled phase points if there are no natural points between them (hence a do loop,
@@ -379,12 +381,13 @@ void PhysicalEnvelopeGenerator::interpolateControlledPhasePoints() {
             do {
                 auto& interpolationPoint{*interpolationIterator};
                 ++interpolationIterator;
-                timeDelta = interpolationIterator->timeSamples - timePrevious;
-                double phaseShift = timeDelta * phaseShiftPerSample;
+                uint32_t timeDeltaInner = interpolationIterator->timeSamples - timePrevious;
+                double phaseShift = timeDeltaInner * phaseShiftPerSample;
                 interpolationIterator->cycleAccumulator += (phaseShift + cumulativePhaseShift);
                 interpolationPoint.frequencyRate = computeFrequencyRate(
                     interpolationPoint.cycleAccumulator, interpolationPoint.frequency,
-                    interpolationIterator->cycleAccumulator, timeDelta);
+                    interpolationIterator->cycleAccumulator,
+                    interpolationIterator->timeSamples - interpolationPoint.timeSamples);
             } while (interpolationIterator != *controlledPhaseIterIterator);
 
             cumulativePhaseShift += proportionalShift;
@@ -509,7 +512,9 @@ std::vector<std::vector<PhysicalEnvelopePoint>> PhysicalEnvelopeGenerator::divid
             PhysicalEnvelopePoint interpolationPointPaxelStart =
                 interpolate(previousPoint, *currentPoint, currentPaxelEndSample + 1);
 
-            coords.insert(coordsIter, interpolationPointPaxelStart);
+            // Note the need to also update coordsIter, because the iterator would otherwise miss
+            // the newly inserted point.
+            coordsIter = coords.insert(coordsIter, interpolationPointPaxelStart);
             // This is in the "next" paxel, so do not increment pointsInCurrentPaxel.
         }
 
