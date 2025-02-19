@@ -30,7 +30,8 @@ PaxelSpecification precomputePaxel(const std::vector<PhysicalEnvelopePoint>& coo
             fillToSampleIndex = kSamplesPerPaxel;
         }
 
-        for (uint32_t sampleIndex = 0; sampleIndex < fillToSampleIndex; sampleIndex++) {
+        for (uint32_t sampleIndex = 0; sampleIndex < (fillToSampleIndex - currentStage.timeSamples);
+             sampleIndex++) {
             double amplitude = currentStage.amplitude + currentStage.amplitudeRate * sampleIndex;
             double cycleAccumulator =
                 computeCycleAccumulator(currentStage.cycleAccumulator, currentStage.frequency,
@@ -50,8 +51,6 @@ std::vector<SamplePaxelInt> PaxelGenerator::renderSinglePaxelAudio(
     // Compute the audio for a single paxel.
     std::vector<SamplePaxelInt> samples;
     samples.resize(kSamplesPerPaxel);  // looks wasteul, but allows parallel sine calculation
-    std::cout << "Number of elements: " << paxelSpecification.paxelSampleSpecifications.size()
-              << "\n";
 
     // Generate samples
     std::transform(/*std::execution::par,*/ paxelSpecification.paxelSampleSpecifications.begin(),
