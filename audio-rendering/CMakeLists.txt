@@ -11,6 +11,9 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -O0 -fno-omit-frame-point
 # Ensure the Debug build type is used
 set(CMAKE_BUILD_TYPE Debug)
 
+# Be able to use the FetchContent features.
+include(FetchContent)
+
 # Sanitize in debug mode
 #if (CMAKE_BUILD_TYPE MATCHES "Debug")
 #add_compile_options(
@@ -21,8 +24,17 @@ set(CMAKE_BUILD_TYPE Debug)
 #    )
 #endif()
 
+FetchContent_Declare(
+  yaml-cpp
+  GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+  GIT_TAG master
+)
+FetchContent_MakeAvailable(yaml-cpp)
+
 # Include directories (if you have headers in an include directory)
-include_directories(include)
+include_directories(include
+    build/_deps/yaml-cpp-src/include
+)
 
 # Add source files for the main application
 file(GLOB SOURCES "src/*.cpp")
@@ -34,6 +46,7 @@ add_library(audio_rendering_lib STATIC
     src/wav_writer.cpp
     src/physical_envelope_generator.cpp
     src/paxel_generator.cpp
+    src/parser_audio_fragment.cpp
     # Add more source files as needed...
 )
 
@@ -47,7 +60,6 @@ target_link_libraries(audio_rendering
 )
 
 # Fetch and include Google Test for unit testing
-include(FetchContent)
 FetchContent_Declare(
   googletest
   URL https://github.com/google/googletest/archive/release-1.11.0.zip
@@ -62,14 +74,16 @@ add_executable(testSuite
 #    tests/test_partial_generator.cpp
 #    tests/test_multi_partial_generator.cpp
 #    tests/test_physical_envelope_generator.cpp
-    tests/test_paxel_generator.cpp
+#    tests/test_paxel_generator.cpp
 #    tests/test_audio_helpers.cpp
+#    tests/test_parser_audio_fragment.cpp
+    tests/test_complex_audio_fragments.cpp
 # Add more test files as needed...
 )
 
 # Link the test executable against Google Test
-target_link_libraries(testSuite
-    audio_rendering_lib
+target_link_libraries(testSuite PRIVATE yaml-cpp
+    audio_rendering_lib 
     gtest_main
 )
 

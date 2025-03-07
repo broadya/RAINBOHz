@@ -1,0 +1,44 @@
+audio_fragment:
+  start_time: 0.0
+  labels:
+    - "intro"
+    - "soft_pad"
+    - "ambient_texture"
+
+  partials:
+    - partial:
+        labels:
+          - "bass"
+          - "generated"
+
+        frequency_envelope:
+          levels: [440.0, 880.0, 440.0]
+          times: [1.0, 1.0]
+          curves: ["lin", "exp"]
+
+        amplitude_envelope:
+          levels: [0.0, 0.8, 0.0]
+          times: [0.5, 1.5]
+          curves: ["sine", "lin"]
+
+        phase_coordinates:
+          times: [0.0, 2.0]
+          phases: [0.0, null]
+
+    - partial:
+        labels:
+          - "A"
+
+        frequency_envelope:
+          levels: [220.0, 220.0]
+          times: [3.0]
+          curves: ["lin"]
+
+        amplitude_envelope:
+          levels: [0.0, 0.5, 0.0]
+          times: [1.0, 2.0]
+          curves: ["welch", "exp"]
+
+        phase_coordinates:
+          times: [0.0, 3.0]
+          phases: [3.14159, 0.0]

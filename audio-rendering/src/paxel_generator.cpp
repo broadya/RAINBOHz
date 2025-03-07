@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
-#include <cstring>  // to get memcpy
+#include <cstring>  // to be able to use memcpy
 #include <execution>
 #include <iostream>
 
@@ -53,7 +53,7 @@ std::vector<SamplePaxelInt> PaxelGenerator::renderSinglePaxelAudio(
     samples.resize(kSamplesPerPaxel);  // looks wasteul, but allows parallel sine calculation
 
     // Generate samples
-    std::transform(/*std::execution::par,*/ paxelSpecification.paxelSampleSpecifications.begin(),
+    std::transform(std::execution::par, paxelSpecification.paxelSampleSpecifications.begin(),
                    paxelSpecification.paxelSampleSpecifications.end(), samples.begin(),
                    [](const PaxelSampleSpecification& in) {
                        return (std::sin(in.cycleAccumulator) * in.amplitude) * kMaxSamplePaxelInt;

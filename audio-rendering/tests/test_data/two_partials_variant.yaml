@@ -1,0 +1,43 @@
+audio_fragment:
+  start_time: 0.2
+  labels: []
+  partials:
+    - partial:
+        labels: []
+        frequency_envelope:
+          levels: [1000, 2000]
+          times: [1.5]
+          curves: []
+        amplitude_envelope:
+          levels: [0.0, 0.0, 0.0]
+          times: [1.0, 2.0]
+          curves: []
+        phase_coordinates:
+          times: [0.0, 5.5]
+          phases: [0.0, 0.0]
+    - partial:
+        labels: []
+        frequency_envelope:
+          levels: [100]
+          times: []
+          curves: []
+        amplitude_envelope:
+          levels: [0.0]
+          times: []
+          curves: []
+        phase_coordinates:
+          times: [0.0, 3.0]
+          phases: [0.0, null]
+    - partial:
+        labels: []
+        frequency_envelope:
+          levels: [500]
+          times: []
+          curves: []
+        amplitude_envelope:
+          levels: [0,0,0.3]
+          times: [4.75,0.0]
+          curves: []
+        phase_coordinates:
+          times: [0.0, 5.0]
+          phases: [0.0, null]

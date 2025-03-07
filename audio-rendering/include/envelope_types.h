@@ -319,7 +319,8 @@ struct PhysicalPhaseCoordinate {
         // Preconditions
         assert(phaseCoordinate.timeSeconds >= 0);
         // Invariants
-        assert(phase >= ZERO_PI && phase <= TWO_PI);
+        assert((phase >= ZERO_PI && phase <= TWO_PI) ||
+               (phaseCoordinate.natural && phase == NATURAL_PHASE));
     }
 
     double phase;
