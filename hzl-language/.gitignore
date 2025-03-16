@@ -1,0 +1,15 @@
+# Build and IDE directories
+/venv/
+/src/compiler/__pycache__
+/.vscode/
+/tests/test_output
+
+# Logs
+*.log
+
+# Generated WAV files
+*.wav
+
+# OS files
+.DS_Store
+Thumbs.db
