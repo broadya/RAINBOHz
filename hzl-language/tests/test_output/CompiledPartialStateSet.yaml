@@ -1,0 +1,42 @@
+partial_state_set:
+  labels:
+  - layer1
+  - chorus
+  - harmonic series
+  layer: A
+  name: CompiledPartialStateSet
+  namespace: Compiled
+  partial_states:
+  - partial_state:
+      amplitude: 0.8
+      azimuth: 0.0
+      distance: 1.0
+      elevation: 0.1
+      frequency: 440.0
+      phase: 0.0
+  - partial_state:
+      amplitude: 0.8
+      azimuth: 0.0
+      distance: 1.0
+      elevation: 0.1
+      frequency: 880.0
+      phase: 0.0
+  - partial_state:
+      amplitude: 0.8
+      azimuth: 0.0
+      distance: 1.0
+      elevation: 0.1
+      frequency: 1320.0
+      phase: 0.0
+  - partial_state:
+      amplitude: 0.6
+      frequency: 220.0
+      phase: null
+  - partial_state:
+      amplitude: 0.6
+      frequency: 440.0
+      phase: null
+  - partial_state:
+      amplitude: 0.6
+      frequency: 660.0
+      phase: null

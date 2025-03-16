@@ -1,0 +1,25 @@
+partial_state_set:
+  # A unique name for this partial state set.
+  name: "partial_state_set_1"
+  # Optional namespace for grouping or disambiguation.
+  namespace: "partial_state_set"
+  # General labels for this state set.
+  labels:
+    - "chorus"
+    - "layer1"
+  # The layer applied to all partials in this state set.
+  layer: "A"
+  partial_states:
+    - partial_state:
+        frequency: 440.0
+        phase: 0.0
+        amplitude: 0.8
+        azimuth: 0.0
+        elevation: 0.1
+        distance: 1.0
+        pan: 0.0
+    - partial_state:
+        frequency: 220.0
+        phase: null  # Use natural phase here.
+        amplitude: 0.6
+        pan: -0.25

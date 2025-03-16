@@ -1,0 +1,17 @@
+partial_state_set:
+  # A unique name for this partial state set.
+  name: "partial_state_set_2"
+  # Optional namespace for grouping or disambiguation.
+  namespace: "partial_state_set"
+  # General labels for this state set.
+  labels:
+    - "harmonic series"
+  # The layer applied to all partials in this state set.
+  layer: "A"
+  partial_states:
+    - partial_state:
+        frequency: 1
+    - partial_state:
+        frequency: 2
+    - partial_state:
+        frequency: 3

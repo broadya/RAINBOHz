@@ -1,0 +1,11 @@
+partial_state_set_transformation:
+  name: "partial_state_set_transformation_1"
+  namespace: "partial_state_set_transformation"
+  labels:
+    - "transformation"
+    - "flattened_cartesian_product"
+  layer: "A"
+  transformations:
+    - transformation:
+        type: "Flattened Cartesian Product"
+        # No additional parameters for this type.

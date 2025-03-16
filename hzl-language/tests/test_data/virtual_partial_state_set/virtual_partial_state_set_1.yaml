@@ -1,0 +1,25 @@
+virtual_partial_state_set:
+  # A unique name for this virtual partial state set.
+  name: "virtual_partial_state_set_1"
+  # The namespace helps to group and disambiguate state sets.
+  namespace: "virtual_partial_state_set"
+  # General labels for this virtual state.
+  labels:
+    - "virtual"
+    - "generated"
+  # A special-purpose layer value.
+  layer: "A"
+  
+  # Reference to the transformation to be applied.
+  transformation:
+    namespace: "partial_state_set_transformation"
+    name: "partial_state_set_transformation_1"
+
+  # A list of source Partial State Sets by namespace and name.
+  partial_state_sets:
+    - partial_state_set:
+        namespace: "partial_state_set"
+        name: "partial_state_set_1"
+    - partial_state_set:
+        namespace: "partial_state_set"
+        name: "partial_state_set_2"
