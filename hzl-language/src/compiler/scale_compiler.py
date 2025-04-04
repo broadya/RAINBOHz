@@ -57,7 +57,7 @@ def compile_scale(scale_data: dict) -> dict:
         raise ValueError("Scale file must contain a 'notes' list with at least one note.")
     
     partial_states = []
-    i=1
+    i=0
     for note_entry in notes:
         # Each note_entry must have a 'note' key.
         if "note" not in note_entry:

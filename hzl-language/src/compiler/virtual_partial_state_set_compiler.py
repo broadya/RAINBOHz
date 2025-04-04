@@ -144,6 +144,7 @@ def transform_flattened_cartesian_product(transformation: Dict[str, Any],
     setA = source_sets[0].get("partial_states", [])
     setB = source_sets[1].get("partial_states", [])
 
+    i=0
     for a_item in setA:
         partialA = a_item.get("partial_state", {})
         validate_partial(partialA)
@@ -151,6 +152,8 @@ def transform_flattened_cartesian_product(transformation: Dict[str, Any],
             partialB = b_item.get("partial_state", {})
             validate_partial(partialB)
             combined = transform_partial_pair(partialA, partialB)
+            combined["partial_index"]=i
+            i=i+1
             output_partials.append({"partial_state": combined})
 
     # Combine labels from both source sets and transformation (as a set).
