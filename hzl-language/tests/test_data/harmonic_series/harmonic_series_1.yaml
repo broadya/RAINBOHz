@@ -1,0 +1,15 @@
+harmonic_series:
+  name: "harmonic_series_1"
+  namespace: "harmonic_series"
+  layer: "0: basic"
+  labels:
+    - "harmonic"
+    - "standard"
+  base_frequency: 1
+  number_of_harmonics: 100
+  frequency_expression: "harmonic_index"       # Each harmonic is a multiple of the base frequency.
+  amplitude_expression: "1 / harmonic_index"     # Amplitude decreases with harmonic index.
+  phase: 0
+  azimuth: 0
+  elevation: 0
+  distance: 1

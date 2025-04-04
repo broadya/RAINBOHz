@@ -14,8 +14,8 @@ partial_state_set:
         frequency: 440.0
         phase: 0.0
         amplitude: 0.8
-        azimuth: 0.0
-        elevation: 0.1
+        azimuth: 0
+        elevation: 0
         distance: 1.0
         pan: 0.0
     - partial_state:

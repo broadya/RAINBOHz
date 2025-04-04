@@ -1,0 +1,26 @@
+scale:
+  language: "hzl_0.0.1_experimental"
+  type: "scale"
+  name: "C_major"
+  namespace: "scales"
+  layer: "default"
+  labels:
+    - "major"
+    - "equal tempered"
+  notes:
+    - note: "C4"
+      frequency: 261.63
+    - note: "D4"
+      frequency: 293.66
+    - note: "E4"
+      frequency: 329.63
+    - note: "F4"
+      frequency: 349.23
+    - note: "G4"
+      frequency: 392.00
+    - note: "A4"
+      frequency: 440.00
+    - note: "B4"
+      frequency: 493.88
+    - note: "C5"
+      frequency: 523.25

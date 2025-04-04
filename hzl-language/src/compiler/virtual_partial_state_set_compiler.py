@@ -11,7 +11,7 @@ import yaml
 from typing import Any, Dict, List
 
 # Import our common helpers.
-from compiler_common import load_yaml_file, get_yaml_file_path, validate_partial
+from compiler_common import load_yaml_file, get_yaml_file_path, validate_partial, save_yaml_file
 
 # Base directory for input YAML files (adjust as needed).
 BASE_DIR = "/Users/alanbroady/Development/RAINBOHz/hzl-language/tests/test_data"
@@ -123,6 +123,11 @@ def transform_partial_pair(partialA: Dict[str, Any], partialB: Dict[str, Any]) -
     else:
         out_partial["distance"] = (distance_A + distance_B) / 2
 
+    # Labels
+    labels_A = set(partialA.get("labels"))
+    labels_B = set(partialB.get("labels"))
+    out_partial["labels"] = list(labels_A | labels_B)
+
     return out_partial
 
 def transform_flattened_cartesian_product(transformation: Dict[str, Any],
@@ -203,15 +208,6 @@ def compile_virtual_partial_state_set(vpss_filepath: str) -> Dict[str, Any]:
 
     return compiled_state_set
 
-def write_output(compiled_state_set: Dict[str, Any]) -> None:
-    """Write the compiled Partial State Set to a file in OUTPUT_DIR."""
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    output_name = compiled_state_set["partial_state_set"]["name"] + ".yaml"
-    output_filepath = os.path.join(OUTPUT_DIR, output_name)
-    with open(output_filepath, 'w') as f:
-        yaml.dump(compiled_state_set, f)
-    print(f"Compiled Partial State Set written to {output_filepath}")
-
 def main():
     parser = argparse.ArgumentParser(
         description="Compile a Virtual Partial State Set into a Partial State Set."
@@ -221,7 +217,7 @@ def main():
 
     try:
         compiled_state_set = compile_virtual_partial_state_set(args.input_file)
-        write_output(compiled_state_set)
+        save_yaml_file(compiled_state_set, compiled_state_set["partial_state_set"]["name"] + ".yaml")
     except Exception as e:
         print(f"Error during compilation: {e}")
         sys.exit(1)

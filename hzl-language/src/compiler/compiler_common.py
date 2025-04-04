@@ -8,6 +8,9 @@ import math
 import yaml
 from typing import Any, Dict, Tuple
 
+# Constant output directory for compiled state sets.
+OUTPUT_DIR = "/Users/alanbroady/Development/RAINBOHz/hzl-language/tests/test_output"
+
 # Define allowed ranges with an explicit type annotation.
 ALLOWED_RANGES: Dict[str, Tuple[float, float]] = {
     "frequency": (0, 20000),
@@ -22,6 +25,14 @@ def load_yaml_file(filepath: str) -> Any:
     """Load a YAML file and return its contents."""
     with open(filepath, 'r') as f:
         return yaml.safe_load(f)
+    
+def save_yaml_file(compiled_data: dict, filename) -> None:
+    """Write the compiled partial_state_set YAML file to OUTPUT_DIR."""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    output_filepath = os.path.join(OUTPUT_DIR, filename)
+    with open(output_filepath, 'w') as f:
+        yaml.dump(compiled_data, f)
+    print(f"Compiled YAML written to {output_filepath}")
 
 def get_yaml_file_path(base_dir: str, namespace: str, name: str) -> str:
     """
@@ -59,3 +70,6 @@ def validate_partial(partial: Dict[str, Any]) -> bool:
         if prop in partial and partial[prop] is not None:
             validate_property(prop, partial[prop])
     return True
+
+
+
