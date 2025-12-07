@@ -156,8 +156,8 @@ inline double computeCycleAccumulatorToExactEnd(double startCycleAccumulator, do
 /// @brief Calculates the (normalized) frequency rate to achieve a given cycle accumulator value and
 /// other initial conditions.
 /// @param startCycleAccumulator The initial value of the cycle accumulator.
-/// @param startFrequency The initial frequenct (normalized)
-/// @param endCycleAccumulator THe final value of the cycle accumulator, the target that requires a
+/// @param startFrequency The initial frequency (normalized)
+/// @param endCycleAccumulator The final value of the cycle accumulator, the target that requires a
 /// certain rate.
 /// @param samplesSinceStart The point in time at which the final cycle accumulator value must be
 /// reached.

@@ -356,8 +356,9 @@ void PhysicalEnvelopeGenerator::interpolateControlledPhasePoints() {
 
         // Calculate the phase shift for the current point, if it is not a natural phase point.
         if (!phaseCoordinatesIterator->natural) {
-            proportionalShift = coherenceCompensation(physicalEnvelopePoint.cycleAccumulator,
-                                                      phaseCoordinatesIterator->phase);
+            proportionalShift =
+                coherenceCompensation(physicalEnvelopePoint.cycleAccumulator + cumulativePhaseShift,
+                                      phaseCoordinatesIterator->phase);
         }
 
         if (cumulativePhaseShift != 0.0 || proportionalShift != 0.0) {

@@ -143,7 +143,7 @@ struct AmplitudeEnvelope : public Envelope {
 struct PhaseCoordinate {
    public:
     /// @brief Set a phase coordinate at a certain point in a partial.
-    /// @param time The time of the pahse coordinate, expressed in seconds.
+    /// @param time The time of the phase coordinate, expressed in seconds.
     /// @param value The phase, expressed in radians, in the range [0,2π].
     PhaseCoordinate(double time, double value)
         : timeSeconds(time), timeSamples(secondsToSamples(time)), value(value), natural(false) {

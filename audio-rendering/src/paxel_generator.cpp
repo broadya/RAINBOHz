@@ -50,10 +50,14 @@ std::vector<SamplePaxelInt> PaxelGenerator::renderSinglePaxelAudio(
 
     // Compute the audio for a single paxel.
     std::vector<SamplePaxelInt> samples;
-    samples.resize(kSamplesPerPaxel);  // looks wasteul, but allows parallel sine calculation
+    samples.resize(kSamplesPerPaxel);  // looks wasteul, but allows parallel sine calculation (on
+                                       // compilers with parallel support)
 
     // Generate samples
-    std::transform(std::execution::par, paxelSpecification.paxelSampleSpecifications.begin(),
+    // This had std::execution::par on other C++ compilers. On macOS with clang this is not
+    // supported.
+    // TODO: Decide how to address this issue
+    std::transform(paxelSpecification.paxelSampleSpecifications.begin(),
                    paxelSpecification.paxelSampleSpecifications.end(), samples.begin(),
                    [](const PaxelSampleSpecification& in) {
                        return (std::sin(in.cycleAccumulator) * in.amplitude) * kMaxSamplePaxelInt;

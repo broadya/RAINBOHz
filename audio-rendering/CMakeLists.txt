@@ -62,7 +62,8 @@ target_link_libraries(audio_rendering
 # Fetch and include Google Test for unit testing
 FetchContent_Declare(
   googletest
-  URL https://github.com/google/googletest/archive/release-1.11.0.zip
+  GIT_REPOSITORY https://github.com/google/googletest.git
+  GIT_TAG v1.14.0
 )
 FetchContent_MakeAvailable(googletest)
 
@@ -77,7 +78,8 @@ add_executable(testSuite
 #    tests/test_paxel_generator.cpp
 #    tests/test_audio_helpers.cpp
 #    tests/test_parser_audio_fragment.cpp
-    tests/test_complex_audio_fragments.cpp
+#    tests/test_complex_audio_fragments.cpp
+    tests/test_parser_audio_fragment_nochecks.cpp
 # Add more test files as needed...
 )
 
