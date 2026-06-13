@@ -6,6 +6,7 @@ This module contains common helper functions used by the compiler.
 import os
 import math
 import yaml
+import argparse
 from typing import Any, Dict, Tuple
 
 # Constant output directory for compiled state sets.
@@ -71,5 +72,59 @@ def validate_partial(partial: Dict[str, Any]) -> bool:
             validate_property(prop, partial[prop])
     return True
 
+def init_compiler(
+    tool_description: str
+) -> Tuple[str, str, str, str, Dict[str, Any]]:
+    """
+    Common initialization for compiler scripts.
+    Parses these command-line args:
+      1. input_dir          (base directory for DSL YAML files)
+      2. output_dir         (where generated files go)
+      3. source_namespace   (slash-delimited namespace)
+      4. source_name        (name of the source YAML file, no .yaml)
+
+    Returns:
+      input_dir, output_dir, source_name, source_namespace, source_doc
+    """
+    parser = argparse.ArgumentParser(description=tool_description)
+    parser.add_argument("input_dir",     help="Base directory for input DSL YAML files")
+    parser.add_argument("output_dir",    help="Directory to write output files")
+    parser.add_argument("source_namespace",
+                        help="Namespace of the source (slash-delimited)")
+    parser.add_argument("source_name",   help="Name of the source YAML file (no .yaml)")
+    args = parser.parse_args()
+
+    # Locate the source YAML
+    try:
+        source_path = get_yaml_file_path(
+            args.input_dir,
+            args.source_namespace,
+            args.source_name
+        )
+    except Exception as e:
+        print(f"Error resolving source path: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if not os.path.isfile(source_path):
+        print(f"Error: could not find source file at {source_path}", file=sys.stderr)
+        sys.exit(1)
+
+    # Load the YAML document
+    try:
+        source_doc = load_yaml_file(source_path)
+    except Exception as e:
+        print(f"Error loading YAML from {source_path}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Ensure output dir exists
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    return (
+        args.input_dir,
+        args.output_dir,
+        args.source_namespace,
+        args.source_name,
+        source_doc,
+    )
 
 

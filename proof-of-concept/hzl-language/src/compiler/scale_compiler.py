@@ -78,7 +78,7 @@ def compile_scale(scale_data: dict) -> dict:
                     raise ValueError(f"Validation failed for note '{note_entry['note']}' property '{key}': {e}")
             ps[key] = value
 
-        ps["partial_index"] = i
+        ps["identifier"] = i
         i=i+1
         partial_states.append({"partial_state": ps})
     

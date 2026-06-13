@@ -120,7 +120,7 @@ def compile_harmonic_series(harmonic_series: dict) -> dict:
             # For example:
             validate_property(prop, state[prop])
         # Also add an internal index if needed.
-        state["partial_index"] = i+1
+        state["identifier"] = i+1
         state["labels"] = [f"harmonic {i}"]
         partial_states.append({"partial_state": state})
     

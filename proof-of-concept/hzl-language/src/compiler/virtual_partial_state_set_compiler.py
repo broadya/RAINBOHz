@@ -152,7 +152,7 @@ def transform_flattened_cartesian_product(transformation: Dict[str, Any],
             partialB = b_item.get("partial_state", {})
             validate_partial(partialB)
             combined = transform_partial_pair(partialA, partialB)
-            combined["partial_index"]=i
+            combined["identifier"]=i
             i=i+1
             output_partials.append({"partial_state": combined})
 
