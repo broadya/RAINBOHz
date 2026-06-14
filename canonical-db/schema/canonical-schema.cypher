@@ -1,6 +1,6 @@
 // ============================================================
 // TempoMap: Tempo maps define a directed acyclic graph that
-// acts as the framework for all timing of a Composition.
+// acts as the framework for all timing of a Score.
 //
 // A TempoMap may have more than one TempoMapTimeline.
 // This is often useful to allow for a wall clock timeline to be
@@ -36,7 +36,7 @@ CREATE NODE TABLE TempoMapTimeline (
 );
 
 // ============================================================
-// TempoMapTimelineEvent: An event in a tempo map determines
+// TempoMapTimelinePoint: An point in a tempo map determines
 // the start tempo of the following segment.
 //
 // hold is a BOOLEAN flag that can be used to indicate a fixed
@@ -46,7 +46,7 @@ CREATE NODE TABLE TempoMapTimeline (
 // the next segment start tempo.
 //
 // ============================================================
-CREATE NODE TABLE TempoMapTimelineEvent (
+CREATE NODE TABLE TempoMapTimelinePoint (
     id              SERIAL,
     position        INT64,
     start_tempo     DOUBLE, // BPM
@@ -101,12 +101,13 @@ CREATE NODE TABLE PartialStateSet (
 //   frequency    Hz,      allowed to be outside of audio range and even be negative, but will not be rendered.
 //   phase        rad,     (-PI, PI]
 //   amplitude    dB,      [-150, 0]      (-150 dB ~ -inf sentinel value)
-//   azimuth      rad,     (-PI, PI]      Anticlockwise from front
-//   elevation    rad,     (-PI/2, PI/2]  From horizontal plane
-//   distance     m,       [1, 300]       1m = listener-adjacent, zero delay, avoid divide by zero errors
 //
 //   phase may explicitly take a NULL value, other values may not be NULL.
 //   A NULL value for phase means that the partial runs "free" to this state.
+//
+//  All values are "nominal" because they can be affected by modulators
+//  and in the case of frequency also by phase (phase takes priority where
+//  there is a conflict).
 // ============================================================
 CREATE NODE TABLE PartialState (
     id           SERIAL,   
@@ -134,7 +135,18 @@ CREATE REL TABLE STATE_OF (
 );
 
 // ============================================================
-// Spatial position state at a given point in time.
+// SoundSource: A source, with a point spatial position (albeit a dynamic
+// spatial postion). Can be used to represent a channel e.g. one
+// side of a stereo signal. Can equally be used to represent
+// one given source in a complex spatial audio field.
+// ============================================================
+CREATE NODE TABLE SoundSource (
+    id  SERIAL,
+    PRIMARY KEY(id)
+);
+
+// ============================================================
+// SpatialPositionState: Spatial position state at a given point in time.
 // All numeric ranges enforced by the DSL->canonical compiler,
 // not by the database (LadybugDB has no CHECK constraints).
 //
@@ -182,6 +194,16 @@ CREATE NODE TABLE SoundEntity (
 );
 
 // ============================================================
+// Score: A singleton. The top-level object representing the entire 
+// piece of music. Its relationship to a single NEXT_POINT into the
+// tempo DAG indicates time = 0.
+// ============================================================
+CREATE NODE TABLE Score (
+    id      SERIAL,
+    PRIMARY KEY (id)
+);
+
+// ============================================================
 // PartialSetTimeline: Objects representing a sequence of states
 // and transformations for a particular set of partials.
 // ============================================================
@@ -191,7 +213,7 @@ CREATE NODE TABLE PartialSetTimeline (
 );
 
 // ============================================================
-// PartialSetTimelineEvent: An event within a PartialSetTimeline.
+// PartialSetTimelinePoint: An point within a PartialSetTimeline.
 // Defines the state of the partials for that timeline at a given
 // point in time.
 //
@@ -208,10 +230,10 @@ CREATE NODE TABLE PartialSetTimeline (
 // 1 curve
 //
 // phase_lock determines whether, when phase adjustment takes place, 
-// the phase at the start of this event will be included in the
+// the phase at the start of this point will be included in the
 // adjustment.
 // ============================================================
-CREATE NODE TABLE PartialSetTimelineEvent (
+CREATE NODE TABLE PartialSetTimelinePoint (
     id                      SERIAL,
     amplitude_curve_type    INT8,
     amplitude_curve_amount  FLOAT,
@@ -224,7 +246,7 @@ CREATE NODE TABLE PartialSetTimelineEvent (
 );
 
 // ============================================================
-// SpatialPositionTimelineEvent: An event within a SpatialPositionTimeline.
+// SpatialPositionTimelinePoint: An point within a SpatialPositionTimeline.
 // Defines the spatial position of the related partials for that timeline at a given
 // point in time.
 //
@@ -241,7 +263,7 @@ CREATE NODE TABLE PartialSetTimelineEvent (
 // 1 curve
 //
 // ============================================================
-CREATE NODE TABLE SpatialPositionTimelineEvent (
+CREATE NODE TABLE SpatialPositionTimelinePoint (
     id                      SERIAL,
     azimuth_curve_type      INT8,
     azimuth_curve_amount    FLOAT,
@@ -253,61 +275,61 @@ CREATE NODE TABLE SpatialPositionTimelineEvent (
 );
 
 // ============================================================
-// FrequencyModulatorTimelineEvent: An event within a FrequencyModulatorTimeline.
+// FrequencyModulatorTimelinePoint: An point within a FrequencyModulatorTimeline.
 // Defines the modulator state for that timeline at a given
 // point in time.
 // ============================================================
-CREATE NODE TABLE FrequencyModulatorTimelineEvent (
+CREATE NODE TABLE FrequencyModulatorTimelinePoint (
     id  SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// AmplitudeModulatorTimelineEvent: An event within an AmplitudeModulatorTimeline.
+// AmplitudeModulatorTimelinePoint: An point within an AmplitudeModulatorTimeline.
 // Defines the modulator state for that timeline at a given
 // point in time.
 // ============================================================
-CREATE NODE TABLE AmplitudeModulatorTimelineEvent (
+CREATE NODE TABLE AmplitudeModulatorTimelinePoint (
     id  SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// PhaseModulatorTimelineEvent: An event within a PhaseModulatorTimeline.
+// PhaseModulatorTimelinePoint: An point within a PhaseModulatorTimeline.
 // Defines the modulator state for that timeline at a given
 // point in time.
 // ============================================================
-CREATE NODE TABLE PhaseModulatorTimelineEvent (
+CREATE NODE TABLE PhaseModulatorTimelinePoint (
     id SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// AzimuthModulatorTimelineEvent: An event within an AzimuthModulatorTimeline.
+// AzimuthModulatorTimelinePoint: An point within an AzimuthModulatorTimeline.
 // Defines the modulator state for that timeline at a given
 // point in time.
 // ============================================================
-CREATE NODE TABLE AzimuthModulatorTimelineEvent (
+CREATE NODE TABLE AzimuthModulatorTimelinePoint (
     id SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// ElevationModulatorTimelineEvent: An event within an ElevationModulatorTimeline.
+// ElevationModulatorTimelinePoint: An point within an ElevationModulatorTimeline.
 // Defines the modulator state for that timeline at a given
 // point in time.
 // ============================================================
-CREATE NODE TABLE ElevationModulatorTimelineEvent (
+CREATE NODE TABLE ElevationModulatorTimelinePoint (
     id SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// DistanceModulatorTimelineEvent: An event within a DistanceModulatorTimeline.
+// DistanceModulatorTimelinePoint: An point within a DistanceModulatorTimeline.
 // Defines the modulator state for that timeline at a given
 // point in time.
 // ============================================================
-CREATE NODE TABLE DistanceModulatorTimelineEvent (
+CREATE NODE TABLE DistanceModulatorTimelinePoint (
     id SERIAL,
     PRIMARY KEY (id)
 );
@@ -369,51 +391,52 @@ CREATE NODE TABLE DistanceModulatorTimeline (
 );
 
 // ============================================================
-// NEXT_EVENT: Timelines are linked lists. This REL Defines
+// NEXT_POINT: Timelines are linked lists. This REL Defines
 // those linked lists.
 // ============================================================
-CREATE REL TABLE NEXT_EVENT (
+CREATE REL TABLE NEXT_POINT (
     // Head of the linked lists
-    FROM TempoMapTimeline TO TempoMapTimelineEvent,
-    FROM PartialSetTimeline TO PartialSetTimelineEvent,
-    FROM SpatialPositionTimeline TO SpatialPositionTimelineEvent,
-    FROM FrequencyModulatorTimeline TO FrequencyModulatorTimelineEvent,
-    FROM AmplitudeModulatorTimeline TO AmplitudeModulatorTimelineEvent,
-    FROM PhaseModulatorTimeline TO PhaseModulatorTimelineEvent,
-    FROM AzimuthModulatorTimeline TO AzimuthModulatorTimelineEvent,
-    FROM ElevationModulatorTimeline TO ElevationModulatorTimelineEvent,
-    FROM DistanceModulatorTimeline TO DistanceModulatorTimelineEvent,
+    FROM TempoMapTimeline TO TempoMapTimelinePoint,
+    FROM PartialSetTimeline TO PartialSetTimelinePoint,
+    FROM SpatialPositionTimeline TO SpatialPositionTimelinePoint,
+    FROM FrequencyModulatorTimeline TO FrequencyModulatorTimelinePoint,
+    FROM AmplitudeModulatorTimeline TO AmplitudeModulatorTimelinePoint,
+    FROM PhaseModulatorTimeline TO PhaseModulatorTimelinePoint,
+    FROM AzimuthModulatorTimeline TO AzimuthModulatorTimelinePoint,
+    FROM ElevationModulatorTimeline TO ElevationModulatorTimelinePoint,
+    FROM DistanceModulatorTimeline TO DistanceModulatorTimelinePoint,
+    FROM Score TO TempoMapTimelinePoint, // Defines time = zero
 
     // Further nodes of the linked lists
-    FROM TempoMapTimelineEvent TO TempoMapTimelineEvent,
-    FROM PartialSetTimelineEvent TO PartialSetTimelineEvent,
-    FROM SpatialPositionTimelineEvent TO SpatialPositionTimelineEvent,
-    FROM FrequencyModulatorTimelineEvent TO FrequencyModulatorTimelineEvent,
-    FROM AmplitudeModulatorTimelineEvent TO AmplitudeModulatorTimelineEvent,
-    FROM PhaseModulatorTimelineEvent TO PhaseModulatorTimelineEvent,
-    FROM AzimuthModulatorTimelineEvent TO AzimuthModulatorTimelineEvent,
-    FROM ElevationModulatorTimelineEvent TO ElevationModulatorTimelineEvent,
-    FROM DistanceModulatorTimelineEvent TO DistanceModulatorTimelineEvent,
+    FROM TempoMapTimelinePoint TO TempoMapTimelinePoint,
+    FROM PartialSetTimelinePoint TO PartialSetTimelinePoint,
+    FROM SpatialPositionTimelinePoint TO SpatialPositionTimelinePoint,
+    FROM FrequencyModulatorTimelinePoint TO FrequencyModulatorTimelinePoint,
+    FROM AmplitudeModulatorTimelinePoint TO AmplitudeModulatorTimelinePoint,
+    FROM PhaseModulatorTimelinePoint TO PhaseModulatorTimelinePoint,
+    FROM AzimuthModulatorTimelinePoint TO AzimuthModulatorTimelinePoint,
+    FROM ElevationModulatorTimelinePoint TO ElevationModulatorTimelinePoint,
+    FROM DistanceModulatorTimelinePoint TO DistanceModulatorTimelinePoint,
     ONE_ONE
 );
 
 // ============================================================
-// EVENT_AT: Defines when a Timeline event occurs within a 
+// POINT_AT: Defines when a Timeline point occurs within a 
 // given tempo map.
 //
 // The offset in wall-clock time allows for percussive sounds to have
 // constant length at different tempi. This can also be useful for
 // attack and release portions of other types of sounds.
 // ============================================================
-CREATE REL TABLE EVENT_AT (
-    FROM PartialSetTimelineEvent TO TempoMapTimeline,
-    FROM SpatialPositionTimelineEvent TO TempoMapTimeline,
-    FROM FrequencyModulatorTimelineEvent TO TempoMapTimeline,
-    FROM AmplitudeModulatorTimelineEvent TO TempoMapTimeline,
-    FROM PhaseModulatorTimelineEvent TO TempoMapTimeline,
-    FROM AzimuthModulatorTimelineEvent TO TempoMapTimeline,
-    FROM ElevationModulatorTimelineEvent TO TempoMapTimeline,
-    FROM DistanceModulatorTimelineEvent TO TempoMapTimeline,
+CREATE REL TABLE POINT_AT (
+    FROM PartialSetTimelinePoint TO TempoMapTimeline,
+    FROM SpatialPositionTimelinePoint TO TempoMapTimeline,
+    FROM FrequencyModulatorTimelinePoint TO TempoMapTimeline,
+    FROM AmplitudeModulatorTimelinePoint TO TempoMapTimeline,
+    FROM PhaseModulatorTimelinePoint TO TempoMapTimeline,
+    FROM AzimuthModulatorTimelinePoint TO TempoMapTimeline,
+    FROM ElevationModulatorTimelinePoint TO TempoMapTimeline,
+    FROM DistanceModulatorTimelinePoint TO TempoMapTimeline,
     sync_point INT64, // position in the TempoMapTimeline in units of ticks for that timeline, > 0 
     offset_seconds FLOAT,  // offset in wall clock time.
     MANY_ONE
@@ -426,11 +449,11 @@ CREATE REL TABLE EVENT_AT (
 // ============================================================
 CREATE REL TABLE HAS_TIMELINE (
     FROM TempoMap TO TempoMapTimeline,
-    FROM SoundEntity TO SpatialPositionTimeline,
-    FROM SpatialPositionTimeline TO PartialSetTimeline,
-    FROM SpatialPositionTimeline TO AzimuthModulatorTimeline,
-    FROM SpatialPositionTimeline TO ElevationModulatorTimeline,
-    FROM SpatialPositionTimeline TO DistanceModulatorTimeline,
+    FROM SoundSource TO SpatialPositionTimeline,
+    FROM PartialSet TO PartialSetTimeline,
+    FROM SoundSource TO AzimuthModulatorTimeline,
+    FROM SoundSource TO ElevationModulatorTimeline,
+    FROM SoundSource TO DistanceModulatorTimeline,
     FROM PartialSet TO FrequencyModulatorTimeline,
     FROM PartialSet TO AmplitudeModulatorTimeline,
     FROM PartialSet TO PhaseModulatorTimeline,
@@ -568,28 +591,42 @@ CREATE NODE TABLE DistanceModulatorState (
 );
 
 // ============================================================
-// EVENT_STATE: Defines the state of a given event on a timeline.
+// POINT_STATE: Defines the state of a given point on a timeline.
 // ============================================================
-CREATE REL TABLE EVENT_STATE (
-    FROM SpatialPositionTimelineEvent TO SpatialPositionState,
-    FROM PartialSetTimelineEvent TO PartialStateSet,
-    FROM FrequencyModulatorTimelineEvent TO FrequencyModulatorState,
-    FROM AmplitudeModulatorTimelineEvent TO AmplitudeModulatorState,
-    FROM PhaseModulatorTimelineEvent TO PhaseModulatorState,
-    FROM AzimuthModulatorTimelineEvent TO AzimuthModulatorState,
-    FROM ElevationModulatorTimelineEvent TO ElevationModulatorState,
-    FROM DistanceModulatorTimelineEvent TO DistanceModulatorState,
+CREATE REL TABLE POINT_STATE (
+    FROM SpatialPositionTimelinePoint TO SpatialPositionState,
+    FROM PartialSetTimelinePoint TO PartialStateSet,
+    FROM FrequencyModulatorTimelinePoint TO FrequencyModulatorState,
+    FROM AmplitudeModulatorTimelinePoint TO AmplitudeModulatorState,
+    FROM PhaseModulatorTimelinePoint TO PhaseModulatorState,
+    FROM AzimuthModulatorTimelinePoint TO AzimuthModulatorState,
+    FROM ElevationModulatorTimelinePoint TO ElevationModulatorState,
+    FROM DistanceModulatorTimelinePoint TO DistanceModulatorState,
     MANY_ONE
 );
 
 // ============================================================
-// HAS_LABEL: Various types can be annotated with labels
+// HAS_LABEL: Various classes can be annotated with labels
 // ============================================================
 CREATE REL TABLE HAS_LABEL (
-    FROM SpatialPositionTimeline TO Label,
+    FROM SoundSource TO Label,
     FROM TempoMap TO Label,
     FROM PartialSet TO Label,
+    FROM SoundEntity TO Label,
     MANY_MANY
 );
+
+// ============================================================
+// AGGREGATE_OF: General object-oriented design concept of 
+// aggregation.
+// ============================================================
+CREATE REL TABLE AGGREGATE_OF_MANY_MANY (
+    FROM SoundEntity TO SoundSource,
+    FROM SoundSource TO PartialSet,
+    FROM Score TO SoundEntity,
+    MANY_MANY
+);
+
+
 
 
