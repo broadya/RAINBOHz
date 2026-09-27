@@ -1,11 +1,12 @@
 partial_state_set_transformation:
+  hzl_version: "hzl_0.0.1_experimental"
+  hzl_type: "partial_state_set_transformation"
   name: "partial_state_set_transformation_1"
   namespace: "partial_state_set_transformation"
   labels:
     - "transformation"
     - "flattened_cartesian_product"
   layer: "A"
-  transformations:
-    - transformation:
-        type: "Flattened Cartesian Product"
+  transformation:
+    transformation_type: "Flattened Cartesian Product"
         # No additional parameters for this type.

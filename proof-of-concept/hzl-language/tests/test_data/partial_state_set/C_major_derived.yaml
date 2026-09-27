@@ -1,0 +1,49 @@
+partial_state_set:
+  labels:
+  - major
+  - diatonic
+  layer: default
+  name: C_major_derived
+  # Optional namespace for grouping or disambiguation.
+  namespace: "partial_state_set"
+  partial_states:
+  - partial_state:
+      frequency: 261.63
+      labels:
+      - C4
+      identifier: 1
+  - partial_state:
+      frequency: 293.66
+      labels:
+      - D4
+      identifier: 2
+  - partial_state:
+      frequency: 329.63
+      labels:
+      - E4
+      identifier: 3
+  - partial_state:
+      frequency: 349.23
+      labels:
+      - F4
+      identifier: 4
+  - partial_state:
+      frequency: 392.0
+      labels:
+      - G4
+      identifier: 5
+  - partial_state:
+      frequency: 440.0
+      labels:
+      - A4
+      identifier: 6
+  - partial_state:
+      frequency: 493.88
+      labels:
+      - B4
+      identifier: 7
+  - partial_state:
+      frequency: 523.25
+      labels:
+      - C5
+      identifier: 8

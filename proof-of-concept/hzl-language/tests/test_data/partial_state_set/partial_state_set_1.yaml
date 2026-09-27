@@ -18,8 +18,15 @@ partial_state_set:
         elevation: 0
         distance: 1.0
         pan: 0.0
+        identifier: "0"
+        labels:
+          - "X"
     - partial_state:
         frequency: 220.0
         phase: null  # Use natural phase here.
         amplitude: 0.6
         pan: -0.25
+        identifier: "1"
+        labels:
+          - "X"
+          - "Y"

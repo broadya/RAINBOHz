@@ -1,0 +1,11 @@
+partial_state_set_transformation:
+  hzl_version: "hzl_0.0.1_experimental"
+  hzl_type: "partial_state_set_transformation"
+  name: "partial_state_set_transformation_2"
+  namespace: "partial_state_set_transformation"
+  labels:
+    - "transformation"
+    - "update"
+  layer: "A"
+  transformations:
+    type: "Update" # No additional parameters for this type.

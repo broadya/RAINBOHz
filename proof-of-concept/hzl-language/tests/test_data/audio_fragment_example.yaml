@@ -3,40 +3,43 @@ audio_fragment:
     - "Lead"
     - "Pad"
   start_time: 0.0
-  guid: "123e4567-e89b-12d3-a456-426614174000"
   name: "SynthEnvelopeSet"
 
   partials:
-    - guid: "123e4567-e89b-12d3-a456-426614174001"
-      amplitude_envelope:
-        levels: [0.0, 0.8, 1.0, 0.0]
-        times: [0.0, 0.5, 1.0, 1.5]  # times in seconds
-        curves:
-          - type: lin
-          - type: exp
-          - type: sine
-          - type: lin
+    - partial:
+        envelope_identifiers:
+        - [0,1,2]
+        - [1,2,3]
 
-      frequency_envelope:
-        levels: [440.0, 880.0, 660.0, 440.0]
-        times: [0.0, 0.5, 1.0, 1.5]
-        curves:
-          - type: lin
-          - type: sine
-          - type: lin
-          - type: lin
+        amplitude_envelope:
+          levels: [0.0, 0.8, 1.0, 0.0]
+          times: [0.0, 0.5, 1.0, 1.5]  # times in seconds
+          curves:
+            - type: lin
+            - type: exp
+            - type: sine
+            - type: lin
 
-      phase_coordinates:
-        coordinates:
-          - time: 0.0
-            value: 0.0
-            natural: false
-          - time: 0.75
-            value: 3.14  # π radians
-            natural: false
-          - time: 1.5
-            value: 0.0
-            natural: true
+        frequency_envelope:
+          levels: [440.0, 880.0, 660.0, 440.0]
+          times: [0.0, 0.5, 1.0, 1.5]
+          curves:
+            - type: lin
+            - type: sine
+            - type: lin
+            - type: lin
+
+        phase_coordinates:
+          coordinates:
+            - time: 0.0
+              value: 0.0
+              natural: false
+            - time: 0.75
+              value: 3.14  # π radians
+              natural: false
+            - time: 1.5
+              value: 0.0
+              natural: true
 
     - guid: "123e4567-e89b-12d3-a456-426614174002"
       amplitude_envelope:

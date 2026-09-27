@@ -1,0 +1,28 @@
+envelope:
+  hzl_version: "hzl_0.0.1_experimental"
+  hzl_type: "envelope"
+  name: "envelope_2"
+  namespace: "envelopes"
+  layer: "0: base"
+  labels:
+    - "synth"
+    - "experimental"
+  
+  # Reference to the starting partial state set.
+  initial_partial_state_set:
+    namespace: "partial_state_set"
+    name: "partial_state_set_1"
+
+  envelope_stages:
+    - envelope_stage:
+        time: 5.0
+        curve: "lin"           # Placeholder for the curve type.
+        envelope_transforms:
+          - envelope_transform:
+              filter: ".*"  # Example regex
+              transformation:
+                namespace: "partial_state_set_transformation"
+                name: partial_state_set_transformation_2"
+              source_partial_state_set:
+                namespace: "partial_state_set"
+                name: "partial_state_set_3"

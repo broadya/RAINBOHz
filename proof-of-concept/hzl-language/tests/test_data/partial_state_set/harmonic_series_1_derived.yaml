@@ -1,0 +1,218 @@
+partial_state_set:
+  labels:
+  - harmonic
+  - standard
+  layer: '0: basic'
+  name: harmonic_series_1_derived
+  namespace: partial_state_set
+  partial_states:
+  - partial_state:
+      amplitude: 1.0
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 1.0
+      labels:
+      - harmonic 0
+      identifier: 1
+      phase: 0
+  - partial_state:
+      amplitude: 0.5
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 2.0
+      labels:
+      - harmonic 1
+      identifier: 2
+      phase: 0
+  - partial_state:
+      amplitude: 0.3333333333333333
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 3.0
+      labels:
+      - harmonic 2
+      identifier: 3
+      phase: 0
+  - partial_state:
+      amplitude: 0.25
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 4.0
+      labels:
+      - harmonic 3
+      identifier: 4
+      phase: 0
+  - partial_state:
+      amplitude: 0.2
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 5.0
+      labels:
+      - harmonic 4
+      identifier: 5
+      phase: 0
+  - partial_state:
+      amplitude: 0.16666666666666666
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 6.0
+      labels:
+      - harmonic 5
+      identifier: 6
+      phase: 0
+  - partial_state:
+      amplitude: 0.14285714285714285
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 7.0
+      labels:
+      - harmonic 6
+      identifier: 7
+      phase: 0
+  - partial_state:
+      amplitude: 0.125
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 8.0
+      labels:
+      - harmonic 7
+      identifier: 8
+      phase: 0
+  - partial_state:
+      amplitude: 0.1111111111111111
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 9.0
+      labels:
+      - harmonic 8
+      identifier: 9
+      phase: 0
+  - partial_state:
+      amplitude: 0.1
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 10.0
+      labels:
+      - harmonic 9
+      identifier: 10
+      phase: 0
+  - partial_state:
+      amplitude: 0.09090909090909091
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 11.0
+      labels:
+      - harmonic 10
+      identifier: 11
+      phase: 0
+  - partial_state:
+      amplitude: 0.08333333333333333
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 12.0
+      labels:
+      - harmonic 11
+      identifier: 12
+      phase: 0
+  - partial_state:
+      amplitude: 0.07692307692307693
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 13.0
+      labels:
+      - harmonic 12
+      identifier: 13
+      phase: 0
+  - partial_state:
+      amplitude: 0.07142857142857142
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 14.0
+      labels:
+      - harmonic 13
+      identifier: 14
+      phase: 0
+  - partial_state:
+      amplitude: 0.06666666666666667
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 15.0
+      labels:
+      - harmonic 14
+      identifier: 15
+      phase: 0
+  - partial_state:
+      amplitude: 0.0625
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 16.0
+      labels:
+      - harmonic 15
+      identifier: 16
+      phase: 0
+  - partial_state:
+      amplitude: 0.058823529411764705
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 17.0
+      labels:
+      - harmonic 16
+      identifier: 17
+      phase: 0
+  - partial_state:
+      amplitude: 0.05555555555555555
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 18.0
+      labels:
+      - harmonic 17
+      identifier: 18
+      phase: 0
+  - partial_state:
+      amplitude: 0.05263157894736842
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 19.0
+      labels:
+      - harmonic 18
+      identifier: 19
+      phase: 0
+  - partial_state:
+      amplitude: 0.05
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 20.0
+      labels:
+      - harmonic 19
+      identifier: 20
+      phase: 0
+  - partial_state:
+      amplitude: 0.047619047619047616
+      azimuth: 0
+      distance: 1
+      elevation: 0
+      frequency: 21.0
+      labels:
+      - harmonic 20
+      identifier: 21
+      phase: 0
