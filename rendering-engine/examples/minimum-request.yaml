@@ -1,0 +1,17 @@
+# Render request for rendering-engine in test mode.
+#
+# `make run-rendering-engine` passes this as --request, beside
+# engine-db/examples/minimum-score.cypher as --state. That score holds no
+# labels, so every frame here renders all partials; a label named here would
+# be refused as unknown.
+#
+#   frames:               the frames to render, one WAV file each
+#     - frame: <n>        an integer, 0 or greater (0 is the first frame);
+#                         each frame at most once
+#       labels: [a, b]    optional; only partials carrying these labels.
+#                         Omitted or [] means every partial.
+
+frames:
+  - frame: 0
+  - frame: 1
+    labels: []

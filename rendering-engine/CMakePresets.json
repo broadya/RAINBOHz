@@ -1,0 +1,170 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
+
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "installDir": "${sourceDir}/build/${presetName}/stage",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "RE_BUILD_TESTS": "ON"
+      }
+    },
+
+    {
+      "name": "clang",
+      "hidden": true,
+      "inherits": "base",
+      "description": "Pins the compiler to clang, per README.md. Explicit rather than inherited from the environment: a stale CC/CXX export must not silently change what this project is built with.",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    },
+
+    {
+      "name": "debug",
+      "hidden": true,
+      "inherits": "clang",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "release",
+      "hidden": true,
+      "inherits": "clang",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    },
+
+    {
+      "name": "cross-base",
+      "hidden": true,
+      "inherits": "base",
+      "description": "Cross builds take their compiler from the toolchain file, so the clang pin above must not be inherited here.",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "RE_BUILD_TESTS": "OFF"
+      }
+    },
+
+    {
+      "name": "macos-debug",
+      "displayName": "macOS arm64 - Debug",
+      "description": "Local development build. Apple clang, host architecture.",
+      "inherits": "debug",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
+    },
+    {
+      "name": "macos-release",
+      "displayName": "macOS arm64 - RelWithDebInfo",
+      "inherits": "release",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
+    },
+    {
+      "name": "macos-asan",
+      "displayName": "macOS arm64 - Debug + ASan/UBSan",
+      "description": "Address and undefined-behaviour sanitizers. Use before trusting any change to memory-owning code.",
+      "inherits": "debug",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": {
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
+      }
+    },
+
+    {
+      "name": "linux-debug",
+      "displayName": "Linux (host arch) - Debug",
+      "description": "Native Linux build. Same preset serves arm64 (Graviton) and x86_64; the architecture comes from the host.",
+      "inherits": "debug",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "linux-release",
+      "displayName": "Linux (host arch) - RelWithDebInfo",
+      "inherits": "release",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+
+    {
+      "name": "windows-debug",
+      "displayName": "Windows x64 - Debug (MSVC)",
+      "description": "Run from a Developer Command Prompt so that cl.exe is on PATH.",
+      "inherits": "debug",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": { "CMAKE_CXX_COMPILER": "cl" }
+    },
+    {
+      "name": "windows-release",
+      "displayName": "Windows x64 - RelWithDebInfo (MSVC)",
+      "inherits": "release",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": { "CMAKE_CXX_COMPILER": "cl" }
+    },
+
+    {
+      "name": "linux-aarch64-cross",
+      "displayName": "Cross-compile -> Linux arm64 (Graviton)",
+      "description": "Requires a sysroot. Pass -DRE_SYSROOT=/path/to/aarch64-sysroot. See cmake/toolchains/linux-aarch64.cmake.",
+      "inherits": "cross-base",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/linux-aarch64.cmake"
+    },
+    {
+      "name": "linux-x86_64-cross",
+      "displayName": "Cross-compile -> Linux x86_64",
+      "description": "Requires a sysroot. Pass -DRE_SYSROOT=/path/to/x86_64-sysroot.",
+      "inherits": "cross-base",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/linux-x86_64.cmake"
+    }
+  ],
+
+  "buildPresets": [
+    { "name": "macos-debug",   "configurePreset": "macos-debug" },
+    { "name": "macos-release", "configurePreset": "macos-release" },
+    { "name": "macos-asan",    "configurePreset": "macos-asan" },
+    { "name": "linux-debug",   "configurePreset": "linux-debug" },
+    { "name": "linux-release", "configurePreset": "linux-release" },
+    { "name": "windows-debug",   "configurePreset": "windows-debug" },
+    { "name": "windows-release", "configurePreset": "windows-release" },
+    { "name": "linux-aarch64-cross", "configurePreset": "linux-aarch64-cross" },
+    { "name": "linux-x86_64-cross",  "configurePreset": "linux-x86_64-cross" }
+  ],
+
+  "testPresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+    },
+    { "name": "macos-debug",   "inherits": "base", "configurePreset": "macos-debug" },
+    { "name": "macos-release", "inherits": "base", "configurePreset": "macos-release" },
+    { "name": "macos-asan",    "inherits": "base", "configurePreset": "macos-asan" },
+    { "name": "linux-debug",   "inherits": "base", "configurePreset": "linux-debug" },
+    { "name": "linux-release", "inherits": "base", "configurePreset": "linux-release" },
+    { "name": "windows-debug",   "inherits": "base", "configurePreset": "windows-debug" },
+    { "name": "windows-release", "inherits": "base", "configurePreset": "windows-release" }
+  ],
+
+  "workflowPresets": [
+    {
+      "name": "macos-debug",
+      "steps": [
+        { "type": "configure", "name": "macos-debug" },
+        { "type": "build",     "name": "macos-debug" },
+        { "type": "test",      "name": "macos-debug" }
+      ]
+    },
+    {
+      "name": "linux-release",
+      "steps": [
+        { "type": "configure", "name": "linux-release" },
+        { "type": "build",     "name": "linux-release" },
+        { "type": "test",      "name": "linux-release" }
+      ]
+    }
+  ]
+}

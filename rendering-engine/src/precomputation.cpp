@@ -1,0 +1,818 @@
+#include "rainbohz/rendering_engine/precomputation.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <optional>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+/// @file
+/// @brief Precomputes every partial's integrable segments and frame scope.
+///
+/// Implements the stages of docs/precomputation.md for the core frequency
+/// envelope: read the inputs, gather boundaries, build one segment per pair of
+/// consecutive boundaries, integrate phase through them, and write the result.
+/// The file is organised in that order:
+///
+///   - fixed Cypher queries, prepared once by EngineDb and always bound with
+///     parameters;
+///   - a bulk read of every partial's inputs before any partial is processed,
+///     including the amplitude timelines the frame entries lead into;
+///   - validation helpers;
+///   - the per-partial write, which replaces earlier output in one
+///     transaction, so a rerun is idempotent and a failure leaves the
+///     previous output in place;
+///   - the pure stages, which are testable without a database;
+///   - precomputeAll(), which processes partials independently: a partial
+///     that fails is recorded in the report and does not stop the others.
+///
+/// Section numbers in comments refer to docs/precomputation.md. The phase
+/// maths itself is shared with rendering and lives in segment_maths.hpp.
+///
+/// @see precomputation.hpp
+
+namespace rainbohz::rendering_engine {
+
+namespace {
+
+// ---------------------------------------------------------------------------
+// Queries
+//
+// Every statement is a fixed string, so that EngineDb prepares it once and
+// reuses it for every partial and every segment. Values are always bound as
+// parameters, never spliced into the text.
+// ---------------------------------------------------------------------------
+
+constexpr std::string_view kReadConfig = "MATCH (c:EngineConfig) RETURN c.frameSize, c.sampleRate;";
+
+constexpr std::string_view kReadPartials = "MATCH (p:Partial) RETURN p.id, p.name ORDER BY p.id;";
+
+// One row per FrequencyTimeline, with the head of its point list, or NULL
+// when the timeline has no points.
+constexpr std::string_view kReadFrequencyHeads =
+    "MATCH (p:Partial)-[:HAS_TIMELINE]->(t:FrequencyTimeline) "
+    "OPTIONAL MATCH (t)-[:NEXT_POINT]->(f:FrequencyTimelinePoint) "
+    "RETURN p.id, f.id;";
+
+constexpr std::string_view kReadFrequencyPoints =
+    "MATCH (f:FrequencyTimelinePoint) "
+    "RETURN f.id, f.time, f.frequency, f.frequency_curve_type;";
+
+constexpr std::string_view kReadFrequencyLinks =
+    "MATCH (a:FrequencyTimelinePoint)-[:NEXT_POINT]->(b:FrequencyTimelinePoint) "
+    "RETURN a.id, b.id;";
+
+// The amplitude timeline is read for its times only, so that the frame
+// entries of §6.7 can lead into it; its values are rendering's concern.
+constexpr std::string_view kReadAmplitudeHeads =
+    "MATCH (p:Partial)-[:HAS_TIMELINE]->(t:AmplitudeTimeline) "
+    "OPTIONAL MATCH (t)-[:NEXT_POINT]->(a:AmplitudeTimelinePoint) "
+    "RETURN p.id, a.id;";
+
+constexpr std::string_view kReadAmplitudePoints =
+    "MATCH (a:AmplitudeTimelinePoint) RETURN a.id, a.time;";
+
+constexpr std::string_view kReadAmplitudeLinks =
+    "MATCH (a:AmplitudeTimelinePoint)-[:NEXT_POINT]->(b:AmplitudeTimelinePoint) "
+    "RETURN a.id, b.id;";
+
+// Output from an earlier run, which is deleted before the new output is
+// written.
+constexpr std::string_view kReadExistingTimelines =
+    "MATCH (p:Partial)-[:HAS_TIMELINE]->(t:PartialSegmentTimeline) "
+    "OPTIONAL MATCH (t)-[:NEXT_POINT]->(s:PartialIntegrableSegment) "
+    "RETURN p.id, t.id, s.id;";
+
+constexpr std::string_view kReadSegmentLinks =
+    "MATCH (a:PartialIntegrableSegment)-[:NEXT_POINT]->(b:PartialIntegrableSegment) "
+    "RETURN a.id, b.id;";
+
+constexpr std::string_view kDeleteNominalOfSegment =
+    "MATCH (s:PartialIntegrableSegment)-[:SEGMENT_TO_FREQUENCY_NOMINAL]->"
+    "(n:PartialSegmentNominalFrequency) WHERE s.id = $segment DETACH DELETE n;";
+
+constexpr std::string_view kDeleteSegment =
+    "MATCH (s:PartialIntegrableSegment) WHERE s.id = $segment DETACH DELETE s;";
+
+constexpr std::string_view kDeleteTimeline =
+    "MATCH (t:PartialSegmentTimeline) WHERE t.id = $timeline DETACH DELETE t;";
+
+constexpr std::string_view kDeleteFrameScope =
+    "MATCH (p:Partial)-[r:PARTIAL_IN_FRAME]->(:Frame) WHERE p.id = $partial DELETE r;";
+
+// Deleting a segment removes the FRAME_ENTRY_TIMELINE edges into it, but the
+// FrameEntry nodes themselves, and their other edges, are the partial's
+// output too and go explicitly (§10).
+constexpr std::string_view kDeleteFrameEntries =
+    "MATCH (e:FrameEntry)-[:FRAME_ENTRY_PARTIAL]->(p:Partial) WHERE p.id = $partial "
+    "DETACH DELETE e;";
+
+constexpr std::string_view kCreateTimeline =
+    "MATCH (p:Partial) WHERE p.id = $partial "
+    "CREATE (p)-[:HAS_TIMELINE]->(t:PartialSegmentTimeline) RETURN t.id;";
+
+// Frame numbers are INT32 in the schema; range() yields INT64.
+constexpr std::string_view kCreateFrameScope = "MATCH (p:Partial) WHERE p.id = $partial "
+                                               "UNWIND range($first, $last) AS k "
+                                               "MERGE (f:Frame {frame_number: CAST(k AS INT32)}) "
+                                               "CREATE (p)-[:PARTIAL_IN_FRAME]->(f);";
+
+// One FrameEntry with its four edges, from the frame number and the ids of
+// the two list nodes it leads to (§6.7). One statement per frame; UNWIND over
+// a list parameter is the batching path if the count ever shows in a profile
+// (§10). The Frame node exists: kCreateFrameScope has just merged it.
+constexpr std::string_view kCreateFrameEntry =
+    "MATCH (f:Frame), (p:Partial), (s:PartialIntegrableSegment), (a:AmplitudeTimelinePoint) "
+    "WHERE f.frame_number = CAST($frame AS INT32) AND p.id = $partial "
+    "AND s.id = $segment AND a.id = $point "
+    "CREATE (f)-[:FRAME_ENTRY]->(e:FrameEntry)-[:FRAME_ENTRY_PARTIAL]->(p), "
+    "(e)-[:FRAME_ENTRY_TIMELINE]->(s), (e)-[:FRAME_ENTRY_TIMELINE]->(a) "
+    "RETURN e.id;";
+
+/// The statement that creates one segment and its nominal frequency, linked
+/// from the node before it in the chain.
+///
+/// There are four variants, from two choices: what the segment is linked from
+/// (the timeline node, or the previous segment), and whether its nominal
+/// frequency has a linear component. Curve properties are never written, so
+/// they are NULL, as §5 requires. Each variant is a fixed string, so EngineDb
+/// prepares each once.
+///
+/// @param afterTimeline  True for the first segment, linked from the
+///                       PartialSegmentTimeline; false for the others, linked
+///                       from the previous PartialIntegrableSegment.
+/// @param linear         Whether to write linear_gradient, and
+///                       linear_component true; otherwise linear_component is
+///                       false and linear_gradient NULL.
+/// @return The statement. It binds $previous, $startTime, $endTime,
+///         $startPhase, $startFrequency, and, when `linear`, $linearGradient;
+///         and returns the new segment's id.
+const std::string& createSegmentStatement(bool afterTimeline, bool linear) {
+    const auto build = [](bool fromTimeline, bool withLinear) {
+        std::string cypher = fromTimeline ? "MATCH (prev:PartialSegmentTimeline) "
+                                          : "MATCH (prev:PartialIntegrableSegment) ";
+        cypher += "WHERE prev.id = $previous "
+                  "CREATE (prev)-[:NEXT_POINT]->(s:PartialIntegrableSegment {"
+                  "start_time: $startTime, end_time: $endTime, start_phase: $startPhase"
+                  "})-[:SEGMENT_TO_FREQUENCY_NOMINAL]->(:PartialSegmentNominalFrequency {"
+                  "start_nominal_frequency: $startFrequency, ";
+        cypher += withLinear ? "linear_component: true, linear_gradient: $linearGradient, "
+                             : "linear_component: false, ";
+        cypher += "curve_component: false}) RETURN s.id;";
+        return cypher;
+    };
+    static const std::array<std::array<std::string, 2>, 2> kVariants{{
+        {build(false, false), build(false, true)},
+        {build(true, false), build(true, true)},
+    }};
+    return kVariants[afterTimeline ? 1 : 0][linear ? 1 : 0];
+}
+
+// ---------------------------------------------------------------------------
+// Inputs, as read in bulk before any partial is processed
+// ---------------------------------------------------------------------------
+
+/// A partial's existing PartialSegmentTimeline, from an earlier run.
+struct ExistingTimeline {
+    /// PartialSegmentTimeline.id.
+    std::int64_t timelineId = 0;
+
+    /// Id of its first segment; nullopt when it has none.
+    std::optional<std::int64_t> headSegment;
+};
+
+/// Everything precomputation reads, for every partial at once.
+///
+/// Reading in bulk, with a fixed handful of queries, costs far less than
+/// walking each partial's lists one query per node, and it keeps all reads
+/// ahead of all writes.
+struct Inputs {
+    /// Partial ids and names, in id order.
+    std::vector<std::pair<std::int64_t, std::optional<std::string>>> partials;
+
+    /// For each partial with a FrequencyTimeline, the head of each of its
+    /// FrequencyTimelines' point lists (nullopt for an empty one). The schema
+    /// allows at most one timeline per partial; a second is reported rather
+    /// than assumed away.
+    std::unordered_map<std::int64_t, std::vector<std::optional<std::int64_t>>> frequencyHeads;
+
+    /// Every FrequencyTimelinePoint, by id.
+    std::unordered_map<std::int64_t, FrequencyPointRecord> frequencyPoints;
+
+    /// FrequencyTimelinePoint NEXT_POINT links: id to next id.
+    std::unordered_map<std::int64_t, std::int64_t> frequencyNext;
+
+    /// For each partial with an AmplitudeTimeline, the head of each of its
+    /// AmplitudeTimelines' point lists (nullopt for an empty one).
+    std::unordered_map<std::int64_t, std::vector<std::optional<std::int64_t>>> amplitudeHeads;
+
+    /// Every AmplitudeTimelinePoint, by id: its time only.
+    std::unordered_map<std::int64_t, AmplitudePointRecord> amplitudePoints;
+
+    /// AmplitudeTimelinePoint NEXT_POINT links: id to next id.
+    std::unordered_map<std::int64_t, std::int64_t> amplitudeNext;
+
+    /// For each partial with output from an earlier run, its timelines.
+    std::unordered_map<std::int64_t, std::vector<ExistingTimeline>> existing;
+
+    /// PartialIntegrableSegment NEXT_POINT links: id to next id.
+    std::unordered_map<std::int64_t, std::int64_t> segmentNext;
+};
+
+/// Reads an id-to-id link table from a two-column query.
+///
+/// @param db      Database to read.
+/// @param cypher  A query returning (from id, to id) rows.
+/// @return The links. NEXT_POINT is ONE_ONE, so no id appears twice as a
+///         source. That holds only within the one FROM/TO pair a query reads:
+///         Ladybug counts multiplicity per pair, so a node here can also be
+///         a list head (§7).
+/// @throws EngineDbError  If the query fails or returns a NULL id.
+std::unordered_map<std::int64_t, std::int64_t> readLinks(EngineDb& db, std::string_view cypher) {
+    std::unordered_map<std::int64_t, std::int64_t> links;
+    for (const DbRow& row : db.query(cypher)) {
+        links.emplace(requireInt64(row.at(0)), requireInt64(row.at(1)));
+    }
+    return links;
+}
+
+/// Reads every input precomputation needs.
+///
+/// @param db  Database to read. Not modified.
+/// @return The inputs of every partial.
+/// @throws EngineDbError  If any query fails or returns a value of an
+///         unexpected type.
+Inputs readInputs(EngineDb& db) {
+    Inputs inputs;
+
+    for (const DbRow& row : db.query(kReadPartials)) {
+        inputs.partials.emplace_back(requireInt64(row.at(0)), optionalString(row.at(1)));
+    }
+
+    for (const DbRow& row : db.query(kReadFrequencyHeads)) {
+        inputs.frequencyHeads[requireInt64(row.at(0))].push_back(optionalInt64(row.at(1)));
+    }
+
+    for (const DbRow& row : db.query(kReadFrequencyPoints)) {
+        const FrequencyPointRecord point{
+            .id = requireInt64(row.at(0)),
+            .time = optionalDouble(row.at(1)),
+            .frequency = optionalDouble(row.at(2)),
+            .curveType = optionalInt64(row.at(3)),
+        };
+        inputs.frequencyPoints.emplace(point.id, point);
+    }
+
+    inputs.frequencyNext = readLinks(db, kReadFrequencyLinks);
+
+    for (const DbRow& row : db.query(kReadAmplitudeHeads)) {
+        inputs.amplitudeHeads[requireInt64(row.at(0))].push_back(optionalInt64(row.at(1)));
+    }
+
+    for (const DbRow& row : db.query(kReadAmplitudePoints)) {
+        const AmplitudePointRecord point{
+            .id = requireInt64(row.at(0)),
+            .time = optionalDouble(row.at(1)),
+        };
+        inputs.amplitudePoints.emplace(point.id, point);
+    }
+
+    inputs.amplitudeNext = readLinks(db, kReadAmplitudeLinks);
+
+    for (const DbRow& row : db.query(kReadExistingTimelines)) {
+        inputs.existing[requireInt64(row.at(0))].push_back(ExistingTimeline{
+            .timelineId = requireInt64(row.at(1)),
+            .headSegment = optionalInt64(row.at(2)),
+        });
+    }
+
+    inputs.segmentNext = readLinks(db, kReadSegmentLinks);
+
+    return inputs;
+}
+
+// ---------------------------------------------------------------------------
+// Validation helpers
+// ---------------------------------------------------------------------------
+
+/// Formats a double for an error message, with enough digits to identify it.
+///
+/// @param value  Any value, including non-finite ones.
+/// @return The value in the shortest form that round-trips, e.g. "48000" or
+///         "0.1".
+std::string formatNumber(double value) {
+    std::ostringstream out;
+    out.precision(std::numeric_limits<double>::max_digits10);
+    out << value;
+    return out.str();
+}
+
+/// Throws a PartialPrecomputationError about the point at `index`.
+///
+/// @param timeline  The list the point is on, e.g. "FrequencyTimeline".
+/// @param index     Position of the point in its timeline, from 0.
+/// @param reason    What is wrong with it.
+/// @throws PartialPrecomputationError  Always.
+[[noreturn]] void failAtPoint(
+    std::string_view timeline, std::size_t index, const std::string& reason) {
+    throw PartialPrecomputationError{
+        std::string{timeline} + " point " + std::to_string(index) + ": " + reason};
+}
+
+/// Reads a required, finite value of a point.
+///
+/// @param value     The property as read.
+/// @param timeline  The list the point is on, for the error message.
+/// @param index     Position of the point in its timeline, from 0.
+/// @param name      Property name, for the error message.
+/// @return The value.
+/// @throws PartialPrecomputationError  If `value` is NULL or not finite.
+double requireFinite(const std::optional<double>& value, std::string_view timeline,
+    std::size_t index, std::string_view name) {
+    if (!value.has_value()) {
+        failAtPoint(timeline, index, std::string{name} + " is NULL");
+    }
+    if (!std::isfinite(*value)) {
+        failAtPoint(timeline, index,
+            std::string{name} + " is " + formatNumber(*value) + ", which is not finite");
+    }
+    return *value;
+}
+
+constexpr std::string_view kFrequencyList = "FrequencyTimeline";
+constexpr std::string_view kAmplitudeList = "AmplitudeTimeline";
+
+// ---------------------------------------------------------------------------
+// Writing
+// ---------------------------------------------------------------------------
+
+/// Everything to be written for one partial.
+struct PartialOutput {
+    /// Partial.id.
+    std::int64_t partialId = 0;
+
+    /// Timelines from an earlier run to delete, each with its segment ids in
+    /// chain order.
+    std::vector<std::pair<std::int64_t, std::vector<std::int64_t>>> stale;
+
+    /// The segments to write, integrated.
+    std::vector<Segment> segments;
+
+    /// The frames the partial is in scope for.
+    FrameRange frames;
+
+    /// Ids of the partial's amplitude points, in list order: what the frame
+    /// entries' point indexes refer to.
+    std::vector<std::int64_t> amplitudePointIds;
+
+    /// One frame entry per frame in scope.
+    std::vector<FrameEntryTarget> entries;
+};
+
+/// Replaces a partial's output in one transaction (§6.2, stage 4; §9).
+///
+/// Deletes the partial's FrameEntry nodes, the stale timelines, their
+/// segments and their nominal frequencies, and the partial's PARTIAL_IN_FRAME
+/// edges; then creates the new timeline, segment chain and nominal
+/// frequencies, any missing Frame nodes, the new frame scope edges, and one
+/// FrameEntry per frame in scope with its four edges.
+///
+/// @param[in,out] db  Database to write. Modified only if every statement
+///                    succeeds; otherwise the transaction is rolled back.
+/// @param output      What to write.
+/// @throws EngineDbError  If any statement fails. Nothing has been written.
+/// @throws PartialPrecomputationError  If the partial is no longer in the
+///         database. Nothing has been written.
+void writePartial(EngineDb& db, const PartialOutput& output) {
+    Transaction transaction{db};
+
+    db.query(kDeleteFrameEntries, {{"partial", output.partialId}});
+    for (const auto& [timelineId, segmentIds] : output.stale) {
+        for (const std::int64_t segmentId : segmentIds) {
+            db.query(kDeleteNominalOfSegment, {{"segment", segmentId}});
+            db.query(kDeleteSegment, {{"segment", segmentId}});
+        }
+        db.query(kDeleteTimeline, {{"timeline", timelineId}});
+    }
+    db.query(kDeleteFrameScope, {{"partial", output.partialId}});
+
+    const std::vector<DbRow> created = db.query(kCreateTimeline, {{"partial", output.partialId}});
+    if (created.size() != 1) {
+        throw PartialPrecomputationError{"the partial disappeared while it was being precomputed"};
+    }
+    std::int64_t previous = requireInt64(created.front().at(0));
+
+    std::vector<std::int64_t> segmentIds;
+    segmentIds.reserve(output.segments.size());
+    bool first = true;
+    for (const Segment& segment : output.segments) {
+        const std::optional<FrequencyGradient>& gradient = segment.nominal.linearGradient;
+        DbParameters parameters{
+            {"previous", previous},
+            {"startTime", segment.startTime.value()},
+            {"endTime", segment.endTime.value()},
+            {"startPhase", segment.startPhase.value()},
+            {"startFrequency", segment.nominal.startFrequency.value()},
+        };
+        if (gradient.has_value()) {
+            parameters.emplace_back("linearGradient", gradient->value());
+        }
+        const std::vector<DbRow> rows =
+            db.query(createSegmentStatement(first, gradient.has_value()), parameters);
+        if (rows.size() != 1) {
+            throw EngineDbError{"creating a PartialIntegrableSegment returned " +
+                                std::to_string(rows.size()) + " rows, not 1"};
+        }
+        previous = requireInt64(rows.front().at(0));
+        segmentIds.push_back(previous);
+        first = false;
+    }
+
+    db.query(
+        kCreateFrameScope, {
+                               {"partial", output.partialId},
+                               {"first", static_cast<std::int64_t>(output.frames.first.value())},
+                               {"last", static_cast<std::int64_t>(output.frames.last.value())},
+                           });
+
+    for (const FrameEntryTarget& entry : output.entries) {
+        const std::vector<DbRow> rows = db.query(
+            kCreateFrameEntry, {
+                                   {"frame", static_cast<std::int64_t>(entry.frame.value())},
+                                   {"partial", output.partialId},
+                                   {"segment", segmentIds.at(entry.segment)},
+                                   {"point", output.amplitudePointIds.at(entry.point)},
+                               });
+        if (rows.size() != 1) {
+            throw EngineDbError{
+                "creating a FrameEntry returned " + std::to_string(rows.size()) + " rows, not 1"};
+        }
+    }
+
+    transaction.commit();
+}
+
+/// Precomputes and writes one partial.
+///
+/// @param[in,out] db    Database to write the partial's output to.
+/// @param inputs        Everything read for the run.
+/// @param partialId     Partial.id of the partial to precompute.
+/// @param frameSize     Frame size for its frame scope.
+/// @param[out] outcome  On success, its segmentCount, frames and entryCount
+///                      are set. Its error is left alone.
+/// @throws PartialPrecomputationError  If the partial's inputs are invalid,
+///         or it disappears while being written. Nothing has been written.
+/// @throws EngineDbError  If writing fails. Nothing has been written.
+void precomputePartial(EngineDb& db, const Inputs& inputs, std::int64_t partialId,
+    FrameSize frameSize, PartialOutcome& outcome) {
+    // Stage 1: this partial's inputs, from what was read in bulk.
+    const auto oneHead = [&](const auto& heads, std::string_view timeline) {
+        const auto found = heads.find(partialId);
+        if (found == heads.end()) {
+            throw PartialPrecomputationError{"it has no " + std::string{timeline}};
+        }
+        if (found->second.size() != 1) {
+            throw PartialPrecomputationError{"it has " + std::to_string(found->second.size()) +
+                                             " " + std::string{timeline} +
+                                             "s; exactly one is required"};
+        }
+        return found->second.front();
+    };
+
+    std::vector<FrequencyPointRecord> records;
+    for (const std::int64_t pointId : walkChain(oneHead(inputs.frequencyHeads, kFrequencyList),
+             inputs.frequencyNext, kFrequencyList)) {
+        records.push_back(inputs.frequencyPoints.at(pointId));
+    }
+    const std::vector<FrequencyPoint> envelope = validateFrequencyEnvelope(records);
+
+    std::vector<AmplitudePointRecord> amplitudeRecords;
+    std::vector<std::int64_t> amplitudePointIds = walkChain(
+        oneHead(inputs.amplitudeHeads, kAmplitudeList), inputs.amplitudeNext, kAmplitudeList);
+    amplitudeRecords.reserve(amplitudePointIds.size());
+    for (const std::int64_t pointId : amplitudePointIds) {
+        amplitudeRecords.push_back(inputs.amplitudePoints.at(pointId));
+    }
+    const std::vector<SampleTime> amplitudeTimes =
+        validateAmplitudeTimes(amplitudeRecords, envelope);
+
+    // Stages 2 to 4, frame scope and frame entries: pure computation.
+    const std::vector<SampleTime> boundaries = gatherBoundaries(envelope);
+
+    PartialOutput output{
+        .partialId = partialId,
+        .stale = {},
+        .segments = buildSegments(boundaries, envelope),
+        .frames = frameScope(boundaries.front(), boundaries.back(), frameSize),
+        .amplitudePointIds = std::move(amplitudePointIds),
+        .entries = {},
+    };
+    integrate(output.segments);
+    output.entries = frameEntries(output.segments, amplitudeTimes, output.frames, frameSize);
+
+    if (const auto existing = inputs.existing.find(partialId); existing != inputs.existing.end()) {
+        for (const ExistingTimeline& timeline : existing->second) {
+            output.stale.emplace_back(
+                timeline.timelineId, walkChain(timeline.headSegment, inputs.segmentNext,
+                                         "existing PartialSegmentTimeline"));
+        }
+    }
+
+    writePartial(db, output);
+
+    outcome.segmentCount = output.segments.size();
+    outcome.frames = output.frames;
+    outcome.entryCount = output.entries.size();
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// Pure stages
+// ---------------------------------------------------------------------------
+
+std::vector<std::int64_t> walkChain(std::optional<std::int64_t> head,
+    const std::unordered_map<std::int64_t, std::int64_t>& next, std::string_view what) {
+    std::vector<std::int64_t> chain;
+    std::unordered_set<std::int64_t> seen;
+    for (std::optional<std::int64_t> at = head; at.has_value();) {
+        if (!seen.insert(*at).second) {
+            throw PartialPrecomputationError{
+                std::string{what} + ": its NEXT_POINT list loops back to " + "node id " +
+                std::to_string(*at) + " after " + std::to_string(chain.size()) + " nodes"};
+        }
+        chain.push_back(*at);
+        const auto link = next.find(*at);
+        at = link == next.end() ? std::nullopt : std::optional<std::int64_t>{link->second};
+    }
+    return chain;
+}
+
+std::vector<FrequencyPoint> validateFrequencyEnvelope(
+    std::span<const FrequencyPointRecord> points) {
+    if (points.size() < 2) {
+        throw PartialPrecomputationError{"its FrequencyTimeline has " +
+                                         std::to_string(points.size()) +
+                                         " point(s); at least 2 are required"};
+    }
+
+    std::vector<FrequencyPoint> envelope;
+    envelope.reserve(points.size());
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        const FrequencyPointRecord& record = points[i];
+        const SampleTime time{requireFinite(record.time, kFrequencyList, i, "time")};
+        const AngularFrequency frequency{
+            requireFinite(record.frequency, kFrequencyList, i, "frequency")};
+
+        if (i == 0 && time < SampleTime{0.0}) {
+            failAtPoint(kFrequencyList, i,
+                "time " + formatNumber(time.value()) + " is before the start of the score");
+        }
+        if (i > 0 && !(time > envelope.back().time)) {
+            failAtPoint(kFrequencyList, i,
+                "time " + formatNumber(time.value()) + " is not after the previous point's time " +
+                    formatNumber(envelope.back().time.value()));
+        }
+        // The curve on a point describes the path to the next point, so the
+        // last point's curve type has no effect and is not checked (§4).
+        if (i + 1 < points.size() && record.curveType != kLinearCurve) {
+            failAtPoint(kFrequencyList, i,
+                "frequency_curve_type is " +
+                    (record.curveType.has_value() ? std::to_string(*record.curveType)
+                                                  : std::string{"NULL"}) +
+                    "; only " + std::to_string(kLinearCurve) +
+                    " (linear) is supported in this version");
+        }
+        envelope.push_back(FrequencyPoint{.time = time, .frequency = frequency});
+    }
+    return envelope;
+}
+
+std::vector<SampleTime> validateAmplitudeTimes(
+    std::span<const AmplitudePointRecord> points, std::span<const FrequencyPoint> envelope) {
+    if (points.size() < 2) {
+        throw PartialPrecomputationError{"its AmplitudeTimeline has " +
+                                         std::to_string(points.size()) +
+                                         " point(s); at least 2 are required"};
+    }
+
+    std::vector<SampleTime> times;
+    times.reserve(points.size());
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        const SampleTime time{requireFinite(points[i].time, kAmplitudeList, i, "time")};
+        if (i > 0 && !(time > times.back())) {
+            failAtPoint(kAmplitudeList, i,
+                "time " + formatNumber(time.value()) + " is not after the previous point's time " +
+                    formatNumber(times.back().value()));
+        }
+        times.push_back(time);
+    }
+
+    // The two timelines define the lifeline together, exactly (§7).
+    if (times.front() != envelope.front().time) {
+        failAtPoint(kAmplitudeList, 0,
+            "time " + formatNumber(times.front().value()) +
+                " differs from the first FrequencyTimeline point's time " +
+                formatNumber(envelope.front().time.value()) +
+                "; the two timelines must start together");
+    }
+    if (times.back() != envelope.back().time) {
+        failAtPoint(kAmplitudeList, times.size() - 1,
+            "time " + formatNumber(times.back().value()) +
+                " differs from the last FrequencyTimeline point's time " +
+                formatNumber(envelope.back().time.value()) +
+                "; the two timelines must end together");
+    }
+    return times;
+}
+
+std::vector<SampleTime> gatherBoundaries(std::span<const FrequencyPoint> envelope) {
+    std::vector<SampleTime> boundaries;
+    boundaries.reserve(envelope.size());
+
+    // Source 1: the main frequency envelope. Frequency modulators and phase
+    // regions will add their times here (§6.3).
+    for (const FrequencyPoint& point : envelope) {
+        boundaries.push_back(point.time);
+    }
+
+    std::ranges::sort(boundaries);
+    const auto duplicates = std::ranges::unique(boundaries);
+    boundaries.erase(duplicates.begin(), duplicates.end());
+    return boundaries;
+}
+
+std::vector<Segment> buildSegments(
+    std::span<const SampleTime> boundaries, std::span<const FrequencyPoint> envelope) {
+    if (boundaries.size() < 2 || envelope.size() < 2 ||
+        boundaries.front() != envelope.front().time || boundaries.back() != envelope.back().time) {
+        throw std::invalid_argument{
+            "buildSegments: boundaries must span the envelope exactly, with at least 2 of each"};
+    }
+
+    std::vector<Segment> segments;
+    segments.reserve(boundaries.size() - 1);
+
+    // `piece` is the envelope piece [envelope[piece], envelope[piece + 1])
+    // covering the current boundary. Both sequences are sorted, so it only
+    // ever moves forward.
+    std::size_t piece = 0;
+    for (std::size_t i = 0; i + 1 < boundaries.size(); ++i) {
+        const SampleTime start = boundaries[i];
+        const SampleTime end = boundaries[i + 1];
+        if (!(end > start)) {
+            throw std::invalid_argument{"buildSegments: boundaries must be strictly increasing"};
+        }
+        while (piece + 2 < envelope.size() && envelope[piece + 1].time <= start) {
+            ++piece;
+        }
+
+        const FrequencyPoint& from = envelope[piece];
+        const FrequencyPoint& to = envelope[piece + 1];
+        const FrequencyGradient gradient = (to.frequency - from.frequency) / (to.time - from.time);
+
+        // At an envelope point, take the point's own frequency rather than
+        // computing it, so that no rounding is introduced where none is
+        // needed (§6.4).
+        const AngularFrequency startFrequency =
+            start == from.time ? from.frequency : from.frequency + gradient * (start - from.time);
+
+        segments.push_back(Segment{
+            .startTime = start,
+            .endTime = end,
+            .nominal =
+                NominalFrequency{.startFrequency = startFrequency, .linearGradient = gradient},
+            .startPhase = Phase{0.0},
+        });
+    }
+    return segments;
+}
+
+Phase integrate(std::span<Segment> segments) {
+    Phase accumulator{0.0};
+    for (std::size_t i = 0; i < segments.size(); ++i) {
+        Segment& segment = segments[i];
+        segment.startPhase = accumulator;
+        accumulator += phaseIncrement(segment.nominal, segment.endTime - segment.startTime);
+        if (!std::isfinite(accumulator.value())) {
+            throw PartialPrecomputationError{"the phase stops being finite in segment " +
+                                             std::to_string(i) + ", which starts at " +
+                                             formatNumber(segment.startTime.value())};
+        }
+    }
+    return accumulator;
+}
+
+FrameRange frameScope(SampleTime start, SampleTime end, FrameSize size) {
+    const std::optional<FrameNumber> first = frameContaining(start, size);
+    const std::optional<FrameNumber> last = lastFrameBefore(end, size);
+    if (!first.has_value() || !last.has_value()) {
+        throw PartialPrecomputationError{
+            "its lifeline [" + formatNumber(start.value()) + ", " + formatNumber(end.value()) +
+            ") reaches frames whose numbers do not fit INT32 at a frame size of " +
+            std::to_string(size.value())};
+    }
+    return FrameRange{.first = *first, .last = *last};
+}
+
+std::vector<FrameEntryTarget> frameEntries(std::span<const Segment> segments,
+    std::span<const SampleTime> amplitudeTimes, FrameRange frames, FrameSize size) {
+    std::vector<FrameEntryTarget> entries;
+    const SampleTime lifelineStart = segments.front().startTime;
+
+    // Both cursors only ever move forward, because the frame starts increase.
+    std::size_t segment = 0;
+    std::size_t point = 0;
+    for (std::int32_t k = frames.first.value(); k <= frames.last.value(); ++k) {
+        const FrameNumber frame{k};
+        const SampleTime entryTime = std::max(lifelineStart, frameStart(frame, size));
+
+        while (segment + 1 < segments.size() && segments[segment].endTime <= entryTime) {
+            ++segment;
+        }
+        while (point + 1 < amplitudeTimes.size() && amplitudeTimes[point + 1] <= entryTime) {
+            ++point;
+        }
+        entries.push_back(FrameEntryTarget{.frame = frame, .segment = segment, .point = point});
+    }
+    return entries;
+}
+
+FrameSize resolveFrameSize(
+    std::optional<std::int64_t> frameSize, std::optional<std::int64_t> sampleRate) {
+    const auto usable = [](std::int64_t value) {
+        return value > 0 && value <= std::numeric_limits<std::int32_t>::max();
+    };
+    if (frameSize.has_value()) {
+        if (!usable(*frameSize)) {
+            throw PrecomputationError{"EngineConfig.frameSize is " + std::to_string(*frameSize) +
+                                      "; it must be positive"};
+        }
+        return FrameSize{static_cast<std::int32_t>(*frameSize)};
+    }
+    if (!sampleRate.has_value()) {
+        throw PrecomputationError{
+            "EngineConfig.frameSize and EngineConfig.sampleRate are both NULL; one is needed "
+            "for the frame size"};
+    }
+    if (!usable(*sampleRate)) {
+        throw PrecomputationError{
+            "EngineConfig.sampleRate is " + std::to_string(*sampleRate) + "; it must be positive"};
+    }
+    return FrameSize::oneSecond(SampleRate{static_cast<std::int32_t>(*sampleRate)});
+}
+
+// ---------------------------------------------------------------------------
+// The run
+// ---------------------------------------------------------------------------
+
+std::size_t PrecomputationReport::failureCount() const noexcept {
+    return static_cast<std::size_t>(
+        std::ranges::count_if(partials, [](const PartialOutcome& p) { return !p.ok(); }));
+}
+
+PrecomputationReport precomputeAll(EngineDb& db) {
+    const std::vector<DbRow> config = db.query(kReadConfig);
+    if (config.size() != 1) {
+        throw PrecomputationError{
+            "expected exactly one EngineConfig, found " + std::to_string(config.size())};
+    }
+    PrecomputationReport report;
+    report.frameSize =
+        resolveFrameSize(optionalInt64(config.front().at(0)), optionalInt64(config.front().at(1)));
+
+    const Inputs inputs = readInputs(db);
+
+    // Partials are independent; id order only makes the report deterministic.
+    for (const auto& [partialId, partialName] : inputs.partials) {
+        PartialOutcome outcome{
+            .partialId = partialId,
+            .partialName = partialName,
+            .error = std::nullopt,
+            .segmentCount = 0,
+            .frames = std::nullopt,
+            .entryCount = 0,
+        };
+        try {
+            precomputePartial(db, inputs, partialId, report.frameSize, outcome);
+        } catch (const PartialPrecomputationError& e) {
+            outcome.error = e.what();
+        } catch (const EngineDbError& e) {
+            outcome.error = std::string{"engine-db: "} + e.what();
+        }
+        report.partials.push_back(std::move(outcome));
+    }
+    return report;
+}
+
+} // namespace rainbohz::rendering_engine

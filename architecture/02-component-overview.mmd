@@ -1,0 +1,43 @@
+%% RAINBOHz reference implementation - component overview
+%% Referenced from: overview.md, section "Component overview"
+
+flowchart TB
+    subgraph compilation["Compilation (tempo time, CI/CD)"]
+        hzl-source["hzl-source<br/>HzL source code"]
+        hzl-compiler["hzl-compiler<br/>lowers HzL"]
+        canonical-form["canonical-form<br/>loadable score,<br/>tempo time, Hertz"]
+    end
+
+    subgraph rendering["Rendering (wall-clock time)"]
+        rendering-engine["rendering-engine<br/>load, transform,<br/>precompute, render"]
+        engine-db["engine-db<br/>Ladybug graph DB, in process,<br/>sharded by partial set"]
+        object-storage["object-storage<br/>WAV objects, addressed by URL"]
+    end
+
+    subgraph playback["Playback"]
+        playback-server["playback-server<br/>sums shards, serves audio"]
+        playback-client["playback-client<br/>standalone audition"]
+        playback-plugin["playback-plugin<br/>CLAP / VST, ARA"]
+    end
+
+    subgraph orchestration["Orchestration"]
+        message-bus["message-bus<br/>compile / render / complete<br/>(Kafka, early)"]
+    end
+
+    hzl-source --> hzl-compiler
+    hzl-compiler --> canonical-form
+    canonical-form -- "loaded by" --> rendering-engine
+    rendering-engine <--> engine-db
+    rendering-engine -- "writes WAV object" --> object-storage
+    playback-client -- "audio for a time range, by label" --> playback-server
+    playback-plugin -- "audio for a time range, by label" --> playback-server
+    playback-server -- "reads objects to sum" --> object-storage
+    playback-server -- "audio" --> playback-client
+    playback-server -- "audio" --> playback-plugin
+
+    playback-server -- "compile and render" --> message-bus
+    message-bus -- "compile" --> hzl-compiler
+    hzl-compiler -- "render" --> message-bus
+    message-bus -- "render" --> rendering-engine
+    rendering-engine -- "rendering complete" --> message-bus
+    message-bus -- "rendering complete" --> playback-server

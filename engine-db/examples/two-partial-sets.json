@@ -1,0 +1,41 @@
+{
+  "_comment": "Mirror of two-partial-sets.cypher for rendering-engine/test/oracle/render_oracle.py. Times in samples, frequencies in radians per sample, amplitudes in dB. Set and partial ids are the SERIAL ids the score gets when loaded alone, in creation order.",
+  "sample_rate": 48000,
+  "partial_sets": [
+    {
+      "id": 0,
+      "partials": [
+        {
+          "id": 0,
+          "frequency": [[0.0, 0.1], [480000.0, 0.1]],
+          "amplitude": [[0.0, -6.0], [480000.0, -6.0]]
+        },
+        {
+          "id": 1,
+          "frequency": [[144100.5, 0.05], [146100.5, 0.06], [300000.5, 0.06]],
+          "amplitude": [[144100.5, -60.0], [145100.5, -6.0], [290000.5, -6.0], [300000.5, -90.0]]
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "partials": [
+        {
+          "id": 2,
+          "frequency": [[96000.0, 0.2], [240000.0, 0.0002], [288000.0, 0.0002]],
+          "amplitude": [[96000.0, -12.0], [288000.0, -12.0]]
+        },
+        {
+          "id": 3,
+          "frequency": [[48000.0, 2.5], [192000.0, 3.2], [200000.0, 3.2]],
+          "amplitude": [[48000.0, -20.0], [200000.0, -20.0]]
+        },
+        {
+          "id": 4,
+          "frequency": [[0.0, 0.01], [96000.0, -0.01]],
+          "amplitude": [[0.0, -30.0], [96000.0, -30.0]]
+        }
+      ]
+    }
+  ]
+}

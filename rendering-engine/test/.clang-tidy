@@ -1,0 +1,19 @@
+# Static analysis for rendering-engine's tests: the component's configuration,
+# less two checks that misfire on GoogleTest idiom.
+#
+#   bugprone-unchecked-optional-access -- a test establishes that an optional
+#     holds a value with ASSERT_TRUE(x.has_value()), which returns from the
+#     test on failure. The analyser cannot see through the macro, so it flags
+#     every access that follows. And a test that dereferences an empty
+#     optional fails, which is the point of a test.
+#   cppcoreguidelines-non-private-member-variables-in-classes -- a fixture
+#     shares state with its TEST_F bodies through protected members; that is
+#     how GoogleTest fixtures work.
+#
+# Everything else applies to tests exactly as it does to the component.
+
+InheritParentConfig: true
+
+Checks: >
+  -bugprone-unchecked-optional-access,
+  -cppcoreguidelines-non-private-member-variables-in-classes

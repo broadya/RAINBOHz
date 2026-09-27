@@ -1,0 +1,18 @@
+%% RAINBOHz reference implementation - compilation pipeline
+%% Referenced from: overview.md, section "Compilation pipeline"
+%% ---
+%% The canonical-to-rendering transformation is deliberately absent here. It
+%% happens inside rendering-engine, against an already-loaded database, so the
+%% score is never serialised in order to move it.
+
+flowchart LR
+    hzl-source["hzl-source<br/>multi-level HzL"]
+    high["Higher abstraction levels<br/>(design at an early stage)"]
+    low["Lowest abstraction level"]
+    canonical-form["canonical-form<br/>tempo time, Hertz,<br/>polytempo, durable"]
+    rendering-engine["rendering-engine<br/>loads and transforms<br/>in place"]
+
+    hzl-source --> high
+    high -- "lowered by hzl-compiler" --> low
+    low -- "emitted as" --> canonical-form
+    canonical-form -- "loaded into engine-db by" --> rendering-engine

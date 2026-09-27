@@ -1,4 +1,126 @@
 // ============================================================
+// Units in the canonical schema.
+//
+// ------------------------------------------------------------
+// frequency, partial nominal        Hz
+// ------------------------------------------------------------
+// valid range [20,2000]
+// Only values (after modulation) between 20Hz and 20kHz will be rendered.
+// Carrier may take values that are out of range, including negative values.
+// Negative values will result in silence.
+// (Near) out of range values will be rolled off towards silence.
+//
+// ------------------------------------------------------------
+// amplitude, partial nominal        dB
+// ------------------------------------------------------------
+// valid range [-144,0]
+// Corresponds to dynamic range of 24-bit audio
+// according to the 6dB per bit commonly unsed approximation.
+// 0dB = maximum value that can be represented
+// -144B or below = zero amplitude, will be optimised to silence.
+// Values above 0dB will be clipped to 0dB
+// The reference rendering implementation sums to INT64, and so can
+// accurately sum a very large number of partials while maintaining
+// 24 bit resolution per partial. Other rendering implementations
+// may not exhibit this behaviour, the canonical model is independent
+// of any given rendering imeplemtation.
+//
+// ------------------------------------------------------------
+// frequency, modulator             Hz
+// ------------------------------------------------------------
+// valid range [0, 20]
+// This system is not intended to provide frequency modulation in the
+// synthesiser meaning of the word. This isn't an "FM synth".
+// As such, frequency modulation does take place, but it remains in the
+// subsonic range.
+// DC, 0Hz, is specifically allowed.
+//
+// ------------------------------------------------------------
+// amplitude, modulator             unitless
+// ------------------------------------------------------------
+// no system imposed limits on range.
+// Modulator values are multipliers on the parameter that
+// they operate on. This does mean that modulating carrier
+// results in a multiplication in dB (on a log scale), whereas
+// modulating carrier frequency results in a multiplication in Hz
+// (on a linear scale).
+//
+// ------------------------------------------------------------
+// phase                            degrees
+// ------------------------------------------------------------
+// valid range [-180,180]
+// In degrees because the canonical model is intended to be in the
+// user's domain. Most composers, musicians and even sound engineers
+// will typically have a mental model in degrees, in as much as they
+// have deeply considered phase except for in terms of concepts such
+// as time alignment and cancellation.
+// May take a NULL value in some cases. This has semantics that means
+// "allow phase accumulation to run freely".
+//
+// ------------------------------------------------------------
+// time                             seconds
+// ------------------------------------------------------------
+// In the canonical model, time is considered to be continuous.
+// In practice, there is granularty down to the floating-point
+// precision limits.
+//
+// ------------------------------------------------------------
+// azimtuth                         degrees
+// ------------------------------------------------------------
+// valid range [-180,180] 
+// In degrees because the canonical model is intended to be in the
+// user's domain. Most composers, musicians and even sound engineers
+// will typically have a mental model in degrees.
+// Follows conventions from Ambisonics / Ambix.
+//
+// 0 = directly in front of the listener
+// 90 = left of the listener
+// -90 = right of the listener
+// 180 = behind the listener
+// -180 = behind the listener
+//
+// ------------------------------------------------------------
+// elevation                        degrees
+// ------------------------------------------------------------
+// valid range [-90,90] 
+// In degrees because the canonical model is intended to be in the
+// user's domain. Most composers, musicians and even sound engineers
+// will typically have a mental model in degrees.
+// Follows conventions from Ambisonics / Ambix.
+//
+// 0 = directly in front of the listener
+// 90 = directly above the listener
+// -90 = directly below the listener
+//
+// For azimuth and elevation, when modulators take values out of
+// defined ranges, wraparound takes place. A linear modulator
+// can create continuous rotation, which is a typical and useful
+// use case.
+//
+// ------------------------------------------------------------
+// distance                         metres
+// ------------------------------------------------------------
+// valid range [1,16384]
+// 1m = zero delay, zero attenuation.
+// Note that if zero were chosen, it would firstly make attenuation computations
+// meaningless. Secondly,
+// it would make spatial audio computations meaningless.
+// Given that users will clearly want to have zero delay, but also want to be
+// able to position the source in space, this is regarded as a practical choice.
+// Choosing 16384 as a maximum corresponds to approx. 84dB attenuation and
+// almost one minute of delay. It is hard to imagine any user working with
+// larger values.
+//
+// ------------------------------------------------------------
+// tempo                         BPM, beats per minute
+// ------------------------------------------------------------
+// valid range [1,1000]
+// Intended to provide compatibility with DAWs, where the DAW sets the tempo.
+// This is furthermore simply a reasonable range of possible tempo values.
+// ============================================================
+
+
+// ============================================================
 // TempoMap: Tempo maps define a directed acyclic graph that
 // acts as the framework for all timing of a Score.
 //
@@ -99,8 +221,8 @@ CREATE NODE TABLE PartialStateSet (
 //
 // Ranges (compiler-enforced):
 //   frequency    Hz,      allowed to be outside of audio range and even be negative, but will not be rendered.
-//   phase        rad,     (-PI, PI]
-//   amplitude    dB,      [-150, 0]      (-150 dB ~ -inf sentinel value)
+//   phase        degrees, [-180, 180]
+//   amplitude    dB,      [-144, 0]      (-144 dB ~ -inf sentinel value)
 //
 //   phase may explicitly take a NULL value, other values may not be NULL.
 //   A NULL value for phase means that the partial runs "free" to this state.
@@ -175,11 +297,21 @@ CREATE NODE TABLE PartialSet (
 );
 
 // ============================================================
-// MEMBER_OF_SET: each Partial is a member of exactly one PartialSet.
-// MANY_ONE enforces "many partials, one set" at the edge layer.
+// MEMBER_OF_SET_MANY_MANY: Defines set membership where a 
+// particular class may be a member of many sets.
+//
+// Not currently in use
 // ============================================================
-CREATE REL TABLE MEMBER_OF_SET (
-    FROM Partial TO PartialSet,
+//CREATE REL TABLE MEMBER_OF_SET_MANY_MANY (
+//    FROM Partial TO PartialSet,
+//    MANY_MANY
+//);
+
+// ============================================================
+// MEMBER_OF_SET_MANY_ONE: Defines set membership where a 
+// partcular class may only be a member of one set.
+// ============================================================
+CREATE REL TABLE MEMBER_OF_SET_MANY_ONE (
     FROM PartialState TO PartialStateSet,
     MANY_ONE
 );
@@ -219,10 +351,10 @@ CREATE NODE TABLE PartialSetTimeline (
 //
 // Curve types, INT8:
 // 0 linear
-// 1 hold
-// 2 accelerate
-// 3 decelerate
-// 4 s-curve
+// 1 step
+// 2 accelerate     implemented as sin(3π/2) to sin(2π)
+// 3 decelerate     implemented as sin(0) to sin(π/2)
+// 4 s-curve        implemented assin(-π/2) to sin(π/2)
 //
 // Curve amount, FLOAT (has no effect if type is linear)
 // 0 linear
@@ -235,12 +367,12 @@ CREATE NODE TABLE PartialSetTimeline (
 // ============================================================
 CREATE NODE TABLE PartialSetTimelinePoint (
     id                      SERIAL,
-    amplitude_curve_type    INT8,
-    amplitude_curve_amount  FLOAT,
-    frequency_curve_type    INT8,
-    frequency_curve_amount  FLOAT,
-    phase_curve_type        INT8,
-    phase_curve_amount      FLOAT,
+    amplitude_curve_type    INT8 DEFAULT 0,
+    amplitude_curve_amount  FLOAT DEFAULT 0.0,
+    frequency_curve_type    INT8 DEFAULT 0,
+    frequency_curve_amount  FLOAT DEFAULT 0.0,
+    phase_curve_type        INT8 DEFAULT 0,
+    phase_curve_amount      FLOAT DEFAULT 0.0,
     phase_lock              BOOLEAN,
     PRIMARY KEY (id)
 );
@@ -252,10 +384,10 @@ CREATE NODE TABLE PartialSetTimelinePoint (
 //
 // Curve types, INT8:
 // 0 linear
-// 1 hold
-// 2 accelerate
-// 3 decelerate
-// 4 s-curve
+// 1 step
+// 2 accelerate     implemented as sin(3π/2) to sin(2π)
+// 3 decelerate     implemented as sin(0) to sin(π/2)
+// 4 s-curve        implemented assin(-π/2) to sin(π/2)
 //
 // Curve amount, FLOAT (has no effect if type is linear)
 // 0 linear
@@ -265,12 +397,12 @@ CREATE NODE TABLE PartialSetTimelinePoint (
 // ============================================================
 CREATE NODE TABLE SpatialPositionTimelinePoint (
     id                      SERIAL,
-    azimuth_curve_type      INT8,
-    azimuth_curve_amount    FLOAT,
-    elevation_curve_type    INT8,
-    elevation_curve_amount  FLOAT,
-    distance_curve_type     INT8,
-    distance_curve_amount   FLOAT,
+    azimuth_curve_type      INT8 DEFAULT 0,
+    azimuth_curve_amount    FLOAT DEFAULT 0.0,
+    elevation_curve_type    INT8 DEFAULT 0,
+    elevation_curve_amount  FLOAT DEFAULT 0.0,
+    distance_curve_type     INT8 DEFAULT 0,
+    distance_curve_amount   FLOAT DEFAULT 0.0,
     PRIMARY KEY (id)
 );
 
@@ -466,15 +598,17 @@ CREATE REL TABLE HAS_TIMELINE (
 CREATE NODE TABLE FrequencyModulatorState (
     id              SERIAL,
 
-    // Linear component
-    gradient        FLOAT,
-    dc_offset       FLOAT,
+    // Sum of all offsets from all components of the modulator.
+    offset          FLOAT,
 
-    // Summed with a set of sinusoidal components
-    sin_components  STRUCT(
-        amplitude       FLOAT,
-        frequency       FLOAT,
-        phase_offset    FLOAT
+    // Linear component
+    linear_gradient        FLOAT,
+
+    // Summed with a set of sinusoidal curve components
+    curve_components  STRUCT(
+        curve_scaling_factor  FLOAT,
+        curve_start_phase     FLOAT,
+        curve_frequency       FLOAT
     )[],
 
     PRIMARY KEY (id)
@@ -488,15 +622,17 @@ CREATE NODE TABLE FrequencyModulatorState (
 CREATE NODE TABLE AmplitudeModulatorState (
     id              SERIAL,
 
-    // Linear component
-    gradient        FLOAT,
-    dc_offset       FLOAT,
+    // Sum of all offsets from all components of the modulator.
+    offset          FLOAT,
 
-    // Summed with a set of sinusoidal components
-    sin_components  STRUCT(
-        amplitude       FLOAT,
-        frequency       FLOAT,
-        phase_offset    FLOAT
+    // Linear component
+    linear_gradient        FLOAT,
+
+    // Summed with a set of sinusoidal curve components
+    curve_components  STRUCT(
+        curve_scaling_factor  FLOAT,
+        curve_start_phase     FLOAT,
+        curve_frequency       FLOAT
     )[],
 
     PRIMARY KEY (id)
@@ -510,15 +646,17 @@ CREATE NODE TABLE AmplitudeModulatorState (
 CREATE NODE TABLE PhaseModulatorState (
     id              SERIAL,
 
-    // Linear component
-    gradient        FLOAT,
-    dc_offset       FLOAT,
+    // Sum of all offsets from all components of the modulator.
+    offset          FLOAT,
 
-    // Summed with a set of sinusoidal components
-    sin_components  STRUCT(
-        amplitude       FLOAT,
-        frequency       FLOAT,
-        phase_offset    FLOAT
+    // Linear component
+    linear_gradient        FLOAT,
+
+    // Summed with a set of sinusoidal curve components
+    curve_components  STRUCT(
+        curve_scaling_factor  FLOAT,
+        curve_start_phase     FLOAT,
+        curve_frequency       FLOAT
     )[],
 
     PRIMARY KEY (id)
@@ -532,15 +670,17 @@ CREATE NODE TABLE PhaseModulatorState (
 CREATE NODE TABLE AzimuthModulatorState (
     id              SERIAL,
 
-    // Linear component
-    gradient        FLOAT,
-    dc_offset       FLOAT,
+    // Sum of all offsets from all components of the modulator.
+    offset          FLOAT,
 
-    // Summed with a set of sinusoidal components
-    sin_components  STRUCT(
-        amplitude       FLOAT,
-        frequency       FLOAT,
-        phase_offset    FLOAT
+    // Linear component
+    linear_gradient        FLOAT,
+
+    // Summed with a set of sinusoidal curve components
+    curve_components  STRUCT(
+        curve_scaling_factor  FLOAT,
+        curve_start_phase     FLOAT,
+        curve_frequency       FLOAT
     )[],
 
     PRIMARY KEY (id)
@@ -554,15 +694,17 @@ CREATE NODE TABLE AzimuthModulatorState (
 CREATE NODE TABLE ElevationModulatorState (
     id              SERIAL,
 
-    // Linear component
-    gradient        FLOAT,
-    dc_offset       FLOAT,
+    // Sum of all offsets from all components of the modulator.
+    offset          FLOAT,
 
-    // Summed with a set of sinusoidal components
-    sin_components  STRUCT(
-        amplitude       FLOAT,
-        frequency       FLOAT,
-        phase_offset    FLOAT
+    // Linear component
+    linear_gradient        FLOAT,
+
+    // Summed with a set of sinusoidal curve components
+    curve_components  STRUCT(
+        curve_scaling_factor  FLOAT,
+        curve_start_phase     FLOAT,
+        curve_frequency       FLOAT
     )[],
 
     PRIMARY KEY (id)
@@ -576,15 +718,17 @@ CREATE NODE TABLE ElevationModulatorState (
 CREATE NODE TABLE DistanceModulatorState (
     id              SERIAL,
 
-    // Linear component
-    gradient        FLOAT,
-    dc_offset       FLOAT,
+    // Sum of all offsets from all components of the modulator.
+    offset          FLOAT,
 
-    // Summed with a set of sinusoidal components
-    sin_components  STRUCT(
-        amplitude       FLOAT,
-        frequency       FLOAT,
-        phase_offset    FLOAT
+    // Linear component
+    linear_gradient        FLOAT,
+
+    // Summed with a set of sinusoidal curve components
+    curve_components  STRUCT(
+        curve_scaling_factor  FLOAT,
+        curve_start_phase     FLOAT,
+        curve_frequency       FLOAT
     )[],
 
     PRIMARY KEY (id)
@@ -617,14 +761,25 @@ CREATE REL TABLE HAS_LABEL (
 );
 
 // ============================================================
-// AGGREGATE_OF: General object-oriented design concept of 
-// aggregation.
+// AGGREGATE_OF_MANY_MANY: General object-oriented design concept of 
+// aggregation, with many-to-many.
+// Currently empty
 // ============================================================
-CREATE REL TABLE AGGREGATE_OF_MANY_MANY (
+// CREATE REL TABLE AGGREGATE_OF_MANY_MANY (
+//    FROM X TO Y,
+//    MANY_MANY
+// );
+
+// ============================================================
+// AGGREGATE_OF_MANY_MANY: General object-oriented design concept of 
+// aggregation, with one-to-many 
+// ============================================================
+CREATE REL TABLE AGGREGATE_OF_ONE_MANY (
+    FROM Score TO SoundEntity,
     FROM SoundEntity TO SoundSource,
     FROM SoundSource TO PartialSet,
-    FROM Score TO SoundEntity,
-    MANY_MANY
+    FROM PartialSet TO Partial,
+    ONE_MANY
 );
 
 

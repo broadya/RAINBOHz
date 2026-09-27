@@ -1,0 +1,65 @@
+%% RAINBOHz reference implementation - playback sequence
+%% The playback subsystem: architecture/overview.md section 5.3
+%%
+%% Design intent, unchanged from the first draft of this diagram:
+%% No concept of locking from the playback-client perspective.
+%% No concept of session state; every call from playback-client is idempotent.
+%% From a known hash function, playback-client can determine the URL of a frame.
+%% Hash function based on:
+%%   scoreVersion, labels[], frame number, rendering params (sample rate, bit depth, channels...)
+%% Open: what happens when the scoreVersion changes but the audio does not, and this can be computed?
+%%
+%% Updated for overview.md 0.2. AudioService and the summing workers became
+%% playback-server; PreCompute and RenderService became rendering-engine, reached
+%% over message-bus rather than called directly. FrameCache is shown as part of
+%% playback-server, since it is that component's index over object-storage.
+%% TempoMapService and LabelService are retained as-is: the playback subsystem
+%% still needs tempo and label lookup, and where that lives is undecided.
+
+sequenceDiagram
+   participant client as playback-client
+   participant play as playback-server
+   participant tempo as TempoMapService
+   participant label as LabelService
+   participant store as object-storage
+   participant bus as message-bus
+   participant engine as rendering-engine
+
+   client->>tempo: getTempoMaps
+   tempo->>client: tempoMaps, versionId
+   client->>label: getLabels
+   label->>client: labels, versionId
+   client->>tempo: getSampleRange(tempoMapId, startBeatPosition, endBeatPosition)
+%% Samples correspond to two points that define the range [startBeatNumber,endBeatNumber)
+   tempo->>client: startSampleId, startBeatPosition, endSampleId, endBeatPosition
+%% The two edge frames will be partially complete, "short frames".
+   client->>play: request(tempoMapVersionId, labelVersionId, labels[], startSampleId, endSampleId)
+   play->>play: calculateFramesInScope()
+   play->>play: prepareURLArray()
+
+   loop per frame
+       play->>play: frameURL = hash(scoreVersion, labels[], frameNumber, renderParams)
+       play->>store: head(frameURL)
+       alt present and current
+           store->>play: object exists
+       else absent or stale
+           store->>play: null
+           play->>bus: compile and render (labels[], frameNumber, startSample, endSample)
+           Note over bus,engine: compilation subsystem runs first,<br/>then emits the render instruction
+           bus->>engine: render (frame, labels, source version)
+           engine->>engine: delta, precompute, phase compensation, render
+           engine->>store: put(frameObject, frameURL)
+           engine->>bus: rendering complete
+           bus->>play: rendering complete
+       end
+       play->>play: addFrameURLToArray()
+   end
+
+   play->>play: sum the per-shard objects
+   play->>client: URLArray
+
+   loop per frame
+       client->>store: get(URL)
+       store->>client: frameObject
+       client->>client: playback(frameObject)
+   end

@@ -1,3 +1,42 @@
+# macOS junk
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Local developer tooling. CLAUDE.md is tracked: it only points to AGENTS.md.
+local-clones/
+.claude/
+
+# Private research
+lab-book/
+
+# Tools (future separate repo)
+tools/
+
+# Database artefacts. Built from the schema DDL, which is the source of
+# truth -- recreate with `make init-engine-db` / `make init-canonical-db`.
+engine-db/db/
+canonical-db/db/
+
+# Generated output: rendered audio, captured program output and logs.
+# Test output directories are ignored by the nested .gitignore files.
+*.wav
+output.txt
+*.log
+
+# VS Code
+.vscode/
+*.code-workspace
+
 # Prerequisites
 *.d
 
@@ -30,3 +69,15 @@
 *.exe
 *.out
 *.app
+
+# CMake build trees (one per preset, e.g. rendering-engine/build/macos-debug)
+build/
+CMakeUserPresets.json
+compile_commands.json
+
+# Doxygen output. `make api-docs-rendering-engine` writes under build/; this
+# catches a bare `doxygen` run from rendering-engine/.
+rendering-engine/html/
+
+# clangd index cache (the .clangd config files themselves are checked in)
+.cache/

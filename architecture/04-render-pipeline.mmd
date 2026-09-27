@@ -1,0 +1,40 @@
+%% RAINBOHz reference implementation - render and delivery pipeline
+%% Referenced from: overview.md, section "Render and delivery pipeline"
+%%
+%% The message-bus hops are the current general idea, not a settled protocol.
+
+sequenceDiagram
+    participant client as playback-client / playback-plugin
+    participant play as playback-server
+    participant store as object-storage
+    participant bus as message-bus
+    participant comp as hzl-compiler
+    participant engine as rendering-engine
+    participant edb as engine-db
+
+    client->>play: audio for a time range, with these labels
+    play->>store: what exists for this source version?
+
+    alt everything up to date
+        store-->>play: objects for every shard
+    else gap
+        store-->>play: incomplete
+        play->>bus: compile and render the required audio
+        bus->>comp: compile
+        comp->>comp: lower HzL to canonical-form
+        comp->>bus: render
+        bus->>engine: render (frame, labels, source version)
+        engine->>edb: load canonical-form, transform to rendering model
+        engine->>edb: read dirty flags and object references
+        Note over engine,edb: delta determination reads the graph only,<br/>never object-storage
+        engine->>engine: precompute segments, phase compensation
+        engine->>engine: render frames
+        engine->>store: write multi-channel WAV objects
+        engine->>bus: rendering complete
+        bus->>play: rendering complete
+        play->>store: read objects for every shard
+        store-->>play: objects
+    end
+
+    play->>play: sum the shards
+    play-->>client: summed audio

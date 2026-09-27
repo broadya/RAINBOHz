@@ -1,0 +1,19 @@
+# Render request for engine-db/examples/two-partial-sets.cypher.
+#
+#   make run-rendering-engine RE_STATE=engine-db/examples/two-partial-sets.cypher \
+#       RE_REQUEST=rendering-engine/examples/two-partial-sets-request.yaml
+#
+# Frames 0 to 4 and 6 cover every event in the score: partial E passing
+# through zero in frame 1, D crossing the high roll-off band in frames 1
+# and 2, C crossing the low band in frame 4, B starting half a sample into
+# frame 3 and ending inside frame 6. Frame 11 is past every partial's end
+# and renders as silence.
+
+frames:
+  - frame: 0
+  - frame: 1
+  - frame: 2
+  - frame: 3
+  - frame: 4
+  - frame: 6
+  - frame: 11

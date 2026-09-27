@@ -1,0 +1,16 @@
+{
+  "_comment": "Mirror of minimum-score.cypher for rendering-engine/test/oracle/render_oracle.py. Times in samples, frequencies in radians per sample, amplitudes in dB. Set and partial ids are the SERIAL ids the score gets when loaded alone.",
+  "sample_rate": 48000,
+  "partial_sets": [
+    {
+      "id": 0,
+      "partials": [
+        {
+          "id": 0,
+          "frequency": [[0.0, 0.1], [480000.0, 0.1]],
+          "amplitude": [[0.0, -6.0], [480000.0, -6.0]]
+        }
+      ]
+    }
+  ]
+}
