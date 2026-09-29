@@ -23,21 +23,21 @@ CREATE (engineConfig:EngineConfig {
 CREATE (score:Score {name:"Two Partial Sets"})
 
 CREATE (soundEntity0:SoundEntity {name:"SoundEntity 0"})
-CREATE (score)-[:AGGREGATE_OF_ONE_MANY]->(soundEntity0)
+CREATE (score)-[:HAS_SOUNDENTITY]->(soundEntity0)
 
 CREATE (soundSource0:SoundSource {name:"SoundSource 0"})
-CREATE (soundEntity0)-[:AGGREGATE_OF_ONE_MANY]->(soundSource0)
+CREATE (soundEntity0)-[:HAS_SOUNDSOURCE]->(soundSource0)
 
 // ------------------------------------------------------------
 // Partial set 0, "Sustain": a constant partial for the whole
 // score, and one that enters mid-frame with a fade.
 // ------------------------------------------------------------
 CREATE (partialSet0:PartialSet {name:"Sustain"})
-CREATE (soundSource0)-[:AGGREGATE_OF_ONE_MANY]->(partialSet0)
+CREATE (soundSource0)-[:HAS_PARTIALSET]->(partialSet0)
 
 // Partial A: 0.1 rad/sample (763.9 Hz) at -6 dB for ten frames.
 CREATE (partialA:Partial {name:"A constant"})
-CREATE (partialSet0)-[:AGGREGATE_OF_ONE_MANY]->(partialA)
+CREATE (partialSet0)-[:HAS_PARTIAL]->(partialA)
 CREATE (partialA)-[:HAS_TIMELINE]->(amplitudeA:AmplitudeTimeline)
 CREATE (amplitudeA)-[:NEXT_POINT]->(:AmplitudeTimelinePoint {time:0.0, amplitude:-6.0})
        -[:NEXT_POINT]->(:AmplitudeTimelinePoint {time:480000.0, amplitude:-6.0})
@@ -51,7 +51,7 @@ CREATE (frequencyA)-[:NEXT_POINT]->(:FrequencyTimelinePoint {time:0.0, frequency
 // at -6 dB, fades out to -90 dB over the last 10,000 samples; ends at
 // 300000.5, inside frame 6.
 CREATE (partialB:Partial {name:"B mid-frame"})
-CREATE (partialSet0)-[:AGGREGATE_OF_ONE_MANY]->(partialB)
+CREATE (partialSet0)-[:HAS_PARTIAL]->(partialB)
 CREATE (partialB)-[:HAS_TIMELINE]->(amplitudeB:AmplitudeTimeline)
 CREATE (amplitudeB)-[:NEXT_POINT]->(:AmplitudeTimelinePoint {time:144100.5, amplitude:-60.0})
        -[:NEXT_POINT]->(:AmplitudeTimelinePoint {time:145100.5, amplitude:-6.0})
@@ -66,13 +66,13 @@ CREATE (frequencyB)-[:NEXT_POINT]->(:FrequencyTimelinePoint {time:144100.5, freq
 // Partial set 1, "Glides": three partials that leave the audio range.
 // ------------------------------------------------------------
 CREATE (partialSet1:PartialSet {name:"Glides"})
-CREATE (soundSource0)-[:AGGREGATE_OF_ONE_MANY]->(partialSet1)
+CREATE (soundSource0)-[:HAS_PARTIALSET]->(partialSet1)
 
 // Partial C: glides down from 0.2 rad/sample (1528 Hz) to 0.0002
 // (1.5 Hz) over frames 2 to 4, through the low roll-off band, and
 // holds there, silent, until frame 6 starts.
 CREATE (partialC:Partial {name:"C glide down"})
-CREATE (partialSet1)-[:AGGREGATE_OF_ONE_MANY]->(partialC)
+CREATE (partialSet1)-[:HAS_PARTIAL]->(partialC)
 CREATE (partialC)-[:HAS_TIMELINE]->(amplitudeC:AmplitudeTimeline)
 CREATE (amplitudeC)-[:NEXT_POINT]->(:AmplitudeTimelinePoint {time:96000.0, amplitude:-12.0})
        -[:NEXT_POINT]->(:AmplitudeTimelinePoint {time:288000.0, amplitude:-12.0})
@@ -85,7 +85,7 @@ CREATE (frequencyC)-[:NEXT_POINT]->(:FrequencyTimelinePoint {time:96000.0, frequ
 // above Nyquist) over frames 1 to 3, through the high roll-off band
 // [2.618, 2.880] at 48 kHz, and holds there, silent.
 CREATE (partialD:Partial {name:"D glide up"})
-CREATE (partialSet1)-[:AGGREGATE_OF_ONE_MANY]->(partialD)
+CREATE (partialSet1)-[:HAS_PARTIAL]->(partialD)
 CREATE (partialD)-[:HAS_TIMELINE]->(amplitudeD:AmplitudeTimeline)
 CREATE (amplitudeD)-[:NEXT_POINT]->(:AmplitudeTimelinePoint {time:48000.0, amplitude:-20.0})
        -[:NEXT_POINT]->(:AmplitudeTimelinePoint {time:200000.0, amplitude:-20.0})
@@ -98,7 +98,7 @@ CREATE (frequencyD)-[:NEXT_POINT]->(:FrequencyTimelinePoint {time:48000.0, frequ
 // rad/sample (76 Hz) at the start of frame 0 to -0.01 at the end of
 // frame 1. It fades out below 20 Hz and is silent while negative.
 CREATE (partialE:Partial {name:"E through zero"})
-CREATE (partialSet1)-[:AGGREGATE_OF_ONE_MANY]->(partialE)
+CREATE (partialSet1)-[:HAS_PARTIAL]->(partialE)
 CREATE (partialE)-[:HAS_TIMELINE]->(amplitudeE:AmplitudeTimeline)
 CREATE (amplitudeE)-[:NEXT_POINT]->(:AmplitudeTimelinePoint {time:0.0, amplitude:-30.0})
        -[:NEXT_POINT]->(:AmplitudeTimelinePoint {time:96000.0, amplitude:-30.0})

@@ -141,7 +141,7 @@ And per requested frame *k* (§6.3):
 
 - the frame's `FrameEntry` nodes, `(f:Frame {frame_number: k})-[:FRAME_ENTRY]->(e:FrameEntry)`,
   one per partial in scope; from each, the partial and its set,
-  `(e)-[:FRAME_ENTRY_PARTIAL]->(p:Partial)<-[:AGGREGATE_OF_ONE_MANY]-(ps:PartialSet)`,
+  `(e)-[:FRAME_ENTRY_PARTIAL]->(p:Partial)<-[:HAS_PARTIAL]-(ps:PartialSet)`,
   and the two list nodes from which the frame's rendering starts,
   `(e)-[:FRAME_ENTRY_TIMELINE]->(node)`: a `PartialIntegrableSegment` and an
   `AmplitudeTimelinePoint` (precomputation.md §6.7);
@@ -280,7 +280,7 @@ the length of any list:
 
 1. **Entries and partials.** One query returns, per entry, the partial and
    its set:
-   `MATCH (:Frame {frame_number: $k})-[:FRAME_ENTRY]->(e:FrameEntry)-[:FRAME_ENTRY_PARTIAL]->(p:Partial)<-[:AGGREGATE_OF_ONE_MANY]-(ps:PartialSet) RETURN e.id, p.id, p.name, ps.id`.
+   `MATCH (:Frame {frame_number: $k})-[:FRAME_ENTRY]->(e:FrameEntry)-[:FRAME_ENTRY_PARTIAL]->(p:Partial)<-[:HAS_PARTIAL]-(ps:PartialSet) RETURN e.id, p.id, p.name, ps.id`.
    A frame with no `Frame` node, or no entries, is empty.
 2. **Entry nodes.** One query per list type returns each entry's list node
    with its properties:

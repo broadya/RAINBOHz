@@ -1,20 +1,15 @@
 classDiagram
-    class EngineConfig {
-        +SERIAL id_pk
-        +INT32 frameSize
-        +INT32 sampleRate
-        +INT8 channelMode
-    }
     class Score {
         +SERIAL id_pk
         +STRING name
     }
-    class Label {
+    class SoundSource {
         +SERIAL id_pk
         +STRING name
     }
-    class Frame {
-        +INT32 frame_number_pk
+    class SoundEntity {
+        +SERIAL id_pk
+        +STRING name
     }
     class PartialSet {
         +SERIAL id_pk
@@ -24,19 +19,54 @@ classDiagram
         +SERIAL id_pk
         +STRING name
     }
+    class TempoMap {
+        +SERIAL id_pk
+        +STRING name
+    }
+    class TempoMapTimeline {
+        +SERIAL id_pk
+        +INT32 ticks_per_beat
+    }
+    class TempoMapTimelinePoint {
+        +SERIAL id_pk
+        +INT64 position
+        +DOUBLE start_tempo
+        +BOOLEAN hold
+    }
+    class Label {
+        +SERIAL id_pk
+        +STRING name
+    }
+    class Frame {
+        +INT32 frame_number_pk
+    }
+    class PartialSetTimeline {
+        +SERIAL id_pk
+    }
+    class PartialSetTimelinePoint {
+        +SERIAL id_pk
+        +INT8 amplitude_curve_type
+        +FLOAT amplitude_curve_amount
+        +INT8 frequency_curve_type
+        +FLOAT frequency_curve_amount
+        +INT8 phase_curve_type
+        +FLOAT phase_curve_amount
+        +BOOLEAN phase_lock
+    }
+    class PartialStateSet {
+        +SERIAL id_pk
+    }
+    class PartialState {
+        +SERIAL id_pk
+        +FLOAT frequency
+        +FLOAT phase
+        +FLOAT amplitude
+    }
     class SpatialPositionState {
         +SERIAL id_pk
         +FLOAT azimuth
         +FLOAT elevation
         +FLOAT distance
-    }
-    class SoundSource {
-        +SERIAL id_pk
-        +STRING name
-    }
-    class SoundEntity {
-        +SERIAL id_pk
-        +STRING name
     }
     class PartialIntegrableSegment {
         +SERIAL id_pk
@@ -106,6 +136,9 @@ classDiagram
         +DOUBLE time
         +FLOAT phase
     }
+    class FrequencyModulatorTimelinePoint {
+        +SERIAL id_pk
+    }
     class AmplitudeModulatorTimelinePoint {
         +SERIAL id_pk
         +DOUBLE time
@@ -141,6 +174,9 @@ classDiagram
     class PartialSegmentTimeline {
         +SERIAL id_pk
     }
+    class FrequencyModulatorTimeline {
+        +SERIAL id_pk
+    }
     class AmplitudeModulatorTimeline {
         +SERIAL id_pk
     }
@@ -156,24 +192,24 @@ classDiagram
     class DistanceModulatorTimeline {
         +SERIAL id_pk
     }
-    class PhaseModulatorState {
+    class FrequencyModulatorState {
         +SERIAL id_pk
         +FLOAT offset
         +FLOAT linear_gradient
         +STRUCT[] curve_components
     }
-    class PhaseModulatorState_curve_components_List {
+    class FrequencyModulatorState_curve_components_List {
         <<LIST>>
         +STRUCT element
     }
-    class PhaseModulatorState_curve_components_List_element_Struct {
+    class FrequencyModulatorState_curve_components_List_element_Struct {
         <<STRUCT>>
         +FLOAT curve_scaling_factor
         +FLOAT curve_start_phase
         +FLOAT curve_frequency
     }
-    PhaseModulatorState_curve_components_List *-- PhaseModulatorState_curve_components_List_element_Struct : element
-    PhaseModulatorState *-- PhaseModulatorState_curve_components_List : curve_components
+    FrequencyModulatorState_curve_components_List *-- FrequencyModulatorState_curve_components_List_element_Struct : element
+    FrequencyModulatorState *-- FrequencyModulatorState_curve_components_List : curve_components
     class AmplitudeModulatorState {
         +SERIAL id_pk
         +FLOAT offset
@@ -192,6 +228,24 @@ classDiagram
     }
     AmplitudeModulatorState_curve_components_List *-- AmplitudeModulatorState_curve_components_List_element_Struct : element
     AmplitudeModulatorState *-- AmplitudeModulatorState_curve_components_List : curve_components
+    class PhaseModulatorState {
+        +SERIAL id_pk
+        +FLOAT offset
+        +FLOAT linear_gradient
+        +STRUCT[] curve_components
+    }
+    class PhaseModulatorState_curve_components_List {
+        <<LIST>>
+        +STRUCT element
+    }
+    class PhaseModulatorState_curve_components_List_element_Struct {
+        <<STRUCT>>
+        +FLOAT curve_scaling_factor
+        +FLOAT curve_start_phase
+        +FLOAT curve_frequency
+    }
+    PhaseModulatorState_curve_components_List *-- PhaseModulatorState_curve_components_List_element_Struct : element
+    PhaseModulatorState *-- PhaseModulatorState_curve_components_List : curve_components
     class AzimuthModulatorState {
         +SERIAL id_pk
         +FLOAT offset
@@ -249,7 +303,45 @@ classDiagram
     class FrameEntry {
         +SERIAL id_pk
     }
+    class EngineConfig {
+        +SERIAL id_pk
+        +INT32 frameSize
+        +INT32 sampleRate
+        +INT8 channelMode
+    }
 
+    class HAS_SOUNDENTITY {
+        <<REL>>
+    }
+    Score "1" -- HAS_SOUNDENTITY
+    HAS_SOUNDENTITY -- "*" SoundEntity
+    class HAS_SOUNDSOURCE {
+        <<REL>>
+    }
+    SoundEntity "1" -- HAS_SOUNDSOURCE
+    HAS_SOUNDSOURCE -- "*" SoundSource
+    class HAS_PARTIALSET {
+        <<REL>>
+    }
+    SoundSource "1" -- HAS_PARTIALSET
+    HAS_PARTIALSET -- "*" PartialSet
+    class HAS_PARTIAL {
+        <<REL>>
+    }
+    PartialSet "1" -- HAS_PARTIAL
+    HAS_PARTIAL -- "*" Partial
+    class TEMPO_MAP_SYNCHRONIZATION_POINT {
+        <<REL>>
+        +INT64 sync_point_parent
+        +INT64 sync_point_child
+    }
+    TempoMap "*" -- TEMPO_MAP_SYNCHRONIZATION_POINT
+    TEMPO_MAP_SYNCHRONIZATION_POINT -- "1" TempoMap
+    class STATE_OF {
+        <<REL>>
+    }
+    PartialState "*" -- STATE_OF
+    STATE_OF -- "1" Partial
     class HAS_LABEL__Partial__Label["HAS_LABEL"] {
         <<REL>>
     }
@@ -265,26 +357,6 @@ classDiagram
     }
     Partial "*" -- PARTIAL_IN_FRAME
     PARTIAL_IN_FRAME -- "*" Frame
-    class AGGREGATE_OF_ONE_MANY__Score__SoundEntity["AGGREGATE_OF_ONE_MANY"] {
-        <<REL>>
-    }
-    Score "1" -- AGGREGATE_OF_ONE_MANY__Score__SoundEntity
-    AGGREGATE_OF_ONE_MANY__Score__SoundEntity -- "*" SoundEntity
-    class AGGREGATE_OF_ONE_MANY__SoundEntity__SoundSource["AGGREGATE_OF_ONE_MANY"] {
-        <<REL>>
-    }
-    SoundEntity "1" -- AGGREGATE_OF_ONE_MANY__SoundEntity__SoundSource
-    AGGREGATE_OF_ONE_MANY__SoundEntity__SoundSource -- "*" SoundSource
-    class AGGREGATE_OF_ONE_MANY__SoundSource__PartialSet["AGGREGATE_OF_ONE_MANY"] {
-        <<REL>>
-    }
-    SoundSource "1" -- AGGREGATE_OF_ONE_MANY__SoundSource__PartialSet
-    AGGREGATE_OF_ONE_MANY__SoundSource__PartialSet -- "*" PartialSet
-    class AGGREGATE_OF_ONE_MANY__PartialSet__Partial["AGGREGATE_OF_ONE_MANY"] {
-        <<REL>>
-    }
-    PartialSet "1" -- AGGREGATE_OF_ONE_MANY__PartialSet__Partial
-    AGGREGATE_OF_ONE_MANY__PartialSet__Partial -- "*" Partial
     class REGION_TO_SEGMENT {
         <<REL>>
     }
@@ -300,11 +372,21 @@ classDiagram
     }
     PartialIntegrableSegment "*" -- SEGMENT_TO_FREQUENCY_MODULATOR
     SEGMENT_TO_FREQUENCY_MODULATOR -- "*" PartialSegmentFrequencyModulator
+    class MEMBER_OF_SET_MANY_ONE {
+        <<REL>>
+    }
+    PartialState "*" -- MEMBER_OF_SET_MANY_ONE
+    MEMBER_OF_SET_MANY_ONE -- "1" PartialStateSet
     class POINT_STATE__SpatialPositionTimelinePoint__SpatialPositionState["POINT_STATE"] {
         <<REL>>
     }
     SpatialPositionTimelinePoint "*" -- POINT_STATE__SpatialPositionTimelinePoint__SpatialPositionState
     POINT_STATE__SpatialPositionTimelinePoint__SpatialPositionState -- "1" SpatialPositionState
+    class POINT_STATE__FrequencyModulatorTimelinePoint__FrequencyModulatorState["POINT_STATE"] {
+        <<REL>>
+    }
+    FrequencyModulatorTimelinePoint "*" -- POINT_STATE__FrequencyModulatorTimelinePoint__FrequencyModulatorState
+    POINT_STATE__FrequencyModulatorTimelinePoint__FrequencyModulatorState -- "1" FrequencyModulatorState
     class POINT_STATE__AmplitudeModulatorTimelinePoint__AmplitudeModulatorState["POINT_STATE"] {
         <<REL>>
     }
@@ -330,6 +412,11 @@ classDiagram
     }
     DistanceModulatorTimelinePoint "*" -- POINT_STATE__DistanceModulatorTimelinePoint__DistanceModulatorState
     POINT_STATE__DistanceModulatorTimelinePoint__DistanceModulatorState -- "1" DistanceModulatorState
+    class POINT_STATE__PartialSetTimelinePoint__PartialStateSet["POINT_STATE"] {
+        <<REL>>
+    }
+    PartialSetTimelinePoint "*" -- POINT_STATE__PartialSetTimelinePoint__PartialStateSet
+    POINT_STATE__PartialSetTimelinePoint__PartialStateSet -- "1" PartialStateSet
     class NEXT_POINT__PartialSegmentTimeline__PartialIntegrableSegment["NEXT_POINT"] {
         <<REL>>
     }
@@ -355,6 +442,11 @@ classDiagram
     }
     PhaseTimeline "1" -- NEXT_POINT__PhaseTimeline__PhaseTimelinePoint
     NEXT_POINT__PhaseTimeline__PhaseTimelinePoint -- "1" PhaseTimelinePoint
+    class NEXT_POINT__FrequencyModulatorTimeline__FrequencyModulatorTimelinePoint["NEXT_POINT"] {
+        <<REL>>
+    }
+    FrequencyModulatorTimeline "1" -- NEXT_POINT__FrequencyModulatorTimeline__FrequencyModulatorTimelinePoint
+    NEXT_POINT__FrequencyModulatorTimeline__FrequencyModulatorTimelinePoint -- "1" FrequencyModulatorTimelinePoint
     class NEXT_POINT__AmplitudeModulatorTimeline__AmplitudeModulatorTimelinePoint["NEXT_POINT"] {
         <<REL>>
     }
@@ -380,6 +472,21 @@ classDiagram
     }
     DistanceModulatorTimeline "1" -- NEXT_POINT__DistanceModulatorTimeline__DistanceModulatorTimelinePoint
     NEXT_POINT__DistanceModulatorTimeline__DistanceModulatorTimelinePoint -- "1" DistanceModulatorTimelinePoint
+    class NEXT_POINT__TempoMapTimeline__TempoMapTimelinePoint["NEXT_POINT"] {
+        <<REL>>
+    }
+    TempoMapTimeline "1" -- NEXT_POINT__TempoMapTimeline__TempoMapTimelinePoint
+    NEXT_POINT__TempoMapTimeline__TempoMapTimelinePoint -- "1" TempoMapTimelinePoint
+    class NEXT_POINT__PartialSetTimeline__PartialSetTimelinePoint["NEXT_POINT"] {
+        <<REL>>
+    }
+    PartialSetTimeline "1" -- NEXT_POINT__PartialSetTimeline__PartialSetTimelinePoint
+    NEXT_POINT__PartialSetTimeline__PartialSetTimelinePoint -- "1" PartialSetTimelinePoint
+    class NEXT_POINT__Score__TempoMapTimelinePoint["NEXT_POINT"] {
+        <<REL>>
+    }
+    Score "1" -- NEXT_POINT__Score__TempoMapTimelinePoint
+    NEXT_POINT__Score__TempoMapTimelinePoint -- "1" TempoMapTimelinePoint
     class NEXT_POINT__PartialIntegrableSegment__PartialIntegrableSegment["NEXT_POINT"] {
         <<REL>>
     }
@@ -405,6 +512,11 @@ classDiagram
     }
     PhaseTimelinePoint "1" -- NEXT_POINT__PhaseTimelinePoint__PhaseTimelinePoint
     NEXT_POINT__PhaseTimelinePoint__PhaseTimelinePoint -- "1" PhaseTimelinePoint
+    class NEXT_POINT__FrequencyModulatorTimelinePoint__FrequencyModulatorTimelinePoint["NEXT_POINT"] {
+        <<REL>>
+    }
+    FrequencyModulatorTimelinePoint "1" -- NEXT_POINT__FrequencyModulatorTimelinePoint__FrequencyModulatorTimelinePoint
+    NEXT_POINT__FrequencyModulatorTimelinePoint__FrequencyModulatorTimelinePoint -- "1" FrequencyModulatorTimelinePoint
     class NEXT_POINT__AmplitudeModulatorTimelinePoint__AmplitudeModulatorTimelinePoint["NEXT_POINT"] {
         <<REL>>
     }
@@ -430,11 +542,16 @@ classDiagram
     }
     DistanceModulatorTimelinePoint "1" -- NEXT_POINT__DistanceModulatorTimelinePoint__DistanceModulatorTimelinePoint
     NEXT_POINT__DistanceModulatorTimelinePoint__DistanceModulatorTimelinePoint -- "1" DistanceModulatorTimelinePoint
-    class HAS_TIMELINE__SoundSource__SpatialPositionTimeline["HAS_TIMELINE"] {
+    class NEXT_POINT__TempoMapTimelinePoint__TempoMapTimelinePoint["NEXT_POINT"] {
         <<REL>>
     }
-    SoundSource "1" -- HAS_TIMELINE__SoundSource__SpatialPositionTimeline
-    HAS_TIMELINE__SoundSource__SpatialPositionTimeline -- "1" SpatialPositionTimeline
+    TempoMapTimelinePoint "1" -- NEXT_POINT__TempoMapTimelinePoint__TempoMapTimelinePoint
+    NEXT_POINT__TempoMapTimelinePoint__TempoMapTimelinePoint -- "1" TempoMapTimelinePoint
+    class NEXT_POINT__PartialSetTimelinePoint__PartialSetTimelinePoint["NEXT_POINT"] {
+        <<REL>>
+    }
+    PartialSetTimelinePoint "1" -- NEXT_POINT__PartialSetTimelinePoint__PartialSetTimelinePoint
+    NEXT_POINT__PartialSetTimelinePoint__PartialSetTimelinePoint -- "1" PartialSetTimelinePoint
     class HAS_TIMELINE__Partial__AmplitudeTimeline["HAS_TIMELINE"] {
         <<REL>>
     }
@@ -455,6 +572,21 @@ classDiagram
     }
     Partial "1" -- HAS_TIMELINE__Partial__PartialSegmentTimeline
     HAS_TIMELINE__Partial__PartialSegmentTimeline -- "1" PartialSegmentTimeline
+    class HAS_TIMELINE__TempoMap__TempoMapTimeline["HAS_TIMELINE"] {
+        <<REL>>
+    }
+    TempoMap "1" -- HAS_TIMELINE__TempoMap__TempoMapTimeline
+    HAS_TIMELINE__TempoMap__TempoMapTimeline -- "1" TempoMapTimeline
+    class HAS_TIMELINE__SoundSource__SpatialPositionTimeline["HAS_TIMELINE"] {
+        <<REL>>
+    }
+    SoundSource "1" -- HAS_TIMELINE__SoundSource__SpatialPositionTimeline
+    HAS_TIMELINE__SoundSource__SpatialPositionTimeline -- "1" SpatialPositionTimeline
+    class HAS_TIMELINE__PartialSet__PartialSetTimeline["HAS_TIMELINE"] {
+        <<REL>>
+    }
+    PartialSet "1" -- HAS_TIMELINE__PartialSet__PartialSetTimeline
+    HAS_TIMELINE__PartialSet__PartialSetTimeline -- "1" PartialSetTimeline
     class HAS_MODULATOR_TIMELINE__SoundSource__AzimuthModulatorTimeline["HAS_MODULATOR_TIMELINE"] {
         <<REL>>
     }
@@ -470,6 +602,11 @@ classDiagram
     }
     SoundSource "1" -- HAS_MODULATOR_TIMELINE__SoundSource__DistanceModulatorTimeline
     HAS_MODULATOR_TIMELINE__SoundSource__DistanceModulatorTimeline -- "*" DistanceModulatorTimeline
+    class HAS_MODULATOR_TIMELINE__PartialSet__FrequencyModulatorTimeline["HAS_MODULATOR_TIMELINE"] {
+        <<REL>>
+    }
+    PartialSet "1" -- HAS_MODULATOR_TIMELINE__PartialSet__FrequencyModulatorTimeline
+    HAS_MODULATOR_TIMELINE__PartialSet__FrequencyModulatorTimeline -- "*" FrequencyModulatorTimeline
     class HAS_MODULATOR_TIMELINE__PartialSet__AmplitudeModulatorTimeline["HAS_MODULATOR_TIMELINE"] {
         <<REL>>
     }
@@ -500,3 +637,59 @@ classDiagram
     }
     FrameEntry "*" -- FRAME_ENTRY_PARTIAL
     FRAME_ENTRY_PARTIAL -- "1" Partial
+    class POINT_AT__PartialSetTimelinePoint__TempoMapTimeline["POINT_AT"] {
+        <<REL>>
+        +INT64 sync_point
+        +FLOAT offset_seconds
+    }
+    PartialSetTimelinePoint "*" -- POINT_AT__PartialSetTimelinePoint__TempoMapTimeline
+    POINT_AT__PartialSetTimelinePoint__TempoMapTimeline -- "1" TempoMapTimeline
+    class POINT_AT__SpatialPositionTimelinePoint__TempoMapTimeline["POINT_AT"] {
+        <<REL>>
+        +INT64 sync_point
+        +FLOAT offset_seconds
+    }
+    SpatialPositionTimelinePoint "*" -- POINT_AT__SpatialPositionTimelinePoint__TempoMapTimeline
+    POINT_AT__SpatialPositionTimelinePoint__TempoMapTimeline -- "1" TempoMapTimeline
+    class POINT_AT__FrequencyModulatorTimelinePoint__TempoMapTimeline["POINT_AT"] {
+        <<REL>>
+        +INT64 sync_point
+        +FLOAT offset_seconds
+    }
+    FrequencyModulatorTimelinePoint "*" -- POINT_AT__FrequencyModulatorTimelinePoint__TempoMapTimeline
+    POINT_AT__FrequencyModulatorTimelinePoint__TempoMapTimeline -- "1" TempoMapTimeline
+    class POINT_AT__AmplitudeModulatorTimelinePoint__TempoMapTimeline["POINT_AT"] {
+        <<REL>>
+        +INT64 sync_point
+        +FLOAT offset_seconds
+    }
+    AmplitudeModulatorTimelinePoint "*" -- POINT_AT__AmplitudeModulatorTimelinePoint__TempoMapTimeline
+    POINT_AT__AmplitudeModulatorTimelinePoint__TempoMapTimeline -- "1" TempoMapTimeline
+    class POINT_AT__PhaseModulatorTimelinePoint__TempoMapTimeline["POINT_AT"] {
+        <<REL>>
+        +INT64 sync_point
+        +FLOAT offset_seconds
+    }
+    PhaseModulatorTimelinePoint "*" -- POINT_AT__PhaseModulatorTimelinePoint__TempoMapTimeline
+    POINT_AT__PhaseModulatorTimelinePoint__TempoMapTimeline -- "1" TempoMapTimeline
+    class POINT_AT__AzimuthModulatorTimelinePoint__TempoMapTimeline["POINT_AT"] {
+        <<REL>>
+        +INT64 sync_point
+        +FLOAT offset_seconds
+    }
+    AzimuthModulatorTimelinePoint "*" -- POINT_AT__AzimuthModulatorTimelinePoint__TempoMapTimeline
+    POINT_AT__AzimuthModulatorTimelinePoint__TempoMapTimeline -- "1" TempoMapTimeline
+    class POINT_AT__ElevationModulatorTimelinePoint__TempoMapTimeline["POINT_AT"] {
+        <<REL>>
+        +INT64 sync_point
+        +FLOAT offset_seconds
+    }
+    ElevationModulatorTimelinePoint "*" -- POINT_AT__ElevationModulatorTimelinePoint__TempoMapTimeline
+    POINT_AT__ElevationModulatorTimelinePoint__TempoMapTimeline -- "1" TempoMapTimeline
+    class POINT_AT__DistanceModulatorTimelinePoint__TempoMapTimeline["POINT_AT"] {
+        <<REL>>
+        +INT64 sync_point
+        +FLOAT offset_seconds
+    }
+    DistanceModulatorTimelinePoint "*" -- POINT_AT__DistanceModulatorTimelinePoint__TempoMapTimeline
+    POINT_AT__DistanceModulatorTimelinePoint__TempoMapTimeline -- "1" TempoMapTimeline

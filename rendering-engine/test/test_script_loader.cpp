@@ -273,7 +273,8 @@ TEST(ScriptLoader, RealSchemaDeclaresEverythingTheExampleScoreNeeds) {
     for (const std::string_view table :
         {"EngineConfig", "Score", "SoundEntity", "SoundSource", "PartialSet", "Partial",
             "AmplitudeTimeline", "AmplitudeTimelinePoint", "FrequencyTimeline",
-            "FrequencyTimelinePoint", "AGGREGATE_OF_ONE_MANY", "HAS_TIMELINE", "NEXT_POINT"}) {
+            "FrequencyTimelinePoint", "HAS_SOUNDENTITY", "HAS_SOUNDSOURCE", "HAS_PARTIALSET",
+            "HAS_PARTIAL", "HAS_TIMELINE", "NEXT_POINT"}) {
         EXPECT_TRUE(std::ranges::any_of(
             tables, [table](const auto& entry) { return entry.first == table; }))
             << "the example score needs " << table << ", which the schema did not create";
@@ -313,7 +314,10 @@ TEST(ScriptLoader, ExampleScoreHasTheShapeOfAScore) {
     EXPECT_EQ(rowsIn(census.relationships, "HAS_TIMELINE"), 2);
 
     // Score -> SoundEntity -> SoundSource -> PartialSet -> Partial.
-    EXPECT_EQ(rowsIn(census.relationships, "AGGREGATE_OF_ONE_MANY"), 4);
+    EXPECT_EQ(rowsIn(census.relationships, "HAS_SOUNDENTITY"), 1);
+    EXPECT_EQ(rowsIn(census.relationships, "HAS_SOUNDSOURCE"), 1);
+    EXPECT_EQ(rowsIn(census.relationships, "HAS_PARTIALSET"), 1);
+    EXPECT_EQ(rowsIn(census.relationships, "HAS_PARTIAL"), 1);
 
     // Two linked lists: a head edge and one link edge each.
     EXPECT_EQ(rowsIn(census.relationships, "NEXT_POINT"), 4);

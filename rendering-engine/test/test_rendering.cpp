@@ -134,7 +134,7 @@ protected:
     void addPartial(const std::string& set, const std::string& name,
         const std::vector<Point>& frequency, const std::vector<Point>& amplitude) {
         db.execute("MATCH (s:PartialSet {name: '" + set +
-                   "'}) CREATE (s)-[:AGGREGATE_OF_ONE_MANY]->"
+                   "'}) CREATE (s)-[:HAS_PARTIAL]->"
                    "(:Partial {name: '" +
                    name + "'});");
         std::string cypher =

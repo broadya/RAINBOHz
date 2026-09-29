@@ -350,7 +350,7 @@ IntegrityCheck checkRange(EngineDb& db, const RangeRule& rule) {
 
 /// Checks that every Partial is aggregated by exactly one PartialSet.
 ///
-/// Ladybug enforces at most one (AGGREGATE_OF_ONE_MANY is ONE_MANY); zero is
+/// Ladybug enforces at most one (HAS_PARTIAL is ONE_MANY); zero is
 /// the defect, and rendering needs the set to group by.
 ///
 /// @param db  Database to check.
@@ -362,7 +362,7 @@ IntegrityCheck checkSetMembership(EngineDb& db) {
         .violationCount = 0,
         .violations = {}};
     const std::vector<DbRow> rows =
-        db.query("MATCH (p:Partial) OPTIONAL MATCH (s:PartialSet)-[:AGGREGATE_OF_ONE_MANY]->(p) "
+        db.query("MATCH (p:Partial) OPTIONAL MATCH (s:PartialSet)-[:HAS_PARTIAL]->(p) "
                  "RETURN p.id, count(s) ORDER BY p.id;");
     for (const DbRow& row : rows) {
         const std::int64_t sets = requireInt64(row.at(1));

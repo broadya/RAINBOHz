@@ -27,8 +27,177 @@
 // overhead is relatively small given that the data models
 // differ in other ways too. In particular, a time conversion
 // from beats to seconds is necessary. which anyway forces
-// a conversion pass through most of the data model.
+// a transformation pass through most of the data model.
 // ============================================================
+
+// ============================================================
+// Key paths through the data model
+// Note the two types of timeline and two relationships
+// HAS_TIMELINE_BEAT, based on beat time
+// HAS_TIMELINE_WALLCLOCK, based on wall clock time
+//
+// 1. The core structure of the model, common for both specification and precomputation / rendering
+// Score 1->m SoundEntity 1->m SoundSource 1-->m PartialSet 1->m Partial
+// Score is a piece of music.
+// SoundEntity is a compositional concept. It could be a whole piece, a movement or section, a sound object, or part of a sound object.
+// SoundSource is part of a SoundEntity with a defined spatial position. It could represent a single channel of stereo audio, or a source that moves in space.
+// PartialSet is a set of partials that together create part of a sound.
+// Partial is a single partial
+// Note that higher levels of abstraction may be possible in the HzL language, but any such concepts flatten to this model.
+//
+// 2. Spatial position
+// Canonical, linked to beat time.
+// SoundSource -> SpatialPositionBeatTimeline
+// Precomputation / Rendering, linked to wall clock time.
+// SoundSource -> SpatialPositionTimeline
+//
+// 3. Spatial position modulators
+// Canonical, linked to beat time.
+// SoundSource -> AzimuthModulatorBeatTimeline
+// SoundSource -> ElevationModulatorBeatTimeline
+// SoundSource -> DistanceModulatorBeatTimeline
+// Precomputation / Rendering, linked to wall clock time.
+// SoundSource -> AzimuthModulatorTimeline
+// SoundSource -> ElevationModulatorTimeline
+// SoundSource -> DistanceModulatorTimeline
+// 
+// 4. Nominal parameters of a partial
+// Canonical, linked to beat time. Explicit relationships between Partials in a PartialSet.
+// PartialSet -> PartialSetBeatTimeline -> PartialSetBeatTimelinePoint -> PartialSetState -> PartialState (freq / ampl / phase) <- Partial
+// Precomputation / Rendering, linked to wall clock time.
+// Partials decoupled from sets because curves do not map to the same parameters.
+// Partial -> FrequencyTimeline
+// Partial -> AmplitudeTimeline
+// Partial -> PhaseTimeline
+//
+// 5. Partial modulators
+// Canonical, linked to beat time.
+// PartialSet -> FrequencyModulatorBeatTimeline
+// PartialSet -> AmplitudeModulatorBeatTimeline
+// PartialSet -> PhaseModulatorBeatTimeline
+// PartialSet -> FrequencyModulatorBeatTimeline
+// Precomputation / Rendering, linked to wall clock time.
+// Remain with PartialSets because they are intentionally common per PartialSet and modulate relative to the different
+// nominal values of the Partials in each PartialSet.
+// PartialSet -> FrequencyModulatorTimeline
+// PartialSet -> AmplitudeModulatorTimeline
+// PartialSet -> PhaseModulatorTimeline
+// PartialSet -> FrequencyModulatorTimeline
+//
+// 6. Timing
+// Beat timelines link to positions in a TempoMap that are integer counts of ticks.
+// The number of ticks per beat depends on the TempoMap. They can also have fixed time
+// offets - useful e.g. for fixed percussive attack portions of a sound.
+// Non-beat timelines link to wall clock time. They are also linked to Frame through
+// FrameEntry. This allows rapid location of the correct start point when rendering a
+// given Frame with random access. It is possible to generate a non-beat Timeline via
+// a single pass through a Timeline.
+// This is a different computation than the calculation of PartialIntegrableSegment,
+// which can occur on-demand when rendering a Frame of audio, where it is necessary to 
+// do so.
+// ============================================================
+
+// ============================================================
+// CORE STRUCURE, COMMON TO THE ENTIRE MODEL
+// ============================================================
+
+// ============================================================
+// Score: The entire piece of music to be rendered.
+// Expected to be a singleton, but it is possible that 
+// some (future) use cases could call for multiple scores.
+// ============================================================
+CREATE NODE TABLE Score (
+    id      SERIAL,
+    name    STRING,
+    PRIMARY KEY(id)
+);
+
+// ============================================================
+// SoundSource: A source, with a point spatial position (albeit a dynamic
+// spatial position). Can be used to represent a channel e.g. one
+// side of a stereo signal. Can equally be used to represent
+// one given source in a complex spatial audio field.
+// ============================================================
+CREATE NODE TABLE SoundSource (
+    id  SERIAL,
+    name STRING,
+    PRIMARY KEY(id)
+);
+
+// ============================================================
+// SoundEntity: Objects representing a sound present during a
+// particular period of time.
+// ============================================================
+CREATE NODE TABLE SoundEntity (
+    id      SERIAL,
+    name    STRING,
+    PRIMARY KEY (id)
+);
+
+// ============================================================
+// A set of Partial.
+// A logical grouping of partials that may have various purposes.
+// For example, this set is used to determine which partials
+// modulators apply to.
+// ============================================================
+CREATE NODE TABLE PartialSet (
+    id          SERIAL,
+    name        STRING,
+    PRIMARY KEY (id)
+);
+
+// ============================================================
+// Partial: An individual Partial.
+// A partial may only be a member of one PartialSet.
+// ============================================================
+CREATE NODE TABLE Partial (
+    id      SERIAL,
+    name    STRING,
+    PRIMARY KEY(id)
+);
+
+// ============================================================
+// HAS_SOUNDENTITY: A Score consists of compositional elements
+// that are defined by SoundEntities. It's a decision for users
+// what level of detail is meant by each one.
+// ============================================================
+CREATE REL TABLE HAS_SOUNDENTITY (
+    FROM Score TO SoundEntity,
+    ONE_MANY
+);
+
+// ============================================================
+// HAS_SOUNDSOURCE: A SoundEntity consists of SoundSource 
+// elements. These are elements where all associated partials
+// have the same spatial position at a given point in time.
+// ============================================================
+CREATE REL TABLE HAS_SOUNDSOURCE (
+    FROM SoundEntity TO SoundSource,
+    ONE_MANY
+);
+
+// ============================================================
+// HAS_PARTIALSET: A SoundSource consists of PartialSet 
+// elements. These are elements where all associated partials
+// have the same modulators and will often have time synchronised
+// changes in frequency, amplitude and phase - although this is 
+// not a constraint.
+// ============================================================
+CREATE REL TABLE HAS_PARTIALSET (
+    FROM SoundSource TO PartialSet,
+    ONE_MANY
+);
+
+// ============================================================
+// HAS_PARTIAL: A ParialSet is itself literally a set that
+// has members. Each of those members is an individual
+// partial. The partials in a PartialSet share common spatial
+// position and common modulators through this model.
+// ============================================================
+CREATE REL TABLE HAS_PARTIAL (
+    FROM PartialSet TO Partial,
+    ONE_MANY
+);
 
 // ============================================================
 // UNITS FOR SPECIFICATION OF A SCORE
@@ -192,20 +361,14 @@
 // ============================================================
 
 // ============================================================
-// TempoMap: Tempo maps define directed acyclic graphs that
-// together acts as the framework for all timing of a Score.
+// TempoMap: Tempo maps may define directed acyclic graphs that
+// together act as the framework for all timing of a Score.
 //
-// A TempoMap may have more than one TempoMapTimeline.
-// This is often useful to allow for a wall clock timeline to be
-// synchronised to a beat time timeline. It may have other creative
-// uses.
-//
-// These TempoMapTimelines within a single TempoMap may also
-// have parent / child TEMPO_MAP_SYNCHRONIZATION_POINT relationships
-// providing that the the DAG semantics of TempoMaps remain intact.
+// A TempoMap has a single TempoMapTimeline.
 // ============================================================
 CREATE NODE TABLE TempoMap (
     id              SERIAL,
+    name            STRING,
     PRIMARY KEY (id)
 );
 
@@ -550,17 +713,6 @@ CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
 // Score -> SoundEntity -> SoundSource -> PartialSet -> Partial
 
 // ============================================================
-// Score: The entire piece of music to be rendered.
-// Expected to be a singleton, but it is possible that 
-// some (future) use cases could call for multiple scores.
-// ============================================================
-CREATE NODE TABLE Score (
-    id      SERIAL,
-    name    STRING,
-    PRIMARY KEY(id)
-);
-
-// ============================================================
 // Label: Defines a label that can be selected by the user for rendering.
 // ============================================================
 CREATE NODE TABLE Label (
@@ -592,25 +744,97 @@ CREATE NODE TABLE Frame (
 );
 
 // ============================================================
-// A set of Partial.
-// A logical grouping of partials that may have various purposes.
-// For example, this set is used to determine which partials
-// modulators apply to.
+// PartialSetTimeline: Objects representing a sequence of states
+// and transformations for a particular set of partials.
+//
+// @canonical
 // ============================================================
-CREATE NODE TABLE PartialSet (
-    id          SERIAL,
-    name        STRING,
+CREATE NODE TABLE PartialSetTimeline (
+    id      SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// Partial: An individual Partial.
-// A partial may only be a member of one PartialSet.
+// PartialSetTimelinePoint: An point within a PartialSetTimeline.
+// Defines the state of the partials for that timeline at a given
+// point in time.
+//
+// Curve types, INT8:
+// 0 linear
+// 1 step
+// 2 accelerate     implemented as sin(3π/2) to sin(2π)
+// 3 decelerate     implemented as sin(0) to sin(π/2)
+// 4 s-curve        implemented assin(-π/2) to sin(π/2)
+//
+// Curve amount, FLOAT (has no effect if type is linear)
+// 0 linear
+// 0.5 50/50 mix linear/curve
+// 1 curve
+//
+// phase_lock determines whether, when phase adjustment takes place, 
+// the phase at the start of this point will be included in the
+// adjustment.
+//
+// @canonical
 // ============================================================
-CREATE NODE TABLE Partial (
+CREATE NODE TABLE PartialSetTimelinePoint (
+    id                      SERIAL,
+    amplitude_curve_type    INT8 DEFAULT 0,
+    amplitude_curve_amount  FLOAT DEFAULT 0.0,
+    frequency_curve_type    INT8 DEFAULT 0,
+    frequency_curve_amount  FLOAT DEFAULT 0.0,
+    phase_curve_type        INT8 DEFAULT 0,
+    phase_curve_amount      FLOAT DEFAULT 0.0,
+    phase_lock              BOOLEAN,
+    PRIMARY KEY (id)
+);
+
+// ============================================================
+// PartialStateSet: container for a set of related partial states.
+//
+// @canonical
+// ============================================================
+CREATE NODE TABLE PartialStateSet (
     id      SERIAL,
-    name    STRING,
-    PRIMARY KEY(id)
+    PRIMARY KEY (id)
+);
+
+// ============================================================
+// Partial state at a given point in time.
+// All numeric ranges enforced by the DSL->canonical compiler,
+// not by the database (LadybugDB has no CHECK constraints).
+//
+// Ranges (compiler-enforced):
+//   frequency    Hz,      allowed to be outside of audio range and even be negative, but will not be rendered.
+//   phase        degrees, [-180, 180]
+//   amplitude    dB,      [-144, 0]      (-144 dB ~ -inf sentinel value)
+//
+//   phase may explicitly take a NULL value, other values may not be NULL.
+//   A NULL value for phase means that the partial runs "free" to this state.
+//
+//  All values are "nominal" because they can be affected by modulators
+//  and in the case of frequency also by phase (phase takes priority where
+//  there is a conflict).
+//
+// @canonical
+// ============================================================
+CREATE NODE TABLE PartialState (
+    id           SERIAL,   
+    frequency    FLOAT,
+    phase        FLOAT,
+    amplitude    FLOAT,
+    PRIMARY KEY (id)
+);
+
+// ============================================================
+// STATE_OF: Determines to which Partial a particular PartialState applies.
+// This relationship maintains the identity of a partial during its lifetime.
+//
+// @canonical
+// ============================================================
+CREATE REL TABLE STATE_OF (
+    FROM PartialState TO Partial,
+    MANY_ONE
 );
 
 // ============================================================
@@ -641,28 +865,6 @@ CREATE NODE TABLE SpatialPositionState (
 );
 
 // ============================================================
-// SoundSource: A source, with a point spatial position (albeit a dynamic
-// spatial position). Can be used to represent a channel e.g. one
-// side of a stereo signal. Can equally be used to represent
-// one given source in a complex spatial audio field.
-// ============================================================
-CREATE NODE TABLE SoundSource (
-    id  SERIAL,
-    name STRING,
-    PRIMARY KEY(id)
-);
-
-// ============================================================
-// SoundEntity: Objects representing a sound present during a
-// particular period of time.
-// ============================================================
-CREATE NODE TABLE SoundEntity (
-    id      SERIAL,
-    name    STRING,
-    PRIMARY KEY (id)
-);
-
-// ============================================================
 // PARTIAL_IN_FRAME: A basic relationship to allow
 // a rapid test to determine whether a partial is actually
 // in scope for a given frame. This is derived by calculating
@@ -674,18 +876,6 @@ CREATE NODE TABLE SoundEntity (
 CREATE REL TABLE PARTIAL_IN_FRAME (
     FROM Partial TO Frame,
     MANY_MANY
-);
-
-// ============================================================
-// AGGREGATE_OF_ONE_MANY: General object-oriented design concept of 
-// aggregation.
-// ============================================================
-CREATE REL TABLE AGGREGATE_OF_ONE_MANY (
-    FROM Score TO SoundEntity,
-    FROM SoundEntity TO SoundSource,
-    FROM SoundSource TO PartialSet,
-    FROM PartialSet TO Partial,
-    ONE_MANY
 );
 
 // ============================================================
@@ -844,14 +1034,13 @@ CREATE REL TABLE SEGMENT_TO_FREQUENCY_MODULATOR (
 
 // ============================================================
 // MEMBER_OF_SET_MANY_ONE: Defines set membership where a 
-// particular class may only be a member of one set.
-//
-// Currently not in use.
+// partcular class may only be a member of one set.
 // ============================================================
-// CREATE REL TABLE MEMBER_OF_SET_MANY_ONE (
-//     FROM X TO Y,
-//    MANY_ONE
-// );
+CREATE REL TABLE MEMBER_OF_SET_MANY_ONE (
+    // @canonical
+    FROM PartialState TO PartialStateSet,
+    MANY_ONE
+);
 
 // ============================================================
 // SpatialPositionTimelinePoint: An point within a SpatialPositionTimeline.
@@ -957,6 +1146,16 @@ CREATE NODE TABLE PhaseTimelinePoint (
 );
 
 // ============================================================
+// FrequencyModulatorTimelinePoint: An point within a FrequencyModulatorTimeline.
+// Defines the modulator state for that timeline at a given
+// point in time.
+// ============================================================
+CREATE NODE TABLE FrequencyModulatorTimelinePoint (
+    id  SERIAL,
+    PRIMARY KEY (id)
+);
+
+// ============================================================
 // AmplitudeModulatorTimelinePoint: An point within an AmplitudeModulatorTimeline.
 // Defines the modulator state for that timeline at a given
 // point in time.
@@ -1052,6 +1251,14 @@ CREATE NODE TABLE PartialSegmentTimeline (
 );
 
 // ============================================================
+// FrequencyModulatorTimeline: The timeline of a FrequencyModulator
+// ============================================================
+CREATE NODE TABLE FrequencyModulatorTimeline (
+    id SERIAL,
+    PRIMARY KEY (id)
+);
+
+// ============================================================
 // AmplitudeModulatorTimeline: The timeline of an AmplitudeModulator
 // ============================================================
 CREATE NODE TABLE AmplitudeModulatorTimeline (
@@ -1092,11 +1299,9 @@ CREATE NODE TABLE DistanceModulatorTimeline (
 );
 
 // ============================================================
-// PhaseModulatorState: The state of a PhaseModulator
-// Currently defined as equivalent to FrequencyModulatorState,
-// but is not subject to the same constraints, could be expanded.
+// FrequencyModulatorState: The state of a FrequencyModulator
 // ============================================================
-CREATE NODE TABLE PhaseModulatorState (
+CREATE NODE TABLE FrequencyModulatorState (
     id              SERIAL,
 
     // Sum of all offsets from all components of the modulator.
@@ -1121,6 +1326,30 @@ CREATE NODE TABLE PhaseModulatorState (
 // but is not subject to the same constraints, could be expanded.
 // ============================================================
 CREATE NODE TABLE AmplitudeModulatorState (
+    id              SERIAL,
+
+    // Sum of all offsets from all components of the modulator.
+    offset          FLOAT,
+
+    // Linear component
+    linear_gradient        FLOAT,
+
+    // Summed with a set of sinusoidal curve components
+    curve_components  STRUCT(
+        curve_scaling_factor  FLOAT,
+        curve_start_phase     FLOAT,
+        curve_frequency       FLOAT
+    )[],
+
+    PRIMARY KEY (id)
+);
+
+// ============================================================
+// PhaseModulatorState: The state of a PhaseModulator
+// Currently defined as equivalent to FrequencyModulatorState,
+// but is not subject to the same constraints, could be expanded.
+// ============================================================
+CREATE NODE TABLE PhaseModulatorState (
     id              SERIAL,
 
     // Sum of all offsets from all components of the modulator.
@@ -1215,12 +1444,16 @@ CREATE NODE TABLE DistanceModulatorState (
 // POINT_STATE: Defines the state of a given point on a timeline.
 // ============================================================
 CREATE REL TABLE POINT_STATE (
-    FROM SpatialPositionTimelinePoint TO SpatialPositionState, // remove later
+    FROM SpatialPositionTimelinePoint TO SpatialPositionState,
+    FROM FrequencyModulatorTimelinePoint TO FrequencyModulatorState,
     FROM AmplitudeModulatorTimelinePoint TO AmplitudeModulatorState,
     FROM PhaseModulatorTimelinePoint TO PhaseModulatorState,
     FROM AzimuthModulatorTimelinePoint TO AzimuthModulatorState,
     FROM ElevationModulatorTimelinePoint TO ElevationModulatorState,
     FROM DistanceModulatorTimelinePoint TO DistanceModulatorState,
+
+    // @canonical
+    FROM PartialSetTimelinePoint TO PartialStateSet,
     MANY_ONE
 );
 
@@ -1235,11 +1468,17 @@ CREATE REL TABLE NEXT_POINT (
     FROM AmplitudeTimeline TO AmplitudeTimelinePoint,
     FROM FrequencyTimeline TO FrequencyTimelinePoint,
     FROM PhaseTimeline TO PhaseTimelinePoint,
+    FROM FrequencyModulatorTimeline TO FrequencyModulatorTimelinePoint,
     FROM AmplitudeModulatorTimeline TO AmplitudeModulatorTimelinePoint,
     FROM PhaseModulatorTimeline TO PhaseModulatorTimelinePoint,
     FROM AzimuthModulatorTimeline TO AzimuthModulatorTimelinePoint,
     FROM ElevationModulatorTimeline TO ElevationModulatorTimelinePoint,
     FROM DistanceModulatorTimeline TO DistanceModulatorTimelinePoint,
+
+    // @canonical
+    FROM TempoMapTimeline TO TempoMapTimelinePoint,
+    FROM PartialSetTimeline TO PartialSetTimelinePoint,
+    FROM Score TO TempoMapTimelinePoint, // Defines time = zero
 
     // Further nodes of the linked lists
     FROM PartialIntegrableSegment TO PartialIntegrableSegment,
@@ -1247,11 +1486,16 @@ CREATE REL TABLE NEXT_POINT (
     FROM AmplitudeTimelinePoint TO AmplitudeTimelinePoint,
     FROM FrequencyTimelinePoint TO FrequencyTimelinePoint,
     FROM PhaseTimelinePoint TO PhaseTimelinePoint,
+    FROM FrequencyModulatorTimelinePoint TO FrequencyModulatorTimelinePoint,
     FROM AmplitudeModulatorTimelinePoint TO AmplitudeModulatorTimelinePoint,
     FROM PhaseModulatorTimelinePoint TO PhaseModulatorTimelinePoint,
     FROM AzimuthModulatorTimelinePoint TO AzimuthModulatorTimelinePoint,
     FROM ElevationModulatorTimelinePoint TO ElevationModulatorTimelinePoint,
     FROM DistanceModulatorTimelinePoint TO DistanceModulatorTimelinePoint,
+
+    // @canonical
+    FROM TempoMapTimelinePoint TO TempoMapTimelinePoint,
+    FROM PartialSetTimelinePoint TO PartialSetTimelinePoint,
     ONE_ONE
 );
 
@@ -1260,11 +1504,16 @@ CREATE REL TABLE NEXT_POINT (
 // given SoundSource.
 // ============================================================
 CREATE REL TABLE HAS_TIMELINE (
-    FROM SoundSource TO SpatialPositionTimeline,
+    // Optimisations for precomputation and rendeering
     FROM Partial TO AmplitudeTimeline,
     FROM Partial TO FrequencyTimeline,
     FROM Partial TO PhaseTimeline,
     FROM Partial TO PartialSegmentTimeline,
+
+    // @canonical
+    FROM TempoMap TO TempoMapTimeline,
+    FROM SoundSource TO SpatialPositionTimeline,
+    FROM PartialSet TO PartialSetTimeline,
     ONE_ONE
 );
 
@@ -1277,6 +1526,7 @@ CREATE REL TABLE HAS_MODULATOR_TIMELINE (
     FROM SoundSource TO AzimuthModulatorTimeline,
     FROM SoundSource TO ElevationModulatorTimeline,
     FROM SoundSource TO DistanceModulatorTimeline,
+    FROM PartialSet TO FrequencyModulatorTimeline,
     FROM PartialSet TO AmplitudeModulatorTimeline,
     FROM PartialSet TO PhaseModulatorTimeline,
     ONE_MANY
@@ -1366,54 +1616,6 @@ CREATE REL TABLE POINT_AT (
     offset_seconds FLOAT,  // offset in wall clock time.
     MANY_ONE
 );
-
-// ============================================================
-// PartialSetTimeline: Objects representing a sequence of states
-// and transformations for a particular set of partials.
-//
-// @canonical
-// ============================================================
-CREATE NODE TABLE PartialSetTimeline (
-    id      SERIAL,
-    PRIMARY KEY (id)
-);
-
-// ============================================================
-// PartialSetTimelinePoint: An point within a PartialSetTimeline.
-// Defines the state of the partials for that timeline at a given
-// point in time.
-//
-// Curve types, INT8:
-// 0 linear
-// 1 step
-// 2 accelerate     implemented as sin(3π/2) to sin(2π)
-// 3 decelerate     implemented as sin(0) to sin(π/2)
-// 4 s-curve        implemented assin(-π/2) to sin(π/2)
-//
-// Curve amount, FLOAT (has no effect if type is linear)
-// 0 linear
-// 0.5 50/50 mix linear/curve
-// 1 curve
-//
-// phase_lock determines whether, when phase adjustment takes place, 
-// the phase at the start of this point will be included in the
-// adjustment.
-//
-// @canonical
-// ============================================================
-CREATE NODE TABLE PartialSetTimelinePoint (
-    id                      SERIAL,
-    amplitude_curve_type    INT8 DEFAULT 0,
-    amplitude_curve_amount  FLOAT DEFAULT 0.0,
-    frequency_curve_type    INT8 DEFAULT 0,
-    frequency_curve_amount  FLOAT DEFAULT 0.0,
-    phase_curve_type        INT8 DEFAULT 0,
-    phase_curve_amount      FLOAT DEFAULT 0.0,
-    phase_lock              BOOLEAN,
-    PRIMARY KEY (id)
-);
-
-
 
 // ============================================================
 // MODEL FOR RESULT OF FREQUENCY AND PHASE PRECOMPUTATION

@@ -16,19 +16,19 @@ CREATE (score:Score {name:"Minimal Score"})
 
 // A score has many sound entities
 CREATE (soundEntity0:SoundEntity {name:"SoundEntity 0"})
-CREATE (score)-[:AGGREGATE_OF_ONE_MANY]->(soundEntity0)
+CREATE (score)-[:HAS_SOUNDENTITY]->(soundEntity0)
 
 // A sound entity has many sound sources
 CREATE (soundSource0:SoundSource {name:"SoundSource 0"})
-CREATE (soundEntity0)-[:AGGREGATE_OF_ONE_MANY]->(soundSource0)
+CREATE (soundEntity0)-[:HAS_SOUNDSOURCE]->(soundSource0)
 
 // A sound source has many partial sets
 CREATE (partialSet0:PartialSet {name:"PartialSet 0"})
-CREATE (soundSource0)-[:AGGREGATE_OF_ONE_MANY]->(partialSet0)
+CREATE (soundSource0)-[:HAS_PARTIALSET]->(partialSet0)
 
 // A partial set has many partials
 CREATE (partial0:Partial {name:"Partial 0"})
-CREATE (partialSet0)-[:AGGREGATE_OF_ONE_MANY]->(partial0)
+CREATE (partialSet0)-[:HAS_PARTIAL]->(partial0)
 
 // A partial has an amplitude timeline
 CREATE (amplitudeTimeline0:AmplitudeTimeline {})

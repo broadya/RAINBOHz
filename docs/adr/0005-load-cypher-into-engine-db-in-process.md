@@ -109,6 +109,12 @@ AGGREGATE_OF_ONE_MANY` at lines 395-401 of `engine-schema.cypher` names
 the same defect at the same lines, which is the parity between the two loaders
 being demonstrated rather than a problem with either.
 
+Note (2026-09-29): `AGGREGATE_OF_ONE_MANY` has since been replaced by four
+relationships, `HAS_SOUNDENTITY`, `HAS_SOUNDSOURCE`, `HAS_PARTIALSET` and
+`HAS_PARTIAL`, each declared after the node tables it connects, and the test
+now passes. The paragraph above records the schema as it stood when this ADR
+was accepted; the decision is unchanged.
+
 ## Pros and Cons of the Options
 
 ### Hand the whole file to `Connection::query`

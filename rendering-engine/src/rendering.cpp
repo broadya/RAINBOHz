@@ -65,7 +65,7 @@ constexpr std::string_view kReadEntries =
     "MATCH (f:Frame)-[:FRAME_ENTRY]->(e:FrameEntry) "
     "WHERE f.frame_number = CAST($frame AS INT32) "
     "OPTIONAL MATCH (e)-[:FRAME_ENTRY_PARTIAL]->(p:Partial) "
-    "OPTIONAL MATCH (ps:PartialSet)-[:AGGREGATE_OF_ONE_MANY]->(p) "
+    "OPTIONAL MATCH (ps:PartialSet)-[:HAS_PARTIAL]->(p) "
     "RETURN e.id, p.id, p.name, ps.id ORDER BY p.id, e.id;";
 
 // Query 2: each entry's segment with its nominal frequency, and whether the

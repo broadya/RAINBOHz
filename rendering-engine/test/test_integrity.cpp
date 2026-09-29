@@ -86,7 +86,7 @@ protected:
         const auto report = loadCypherFile(db, RE_TEST_SCHEMA_FILE);
         ASSERT_TRUE(report.ok()) << "the engine schema did not load";
         db.execute("CREATE (:EngineConfig {sampleRate: 48000, channelMode: 0});");
-        db.execute("CREATE (:PartialSet {name: 'S'})-[:AGGREGATE_OF_ONE_MANY]->"
+        db.execute("CREATE (:PartialSet {name: 'S'})-[:HAS_PARTIAL]->"
                    "(:Partial {name: 'A'})-[:HAS_TIMELINE]->(:FrequencyTimeline)"
                    "-[:NEXT_POINT]->(:FrequencyTimelinePoint {time: 0.0, frequency: 0.1})"
                    "-[:NEXT_POINT]->(:FrequencyTimelinePoint {time: 10.0, frequency: 0.2})"
@@ -346,7 +346,7 @@ TEST_F(IntegrityDb, TheTwoTimelinesMustStartAndEndTogether) {
 }
 
 TEST_F(IntegrityDb, APartialWithOnlyOneTimelineIsNotALifelineViolation) {
-    db.execute("CREATE (:PartialSet {name: 'T'})-[:AGGREGATE_OF_ONE_MANY]->(:Partial {name: 'B'})"
+    db.execute("CREATE (:PartialSet {name: 'T'})-[:HAS_PARTIAL]->(:Partial {name: 'B'})"
                "-[:HAS_TIMELINE]->(:FrequencyTimeline)"
                "-[:NEXT_POINT]->(:FrequencyTimelinePoint {time: 0.0, frequency: 0.1})"
                "-[:NEXT_POINT]->(:FrequencyTimelinePoint {time: 5.0, frequency: 0.1});");
