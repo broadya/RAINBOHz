@@ -117,22 +117,22 @@ ScorePoint at(double time, double frequency, int curveType = 0) {
     return ScorePoint{.time = time, .frequency = frequency, .curveType = curveType};
 }
 
-/// Whether addPartial() gives the partial an AmplitudeTimeline.
+/// Whether addPartial() gives the partial an AmplitudePhysicalTimeline.
 enum class Amplitude : std::uint8_t {
     /// Two points, at the first and last frequency times, both at -6 dB: the
     /// simplest timeline that agrees with the envelope.
     Matching,
-    /// No AmplitudeTimeline at all.
+    /// No AmplitudePhysicalTimeline at all.
     None,
 };
 
-/// Adds a partial with a FrequencyTimeline, and normally an AmplitudeTimeline,
+/// Adds a partial with a FrequencyPhysicalTimeline, and normally an AmplitudePhysicalTimeline,
 /// to a database.
 ///
 /// @param[in,out] db  Database with the engine schema applied. Gains one
-///                    Partial, its FrequencyTimeline with one point per entry
+///                    Partial, its FrequencyPhysicalTimeline with one point per entry
 ///                    of `points`, linked in order, and, unless `amplitude` is
-///                    None and `points` is not empty, an AmplitudeTimeline.
+///                    None and `points` is not empty, an AmplitudePhysicalTimeline.
 /// @param name        Partial.name. Must be unique in the test.
 /// @param points      The frequency timeline's points. May be empty.
 /// @param amplitude   Whether to add the amplitude timeline, and what shape.
@@ -140,14 +140,15 @@ enum class Amplitude : std::uint8_t {
 ///                    of the matching pair, all at -6 dB.
 void addPartial(EngineDb& db, const std::string& name, const std::vector<ScorePoint>& points,
     Amplitude amplitude = Amplitude::Matching, const std::vector<double>& amplitudeTimes = {}) {
-    db.execute("CREATE (:Partial {name: '" + name + "'})-[:HAS_TIMELINE]->(:FrequencyTimeline);");
+    db.execute("CREATE (:Partial {name: '" + name +
+               "'})-[:HAS_PHYSICAL_TIMELINE]->(:FrequencyPhysicalTimeline);");
     if (points.empty()) {
         return;
     }
-    std::string cypher =
-        "MATCH (:Partial {name: '" + name + "'})-[:HAS_TIMELINE]->(t:FrequencyTimeline) CREATE (t)";
+    std::string cypher = "MATCH (:Partial {name: '" + name +
+                         "'})-[:HAS_PHYSICAL_TIMELINE]->(t:FrequencyPhysicalTimeline) CREATE (t)";
     for (const ScorePoint& point : points) {
-        cypher += "-[:NEXT_POINT]->(:FrequencyTimelinePoint {time: " + literal(point.time) +
+        cypher += "-[:NEXT_POINT]->(:FrequencyPhysicalTimelinePoint {time: " + literal(point.time) +
                   ", frequency: " + literal(point.frequency) +
                   ", frequency_curve_type: " + std::to_string(point.curveType) + "})";
     }
@@ -160,10 +161,11 @@ void addPartial(EngineDb& db, const std::string& name, const std::vector<ScorePo
     if (times.empty()) {
         times = {points.front().time, points.back().time};
     }
-    cypher = "MATCH (p:Partial {name: '" + name +
-             "'}) CREATE (p)-[:HAS_TIMELINE]->(t:AmplitudeTimeline) WITH t CREATE (t)";
+    cypher =
+        "MATCH (p:Partial {name: '" + name +
+        "'}) CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:AmplitudePhysicalTimeline) WITH t CREATE (t)";
     for (const double time : times) {
-        cypher += "-[:NEXT_POINT]->(:AmplitudeTimelinePoint {time: " + literal(time) +
+        cypher += "-[:NEXT_POINT]->(:AmplitudePhysicalTimelinePoint {time: " + literal(time) +
                   ", amplitude: -6.0, amplitude_curve_type: 0})";
     }
     db.execute(cypher + ";");
@@ -185,11 +187,11 @@ std::int64_t count(EngineDb& db, const std::string& cypher) {
 /// @return One start_phase per segment, ordered by start_time.
 std::vector<double> startPhases(EngineDb& db, const std::string& name) {
     std::vector<double> phases;
-    const std::vector<DbRow> rows =
-        db.query("MATCH (:Partial {name: $name})-[:HAS_TIMELINE]->(:PartialSegmentTimeline)"
-                 "-[:NEXT_POINT*1..30]->(s:PartialIntegrableSegment) "
-                 "RETURN s.start_phase ORDER BY s.start_time;",
-            {{"name", name}});
+    const std::vector<DbRow> rows = db.query(
+        "MATCH (:Partial {name: $name})-[:HAS_PHYSICAL_TIMELINE]->(:PartialSegmentPhysicalTimeline)"
+        "-[:NEXT_POINT*1..30]->(s:PartialIntegrableSegment) "
+        "RETURN s.start_phase ORDER BY s.start_time;",
+        {{"name", name}});
     phases.reserve(rows.size());
     for (const DbRow& row : rows) {
         phases.push_back(optionalDouble(row.at(0)).value());
@@ -377,7 +379,7 @@ AmplitudePointRecord amplitudeRecord(double time) {
     return AmplitudePointRecord{.id = 0, .time = time};
 }
 
-TEST(ValidateAmplitudeTimes, AcceptsATimelineSpanningTheEnvelope) {
+TEST(ValidateAmplitudeTimes, AcceptsAPhysicalTimelineSpanningTheEnvelope) {
     const std::vector<AmplitudePointRecord> points{
         amplitudeRecord(0.0), amplitudeRecord(60000.0), amplitudeRecord(120000.0)};
     const std::vector<SampleTime> times = validateAmplitudeTimes(points, workedExampleEnvelope());
@@ -531,18 +533,21 @@ TEST_F(PrecomputationDb, WritesTheWorkedExample) {
     EXPECT_EQ(count(db, "MATCH (:Frame)-[:FRAME_ENTRY]->(e:FrameEntry)-[:FRAME_ENTRY_PARTIAL]->"
                         "(:Partial) RETURN count(e);"),
         3);
-    EXPECT_EQ(count(db, "MATCH (:FrameEntry)-[:FRAME_ENTRY_TIMELINE]->"
+    EXPECT_EQ(count(db, "MATCH (:FrameEntry)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->"
                         "(:PartialIntegrableSegment) RETURN count(*);"),
         3);
-    EXPECT_EQ(count(db, "MATCH (:FrameEntry)-[:FRAME_ENTRY_TIMELINE]->"
-                        "(:AmplitudeTimelinePoint) RETURN count(*);"),
+    EXPECT_EQ(count(db, "MATCH (:FrameEntry)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->"
+                        "(:AmplitudePhysicalTimelinePoint) RETURN count(*);"),
         3);
     EXPECT_EQ(count(db, "MATCH (f:Frame {frame_number: 1})-[:FRAME_ENTRY]->(:FrameEntry)"
-                        "-[:FRAME_ENTRY_TIMELINE]->(s:PartialIntegrableSegment) "
+                        "-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(s:PartialIntegrableSegment) "
                         "WHERE s.start_time = 48000.0 RETURN count(s);"),
         1);
-    EXPECT_EQ(count(db, "MATCH (:FrameEntry)-[:FRAME_ENTRY_TIMELINE]->(a:AmplitudeTimelinePoint) "
-                        "WHERE a.time = 0.0 RETURN count(*);"),
+    EXPECT_EQ(
+        count(db,
+            "MATCH "
+            "(:FrameEntry)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(a:AmplitudePhysicalTimelinePoint) "
+            "WHERE a.time = 0.0 RETURN count(*);"),
         3);
     EXPECT_EQ(count(db, "MATCH (s:PartialIntegrableSegment)-[:SEGMENT_TO_FREQUENCY_NOMINAL]->"
                         "(n:PartialSegmentNominalFrequency) WHERE n.linear_component "
@@ -580,7 +585,7 @@ TEST(Precomputation, PrecomputesTheExampleScore) {
 
 // Ladybug refuses variable-length patterns over 30 hops, so a long timeline
 // proves that the list is walked rather than matched in one pattern.
-TEST_F(PrecomputationDb, HandlesTimelinesLongerThanThirtyPoints) {
+TEST_F(PrecomputationDb, HandlesPhysicalTimelinesLongerThanThirtyPoints) {
     std::vector<ScorePoint> points;
     for (int i = 0; i <= 100; ++i) {
         points.push_back(at(100.0 * i, 0.1 + (0.001 * (i % 7))));
@@ -602,16 +607,16 @@ TEST_F(PrecomputationDb, RebuildingIsIdempotent) {
     ASSERT_TRUE(precomputeAll(db).ok());
 
     EXPECT_EQ(startPhases(db, "P"), first);
-    EXPECT_EQ(count(db, "MATCH (t:PartialSegmentTimeline) RETURN count(t);"), 1);
+    EXPECT_EQ(count(db, "MATCH (t:PartialSegmentPhysicalTimeline) RETURN count(t);"), 1);
     EXPECT_EQ(count(db, "MATCH (s:PartialIntegrableSegment) RETURN count(s);"), 2);
     EXPECT_EQ(count(db, "MATCH (n:PartialSegmentNominalFrequency) RETURN count(n);"), 2);
     EXPECT_EQ(count(db, "MATCH ()-[r:PARTIAL_IN_FRAME]->() RETURN count(r);"), 3);
     EXPECT_EQ(count(db, "MATCH (f:Frame) RETURN count(f);"), 3);
     EXPECT_EQ(count(db, "MATCH (e:FrameEntry) RETURN count(e);"), 3);
-    EXPECT_EQ(count(db, "MATCH ()-[r:FRAME_ENTRY_TIMELINE]->() RETURN count(r);"), 6);
+    EXPECT_EQ(count(db, "MATCH ()-[r:FRAME_ENTRY_PHYSICAL_TIMELINE]->() RETURN count(r);"), 6);
 }
 
-TEST_F(PrecomputationDb, APartialWithoutAnAmplitudeTimelineFails) {
+TEST_F(PrecomputationDb, APartialWithoutAnAmplitudePhysicalTimelineFails) {
     addPartial(db, "P", {at(0.0, 0.1), at(100.0, 0.2)}, Amplitude::None);
 
     const PrecomputationReport report = precomputeAll(db);
@@ -621,14 +626,14 @@ TEST_F(PrecomputationDb, APartialWithoutAnAmplitudeTimelineFails) {
     EXPECT_EQ(count(db, "MATCH (s:PartialIntegrableSegment) RETURN count(s);"), 0);
 }
 
-TEST_F(PrecomputationDb, AnAmplitudeTimelineThatDoesNotSpanTheLifelineFails) {
+TEST_F(PrecomputationDb, AnAmplitudePhysicalTimelineThatDoesNotSpanTheLifelineFails) {
     addPartial(db, "P", {at(0.0, 0.1), at(100.0, 0.2)}, Amplitude::Matching, {0.0, 99.0});
 
     const PrecomputationReport report = precomputeAll(db);
 
     ASSERT_EQ(report.partials.size(), 1U);
     ASSERT_FALSE(report.partials[0].ok());
-    EXPECT_NE(report.partials[0].error->find("AmplitudeTimeline"), std::string::npos);
+    EXPECT_NE(report.partials[0].error->find("AmplitudePhysicalTimeline"), std::string::npos);
 }
 
 // The example score's partial lives for ten frames, so it gets ten entries.
@@ -656,10 +661,10 @@ TEST_F(PrecomputationDb, AFailedPartialDoesNotStopTheOthers) {
     EXPECT_TRUE(report.partials[0].ok());
     EXPECT_FALSE(report.partials[1].ok());
     EXPECT_FALSE(report.partials[2].ok());
-    EXPECT_EQ(count(db, "MATCH (t:PartialSegmentTimeline) RETURN count(t);"), 1);
+    EXPECT_EQ(count(db, "MATCH (t:PartialSegmentPhysicalTimeline) RETURN count(t);"), 1);
 }
 
-TEST_F(PrecomputationDb, APartialWithoutAFrequencyTimelineFails) {
+TEST_F(PrecomputationDb, APartialWithoutAFrequencyPhysicalTimelineFails) {
     db.execute("CREATE (:Partial {name: 'Bare'});");
 
     const PrecomputationReport report = precomputeAll(db);
@@ -675,8 +680,8 @@ TEST_F(PrecomputationDb, AFailedRebuildKeepsTheEarlierOutput) {
     addPartial(db, "P", {at(0.0, 0.1), at(100.0, 0.2)});
     ASSERT_TRUE(precomputeAll(db).ok());
 
-    db.execute(
-        "MATCH (f:FrequencyTimelinePoint) WHERE f.time = 0.0 SET f.frequency_curve_type = 1;");
+    db.execute("MATCH (f:FrequencyPhysicalTimelinePoint) WHERE f.time = 0.0 SET "
+               "f.frequency_curve_type = 1;");
     EXPECT_FALSE(precomputeAll(db).ok());
 
     EXPECT_EQ(count(db, "MATCH (s:PartialIntegrableSegment) RETURN count(s);"), 1);

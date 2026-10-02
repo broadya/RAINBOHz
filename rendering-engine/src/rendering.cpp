@@ -61,19 +61,18 @@ constexpr std::string_view kReadConfig =
 // Query 1 of §6.3: the frame's entries, each with its partial and the set
 // aggregating it. Both are OPTIONAL so that an entry leading nowhere, or a
 // partial in no set, is seen and refused rather than silently dropped.
-constexpr std::string_view kReadEntries =
-    "MATCH (f:Frame)-[:FRAME_ENTRY]->(e:FrameEntry) "
-    "WHERE f.frame_number = CAST($frame AS INT32) "
-    "OPTIONAL MATCH (e)-[:FRAME_ENTRY_PARTIAL]->(p:Partial) "
-    "OPTIONAL MATCH (ps:PartialSet)-[:HAS_PARTIAL]->(p) "
-    "RETURN e.id, p.id, p.name, ps.id ORDER BY p.id, e.id;";
+constexpr std::string_view kReadEntries = "MATCH (f:Frame)-[:FRAME_ENTRY]->(e:FrameEntry) "
+                                          "WHERE f.frame_number = CAST($frame AS INT32) "
+                                          "OPTIONAL MATCH (e)-[:FRAME_ENTRY_PARTIAL]->(p:Partial) "
+                                          "OPTIONAL MATCH (ps:PartialSet)-[:HAS_PARTIAL]->(p) "
+                                          "RETURN e.id, p.id, p.name, ps.id ORDER BY p.id, e.id;";
 
 // Query 2: each entry's segment with its nominal frequency, and whether the
 // segment has a predecessor segment (an entry segment starting after the
 // frame start must be the head of its list, or the entry is stale).
 constexpr std::string_view kReadEntrySegments =
     "MATCH (f:Frame)-[:FRAME_ENTRY]->(e:FrameEntry)"
-    "-[:FRAME_ENTRY_TIMELINE]->(s:PartialIntegrableSegment) "
+    "-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(s:PartialIntegrableSegment) "
     "WHERE f.frame_number = CAST($frame AS INT32) "
     "OPTIONAL MATCH (s)-[:SEGMENT_TO_FREQUENCY_NOMINAL]->(n:PartialSegmentNominalFrequency) "
     "OPTIONAL MATCH (prev:PartialIntegrableSegment)-[:NEXT_POINT]->(s) "
@@ -83,7 +82,7 @@ constexpr std::string_view kReadEntrySegments =
 
 constexpr std::string_view kReadEntryPoints =
     "MATCH (f:Frame)-[:FRAME_ENTRY]->(e:FrameEntry)"
-    "-[:FRAME_ENTRY_TIMELINE]->(a:AmplitudeTimelinePoint) "
+    "-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(a:AmplitudePhysicalTimelinePoint) "
     "WHERE f.frame_number = CAST($frame AS INT32) "
     "RETURN e.id, a.id, a.time, a.amplitude, a.amplitude_curve_type;";
 
@@ -98,10 +97,11 @@ constexpr std::string_view kNextSegments =
 
 constexpr std::string_view kNextPoints =
     "UNWIND $ids AS id "
-    "MATCH (a:AmplitudeTimelinePoint {id: id})-[:NEXT_POINT]->(b:AmplitudeTimelinePoint) "
+    "MATCH (a:AmplitudePhysicalTimelinePoint {id: "
+    "id})-[:NEXT_POINT]->(b:AmplitudePhysicalTimelinePoint) "
     "RETURN a.id, b.id, b.time, b.amplitude, b.amplitude_curve_type;";
 
-/// The value of AmplitudeTimelinePoint.amplitude_curve_type for a linear
+/// The value of AmplitudePhysicalTimelinePoint.amplitude_curve_type for a linear
 /// curve: the only one this version renders.
 constexpr std::int64_t kLinearAmplitudeCurve = 0;
 
@@ -127,7 +127,7 @@ struct SegmentRecord {
     bool hasSuccessor = false;
 };
 
-/// An AmplitudeTimelinePoint as read.
+/// An AmplitudePhysicalTimelinePoint as read.
 struct PointRecord {
     std::int64_t id = 0;
     std::optional<double> time;
@@ -341,11 +341,11 @@ std::vector<EntryRecord> gatherFrame(EngineDb& db, FrameNumber frame, FrameSize 
         db, kNextSegments, frameEnd, entries,
         [](EntryRecord& e) -> std::vector<SegmentRecord>& { return e.segments; },
         [](const SegmentRecord& s) { return s.startTime; }, segmentFromRow,
-        "PartialSegmentTimeline");
+        "PartialSegmentPhysicalTimeline");
     walkFrontier<PointRecord>(
         db, kNextPoints, frameEnd, entries,
         [](EntryRecord& e) -> std::vector<PointRecord>& { return e.points; },
-        [](const PointRecord& p) { return p.time; }, pointFromRow, "AmplitudeTimeline");
+        [](const PointRecord& p) { return p.time; }, pointFromRow, "AmplitudePhysicalTimeline");
     return entries;
 }
 

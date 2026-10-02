@@ -58,9 +58,12 @@ referenced here. The diagrams are a **redundant second view**: the prose in this
 complete information content on its own, and a reader who cannot open the `.mmd` files loses nothing
 but convenience.
 
-**Time bases.** Two distinct time bases exist in this system and are never conflated. *Tempo time* is
-measured in musical units against a polytempo tempo model. *Wall-clock time* is measured in seconds
-or samples. The boundary between them lies inside `rendering-engine`; see §8.
+**Time bases.** Two distinct time bases exist in this system and are never conflated. *Musical time* is
+measured in musical units against a polytempo tempo model, and moves when the tempo changes.
+*Physical time* is measured in seconds or samples, and does not depend on tempo. The boundary
+between them lies inside `rendering-engine`; see §8. In `engine-db` every timeline says which it is
+in its name (`…MusicalTimeline`, `…PhysicalTimeline`); see
+[ADR 0012](../docs/adr/0012-distinguish-musical-and-physical-time.md).
 
 **Models and stores.** The *canonical model* and the *rendering model* are two conceptual models.
 They are not two databases. There is one physical store, `engine-db`. Keep the distinction in
@@ -137,7 +140,7 @@ HzL is a multi-level language with several levels of abstraction. The compiler's
 higher-level constructs toward lower-level ones. The design of HzL itself is at a very early stage.
 
 #### `canonical-form`
-The compiled, loadable representation of a score, expressed in the canonical model: tempo time,
+The compiled, loadable representation of a score, expressed in the canonical model: musical time,
 composer-facing units, polytempo. This is the durable artefact of composition and the handover point
 between compilation and rendering.
 
@@ -183,8 +186,8 @@ operation that needs one:
 
 - **Hosts** `engine-db` and encapsulates all access to it.
 - **Loads** `canonical-form` into it. The design of this step is open; see §10.
-- **Transforms** the canonical model into the rendering model, in place. Tempo time becomes
-  wall-clock time, Hertz becomes radians per sample, and the spatial-audio timing work is done here.
+- **Transforms** the canonical model into the rendering model, in place. Musical time becomes
+  physical time, Hertz becomes radians per sample, and the spatial-audio timing work is done here.
 - **Determines the calculation delta** for an incoming request: what, if anything, actually needs
   computing.
 - **Precomputes** — phase integration over integrable segments — and performs phase compensation.
@@ -236,7 +239,7 @@ sketch of intent rather than a specification.
 See `03-compilation-pipeline.mmd`.
 
 `hzl-compiler` reads `hzl-source` and lowers its higher abstraction levels toward its lowest,
-producing `canonical-form`: a representation in tempo time and composer-facing units, supporting
+producing `canonical-form`: a representation in musical time and composer-facing units, supporting
 polytempo.
 
 The transformation to the rendering model is **not** part of this pipeline. It happens inside
@@ -285,7 +288,7 @@ therefore the most consequential contract in the system.
 moves through `object-storage`. This is what allows engine instances to be scaled and relocated
 independently.
 
-**The timebase boundary — now internal.** Converting between tempo time and wall-clock time is
+**The timebase boundary — now internal.** Converting between musical time and physical time is
 permitted only in the transform stage of `rendering-engine`. Nothing in the render path may acquire
 knowledge of the tempo model.
 

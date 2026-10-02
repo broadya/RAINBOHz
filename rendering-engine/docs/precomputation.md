@@ -21,7 +21,7 @@ Generating audio happens in two steps:
 
 1. **Precomputation** — determine, for every partial, the state it is in at
    the start of every integrable segment of its lifeline. The output is a
-   `PartialSegmentTimeline` per partial, plus the frames each partial is
+   `PartialSegmentPhysicalTimeline` per partial, plus the frames each partial is
    audible in.
 2. **Rendering** — produce the samples of a frame for each channel. Covered by
    a later document.
@@ -39,9 +39,9 @@ handles only the core frequency envelope.
 
 | In this version | Not yet |
 | --- | --- |
-| One `FrequencyTimeline` per partial, linear curves only | Curve types other than linear (step, accelerate, decelerate, s-curve) |
-| Unwrapped phase accumulation from 0 | Initial phase and phase control (`PhaseTimeline` is ignored) |
-| `PartialSegmentTimeline`, `PartialIntegrableSegment`, `PartialSegmentNominalFrequency` | Frequency modulators (`PartialSegmentFrequencyModulator`) |
+| One `FrequencyPhysicalTimeline` per partial, linear curves only | Curve types other than linear (step, accelerate, decelerate, s-curve) |
+| Unwrapped phase accumulation from 0 | Initial phase and phase control (`PhasePhysicalTimeline` is ignored) |
+| `PartialSegmentPhysicalTimeline`, `PartialIntegrableSegment`, `PartialSegmentNominalFrequency` | Frequency modulators (`PartialSegmentFrequencyModulator`) |
 | `PARTIAL_IN_FRAME`, and the `Frame` nodes it needs | Phase compensation regions |
 | `FrameEntry` nodes into the segment and amplitude lists (§6.7) | Entries into modulator lists |
 | Rebuild on every run | Dirty flags and incremental recomputation |
@@ -49,7 +49,7 @@ handles only the core frequency envelope.
 
 Everything in the right-hand column is anticipated by the structure in §6, but
 none of it is implemented, and none of it is validated against: a score that
-contains, for example, a `PhaseTimeline` is precomputed as though it did not.
+contains, for example, a `PhasePhysicalTimeline` is precomputed as though it did not.
 
 ## 3. Units and types
 
@@ -147,14 +147,19 @@ compiles to the same code as its representation.
 
 ## 4. Inputs
 
+The physical timelines below are normally the transform's output
+([transform.md](transform.md) §5), written from a score in musical time just
+before precomputation runs; a score written directly in physical time, as the
+first two examples are, provides them as they stand.
+
 Precomputation reads, for each partial:
 
-- its one `FrequencyTimeline` (`HAS_TIMELINE`, `ONE_ONE`), and
-- that timeline's `FrequencyTimelinePoint`s, in the order of the `NEXT_POINT`
+- its one `FrequencyPhysicalTimeline` (`HAS_PHYSICAL_TIMELINE`, `ONE_ONE`), and
+- that timeline's `FrequencyPhysicalTimelinePoint`s, in the order of the `NEXT_POINT`
   linked list starting at the timeline node.
 
 For the frame entries of §6.7 it also reads each partial's one
-`AmplitudeTimeline` and its `AmplitudeTimelinePoint`s in `NEXT_POINT` order,
+`AmplitudePhysicalTimeline` and its `AmplitudePhysicalTimelinePoint`s in `NEXT_POINT` order,
 using `time` only; the amplitude values and curve fields are rendering's
 concern (rendering.md §8), but the list is validated whole here (§7),
 because this is where the lists are walked.
@@ -164,7 +169,7 @@ It also reads the singleton `EngineConfig`, for the frame size:
 - `frameSize`, if not `NULL`;
 - otherwise `sampleRate`, so that a frame is one second long.
 
-Of each `FrequencyTimelinePoint` it uses `time`, `frequency` and
+Of each `FrequencyPhysicalTimelinePoint` it uses `time`, `frequency` and
 `frequency_curve_type`. The curve on point *n* describes the path from point
 *n* to point *n+1*, so the last point's curve fields have no effect and are
 not checked. `frequency_curve_amount` has no effect on a linear curve and is
@@ -174,7 +179,7 @@ not read.
 
 For each partial, precomputation writes:
 
-- one `PartialSegmentTimeline`, attached by `HAS_TIMELINE`;
+- one `PartialSegmentPhysicalTimeline`, attached by `HAS_PHYSICAL_TIMELINE`;
 - a chain of `PartialIntegrableSegment`, linked by `NEXT_POINT` from the
   timeline node, in time order;
 - one `PartialSegmentNominalFrequency` per segment, attached by
@@ -183,8 +188,8 @@ For each partial, precomputation writes:
   the partial's life, creating any `Frame` node that does not yet exist;
 - for each of those frames, one `FrameEntry` node, joined to the frame by
   `FRAME_ENTRY`, to the partial by `FRAME_ENTRY_PARTIAL`, and by
-  `FRAME_ENTRY_TIMELINE` to the `PartialIntegrableSegment` and to the
-  `AmplitudeTimelinePoint` that the frame's rendering starts from (§6.7).
+  `FRAME_ENTRY_PHYSICAL_TIMELINE` to the `PartialIntegrableSegment` and to the
+  `AmplitudePhysicalTimelinePoint` that the frame's rendering starts from (§6.7).
 
 The shape, for the worked example of §12 (three frequency points, two
 segments, three frames), with an amplitude timeline of two points added so
@@ -195,19 +200,19 @@ flowchart LR
     P["<b>Partial</b><br/>name = 'Partial 0'"]
 
     subgraph input ["Input — read"]
-        FT["<b>FrequencyTimeline</b>"]
-        FP0["<b>FrequencyTimelinePoint</b><br/>time = 0.0<br/>frequency = 0.1<br/>curve_type = 0"]
-        FP1["<b>FrequencyTimelinePoint</b><br/>time = 48000.0<br/>frequency = 0.2<br/>curve_type = 0"]
-        FP2["<b>FrequencyTimelinePoint</b><br/>time = 120000.0<br/>frequency = 0.05<br/>curve_type = (ignored)"]
+        FT["<b>FrequencyPhysicalTimeline</b>"]
+        FP0["<b>FrequencyPhysicalTimelinePoint</b><br/>time = 0.0<br/>frequency = 0.1<br/>curve_type = 0"]
+        FP1["<b>FrequencyPhysicalTimelinePoint</b><br/>time = 48000.0<br/>frequency = 0.2<br/>curve_type = 0"]
+        FP2["<b>FrequencyPhysicalTimelinePoint</b><br/>time = 120000.0<br/>frequency = 0.05<br/>curve_type = (ignored)"]
         FT -- NEXT_POINT --> FP0 -- NEXT_POINT --> FP1 -- NEXT_POINT --> FP2
-        AT["<b>AmplitudeTimeline</b>"]
-        AP0["<b>AmplitudeTimelinePoint</b><br/>time = 0.0"]
-        AP1["<b>AmplitudeTimelinePoint</b><br/>time = 120000.0"]
+        AT["<b>AmplitudePhysicalTimeline</b>"]
+        AP0["<b>AmplitudePhysicalTimelinePoint</b><br/>time = 0.0"]
+        AP1["<b>AmplitudePhysicalTimelinePoint</b><br/>time = 120000.0"]
         AT -- NEXT_POINT --> AP0 -- NEXT_POINT --> AP1
     end
 
     subgraph output ["Output — written"]
-        ST["<b>PartialSegmentTimeline</b>"]
+        ST["<b>PartialSegmentPhysicalTimeline</b>"]
         S0["<b>PartialIntegrableSegment</b><br/>start_time = 0.0<br/>end_time = 48000.0<br/>start_phase = 0.0"]
         S1["<b>PartialIntegrableSegment</b><br/>start_time = 48000.0<br/>end_time = 120000.0<br/>start_phase ≈ 7200.0"]
         N0["<b>PartialSegmentNominalFrequency</b><br/>start_nominal_frequency = 0.1<br/>linear_component = true<br/>linear_gradient ≈ 2.0833e-6<br/>curve_component = false"]
@@ -221,26 +226,26 @@ flowchart LR
         F0 -- FRAME_ENTRY --> E0
         F1 -- FRAME_ENTRY --> E1
         F2 -- FRAME_ENTRY --> E2
-        E0 -- FRAME_ENTRY_TIMELINE --> S0
-        E1 -- FRAME_ENTRY_TIMELINE --> S1
-        E2 -- FRAME_ENTRY_TIMELINE --> S1
+        E0 -- FRAME_ENTRY_PHYSICAL_TIMELINE --> S0
+        E1 -- FRAME_ENTRY_PHYSICAL_TIMELINE --> S1
+        E2 -- FRAME_ENTRY_PHYSICAL_TIMELINE --> S1
         ST -- NEXT_POINT --> S0 -- NEXT_POINT --> S1
         S0 -- SEGMENT_TO_FREQUENCY_NOMINAL --> N0
         S1 -- SEGMENT_TO_FREQUENCY_NOMINAL --> N1
     end
 
-    P -- HAS_TIMELINE --> FT
-    P -- HAS_TIMELINE --> AT
-    P -- HAS_TIMELINE --> ST
+    P -- HAS_PHYSICAL_TIMELINE --> FT
+    P -- HAS_PHYSICAL_TIMELINE --> AT
+    P -- HAS_PHYSICAL_TIMELINE --> ST
     P -- PARTIAL_IN_FRAME --> F0
     P -- PARTIAL_IN_FRAME --> F1
     P -- PARTIAL_IN_FRAME --> F2
     E0 -- FRAME_ENTRY_PARTIAL --> P
     E1 -- FRAME_ENTRY_PARTIAL --> P
     E2 -- FRAME_ENTRY_PARTIAL --> P
-    E0 -- FRAME_ENTRY_TIMELINE --> AP0
-    E1 -- FRAME_ENTRY_TIMELINE --> AP0
-    E2 -- FRAME_ENTRY_TIMELINE --> AP0
+    E0 -- FRAME_ENTRY_PHYSICAL_TIMELINE --> AP0
+    E1 -- FRAME_ENTRY_PHYSICAL_TIMELINE --> AP0
+    E2 -- FRAME_ENTRY_PHYSICAL_TIMELINE --> AP0
 ```
 
 Frame 1 starts at 48,000, inside segment 1, so its entry leads there; every
@@ -305,7 +310,7 @@ stages 1 and 4 touch the database.
 
 ```mermaid
 flowchart TD
-    start(["Partial P"]) --> read["<b>Stage 1 — read</b><br/>From the bulk read: walk P's FrequencyTimeline<br/>point list in NEXT_POINT order"]
+    start(["Partial P"]) --> read["<b>Stage 1 — read</b><br/>From the bulk read: walk P's FrequencyPhysicalTimeline<br/>point list in NEXT_POINT order"]
     read --> valid{"Inputs valid?<br/>(checks in §7)"}
     valid -- no --> err
 
@@ -329,8 +334,8 @@ flowchart TD
     scopeOk -- no --> err
 
     scopeOk -- yes --> begin["BEGIN TRANSACTION"]
-    begin --> del["Delete P's existing PartialSegmentTimeline,<br/>its segments, their nominal frequencies,<br/>P's PARTIAL_IN_FRAME edges and its FrameEntry nodes"]
-    del --> write["Create PartialSegmentTimeline, segments,<br/>NEXT_POINT chain, nominal frequencies"]
+    begin --> del["Delete P's existing PartialSegmentPhysicalTimeline,<br/>its segments, their nominal frequencies,<br/>P's PARTIAL_IN_FRAME edges and its FrameEntry nodes"]
+    del --> write["Create PartialSegmentPhysicalTimeline, segments,<br/>NEXT_POINT chain, nominal frequencies"]
     write --> frames["Create missing Frame nodes;<br/>create PARTIAL_IN_FRAME edges"]
     frames --> entries["Create FrameEntry nodes and their edges (§6.7)"]
     entries --> dbOk{"All writes succeeded?"}
@@ -352,7 +357,7 @@ is harmless; it will matter once dirty flags exist (§13).
 A boundary is any time at which some input to the partial changes how it
 behaves. Soon there will be three sources:
 
-- the main frequency envelope — the time of every `FrequencyTimelinePoint`;
+- the main frequency envelope — the time of every `FrequencyPhysicalTimelinePoint`;
 - frequency modulators — the times of their timeline points;
 - phase regions — their start and end times.
 
@@ -480,7 +485,7 @@ t^*_k = \max(b_0,\ k \cdot F)
 ```
 
 - the **entry segment** is the segment with `start_time ≤ t*_k < end_time`;
-- the **entry point** is the last `AmplitudeTimelinePoint` with
+- the **entry point** is the last `AmplitudePhysicalTimelinePoint` with
   `time ≤ t*_k`, the start of the amplitude piece covering `t*_k`.
 
 Both exist for every frame in scope, because `t*_k ∈ [b₀, b_last)` there and
@@ -494,7 +499,7 @@ lead to the right places. Three relationship tables join it up:
 | --- | --- | --- | --- |
 | `FRAME_ENTRY` | `Frame` → `FrameEntry` | `ONE_MANY` | a frame has one entry per partial in scope; an entry belongs to one frame |
 | `FRAME_ENTRY_PARTIAL` | `FrameEntry` → `Partial` | `MANY_ONE` | an entry belongs to one partial; a partial has one per frame |
-| `FRAME_ENTRY_TIMELINE` | `FrameEntry` → `PartialIntegrableSegment`, `FrameEntry` → `AmplitudeTimelinePoint` | one per pair | an entry leads to one segment and one point; a list node is the entry of every frame it spans |
+| `FRAME_ENTRY_PHYSICAL_TIMELINE` | `FrameEntry` → `PartialIntegrableSegment`, `FrameEntry` → `AmplitudePhysicalTimelinePoint` | one per pair | an entry leads to one segment and one point; a list node is the entry of every frame it spans |
 
 `Frame` is keyed by frame number, so the renderer reaches a frame's entries
 in one indexed hop from a primary-key lookup, and from each entry reaches
@@ -516,7 +521,7 @@ edges.
 **Under Doppler** the source time at a receiver frame's start is not known
 without a binary search over the set's distance path, which is deliberately
 not done here (schema header, section 2). The rule, settled by the author
-in the schema's comment on `FRAME_ENTRY_TIMELINE`, is to point as if the
+in the schema's comment on `FRAME_ENTRY_PHYSICAL_TIMELINE`, is to point as if the
 delay were zero — the *latest* source time the frame start can map to — and
 have the renderer walk **backward** from it, never forward. The walk is
 bounded by the set's distance divided by the speed of sound, and both
@@ -539,7 +544,7 @@ reason.
 | --- | --- | --- |
 | Exactly one `EngineConfig` | run | run fails |
 | `frameSize`, or `sampleRate` when it is `NULL`, is non-`NULL` and > 0 | run | run fails |
-| The partial has a `FrequencyTimeline` | partial | partial fails |
+| The partial has a `FrequencyPhysicalTimeline` | partial | partial fails |
 | The timeline has at least 2 points | partial | partial fails |
 | The `NEXT_POINT` chain has no cycle (a branch is refused by the database) | partial | partial fails |
 | Every point's `time` and `frequency` are non-`NULL` and finite | partial | partial fails |
@@ -548,7 +553,7 @@ reason.
 | Every point except the last has `frequency_curve_type` = 0 (linear) | partial | partial fails |
 | Every accumulated phase is finite | partial | partial fails |
 | Every frame number fits `INT32` | partial | partial fails |
-| The partial has an `AmplitudeTimeline` with at least 2 points, and the chain has no cycle | partial | partial fails |
+| The partial has an `AmplitudePhysicalTimeline` with at least 2 points, and the chain has no cycle | partial | partial fails |
 | Every amplitude point's `time` is non-`NULL` and finite, and strictly increases along the list | partial | partial fails |
 | The first amplitude point's `time` equals the first frequency point's, and the last equals the last, exactly: the two timelines define the lifeline together (author, 2026-09-24) | partial | partial fails |
 
@@ -562,8 +567,8 @@ Three rules from the schema are **not** checks here:
 
 **Linked-list integrity.** `NEXT_POINT` is `ONE_ONE`, but Ladybug counts
 multiplicity separately for each FROM/TO pair (AGENTS.md, Linked Lists). So a
-point can have one predecessor that is a `FrequencyTimeline` and another that
-is a `FrequencyTimelinePoint`. The database therefore does not rule out:
+point can have one predecessor that is a `FrequencyPhysicalTimeline` and another that
+is a `FrequencyPhysicalTimelinePoint`. The database therefore does not rule out:
 
 - **A cycle through the head** — the last point links back to the first.
   Checked: `walkChain` stops at the first node it revisits, and the partial
@@ -779,9 +784,9 @@ makes an empty result visible.
 pattern with an upper bound over 30 hops ("Upper bound of rel exceeds
 maximum: 30", established by experiment), and a timeline can be far longer.
 So lists are not matched in one pattern. Instead, before the first partial is
-processed, a fixed handful of queries reads every `FrequencyTimeline` head,
-every `FrequencyTimelinePoint`, and every point-to-point `NEXT_POINT` link, and
-the same for existing `PartialSegmentTimeline`s and their segments. Each
+processed, a fixed handful of queries reads every `FrequencyPhysicalTimeline` head,
+every `FrequencyPhysicalTimelinePoint`, and every point-to-point `NEXT_POINT` link, and
+the same for existing `PartialSegmentPhysicalTimeline`s and their segments. Each
 partial's lists are then walked in C++ (`walkChain`), which also detects a list
 that loops back on itself. This is cheaper than walking one query per node,
 and it keeps every read ahead of every write.
@@ -795,7 +800,7 @@ scope is one statement per partial, `UNWIND range($first, $last)` with a
 version, creating the `FrameEntry` node and its four edges together from the
 frame number and the two list node ids; `UNWIND` over a list parameter is
 the batching path if the count shows in a profile. Deleting a partial's
-segments removes their `FRAME_ENTRY_TIMELINE` edges with them, but the
+segments removes their `FRAME_ENTRY_PHYSICAL_TIMELINE` edges with them, but the
 `FrameEntry` nodes and their other edges are deleted explicitly, with the
 scope edges.
 
@@ -815,7 +820,7 @@ This is the contract precomputation offers rendering, and what the rendering
 design will build on:
 
 - Every partial that precomputed successfully has exactly one
-  `PartialSegmentTimeline`, whose segments are contiguous, in time order,
+  `PartialSegmentPhysicalTimeline`, whose segments are contiguous, in time order,
   non-empty, and cover exactly `[b₀, b_last)`.
 - Each segment's phase at local time τ is
   `phaseAt(start_phase, nominal, τ)`, computed from the stored values, and
@@ -887,7 +892,7 @@ In roughly the order they are expected. Each is placed so that it slots into
 | Frequency modulators | A second boundary source (§6.3); `PartialSegmentFrequencyModulator` nodes per segment; their antiderivatives join Φ. Frequency modulation is multiplicative, so the integrand becomes a product and Φ is no longer a simple sum — the proof of concept's closed-form method (`proof-of-concept/maths/`) is the reference. |
 | Initial phase, phase control, phase regions | A third boundary source. φ₀ comes from the phase timeline rather than 0; a segment that starts a region with an absolute phase takes that value. Phase compensation is then a database update over the region's segments. |
 | Spatial position and delay | Frame scope computed in receiver time from the delayed partial life (§6.6), and frame entries by one of the two rules of §6.7. |
-| Modulator entries | A `FrameEntry` per partial set per frame, or further `FRAME_ENTRY_TIMELINE` pairs, since modulator lists hang off the set rather than the partial. |
+| Modulator entries | A `FrameEntry` per partial set per frame, or further `FRAME_ENTRY_PHYSICAL_TIMELINE` pairs, since modulator lists hang off the set rather than the partial. |
 | Dirty flags | Replace rebuild-every-run: only partials whose inputs changed are recomputed. A partial that fails must then not keep stale output (§6.2). |
 
 ## 14. Open questions

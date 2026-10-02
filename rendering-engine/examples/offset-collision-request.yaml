@@ -1,0 +1,11 @@
+# Render request for engine-db/examples/offset-collision-score.cypher.
+#
+#   make run-rendering-engine RE_STATE=engine-db/examples/offset-collision-score.cypher \
+#       RE_REQUEST=rendering-engine/examples/offset-collision-request.yaml
+#
+# All three hits end within the first 0.4375 s, so frame 0 holds the
+# whole score and frame 1 is silence.
+
+frames:
+  - frame: 0
+  - frame: 1

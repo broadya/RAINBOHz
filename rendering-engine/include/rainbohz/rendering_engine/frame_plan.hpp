@@ -31,10 +31,10 @@ namespace rainbohz::rendering_engine {
 /// it. The curve from this point to the next is linear: the only curve this
 /// version renders, checked at gather time.
 struct AmplitudePoint {
-    /// AmplitudeTimelinePoint.time.
+    /// AmplitudePhysicalTimelinePoint.time.
     SampleTime time;
 
-    /// AmplitudeTimelinePoint.amplitude, dB.
+    /// AmplitudePhysicalTimelinePoint.amplitude, dB.
     Decibels amplitude;
 };
 

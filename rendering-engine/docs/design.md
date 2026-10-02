@@ -2,8 +2,9 @@
 
 **Status:** mostly a stub. Records what the architecture already fixes and what
 is still open. Of the six responsibilities in §1, the first, part of the
-second, and first versions of the fifth and sixth are implemented; see §3.
-The fifth, precomputation, has its own design in
+second, and first versions of the third, fifth and sixth are implemented; see
+§3. The third, the transform, has its own design in
+[transform.md](transform.md); the fifth, precomputation, in
 [precomputation.md](precomputation.md); the sixth, rendering, in
 [rendering.md](rendering.md).
 
@@ -31,8 +32,8 @@ Six responsibilities, in the order a request meets them:
    system opens a graph database.
 2. **Load** `canonical-form` into it, and set dirty flags from the dependency
    information in the graph.
-3. **Transform** the canonical model into the rendering model, in place. Tempo
-   time becomes wall-clock time; Hertz becomes radians per sample; the
+3. **Transform** the canonical model into the rendering model, in place. Musical
+   time becomes physical time; Hertz becomes radians per sample; the
    spatial-audio timing work happens here.
 4. **Determine the calculation delta** — what, if anything, this request
    actually requires.
@@ -51,7 +52,7 @@ Six responsibilities, in the order a request meets them:
 | Sharded by partial set | overview.md §5.2 |
 | Performs the transform, precomputation and rendering itself | overview.md §5.2 |
 | Writes WAV objects to `object-storage`, never returns audio payloads | overview.md §8 |
-| The render path operates exclusively in wall-clock time | overview.md §8 |
+| The render path operates exclusively in physical time | overview.md §8 |
 
 Three constraints carry directly into the design:
 
@@ -108,7 +109,13 @@ reporting that says whether they worked:
 - with `--validate-db`, the integrity of what loaded is checked (list shapes,
   and the ranges of the columns the engine reads), and the run stops before
   precomputation if a check fails; see [integrity.md](integrity.md);
-- every partial is precomputed: its `PartialSegmentTimeline` of integrable
+- every partial set with a musical timeline is transformed: its points are
+  placed in physical time through the Score's tempo map, and each partial
+  gets a `FrequencyPhysicalTimeline` and an `AmplitudePhysicalTimeline`.
+  This is the first version, covering one tempo map per Score, frequency
+  and amplitude only; see [transform.md](transform.md). A set or partial that
+  cannot be transformed stops the run here;
+- every partial is precomputed: its `PartialSegmentPhysicalTimeline` of integrable
   segments with their start phases, the frames it is in scope for, and a
   `FrameEntry` per frame leading to where that frame's rendering starts.
   This is the first version, covering linear frequency envelopes only; see
@@ -144,9 +151,9 @@ What the harness does **not** yet have, in the order it will need it:
 - **Label selection.** A request's labels are checked for existence and
   then ignored: every partial in a frame's scope is rendered
   (rendering.md §2, §13).
-- §1's responsibilities 3 and 4, and the rest of 5 and 6 -- phase
+- §1's responsibility 4, and the rest of 3, 5 and 6 -- phase
   compensation, and the features the first versions leave out
-  (precomputation.md §2, rendering.md §2).
+  (transform.md §2, precomputation.md §2, rendering.md §2).
 - **The production egress.** Files in a directory are the test harness's
   egress; `object-storage` is not written (rendering.md §13).
 
@@ -154,6 +161,10 @@ The `--state` file is also not `canonical-form`. It is Cypher applied directly
 to `engine-db`, which sidesteps responsibility 2 ("load `canonical-form` into
 it, and set dirty flags") rather than implementing it — and that is the step
 overview.md §10 leaves open, so it could not be implemented yet in any case.
+A state file may be written in the canonical model (musical time, as
+`engine-db/examples/tempo-map-score.cypher` is) or directly in the rendering
+model (physical time, as the first two examples are); the transform converts
+the former and leaves the latter alone.
 
 ### 3.2 The test-mode render request
 
@@ -237,13 +248,13 @@ converted.
 
 Carried from overview.md §10, plus those specific to this component.
 
-- **The engine schema is incomplete.** `engine-db/schema/` currently holds the
-  rendering-model concepts only. The canonical-model concepts have still to be
-  merged in, and `canonical-db/` — the one remaining design artefact it draws
-  on — declares seven node tables that `engine-db` also declares. Deciding
-  whether those become shared nodes carrying both perspectives, or stay
-  separate, is the first thing that has to happen before any of this is
-  implementable.
+- **The engine schema is incomplete.** `engine-db/schema/` holds the
+  rendering-model concepts and, since the transform's first version, the
+  canonical-model tables it reads: `TempoMap`, `PartialSetMusicalTimeline`,
+  `PartialState` and their relationships, sharing `Score`, `Partial` and
+  `PartialSet` with the rendering model as one set of nodes carrying both
+  perspectives. The spatial-position and modulator musical timelines, and
+  phase, are still to come, and `canonical-db/` still uses the older names.
 - **The rest of `engine-db`'s scope is stated but not designed.** It is meant to
   hold everything the engine needs: the canonical model, dependency information,
   precomputation output and rendering results. Nothing in the schema yet
@@ -278,13 +289,17 @@ Carried from overview.md §10, plus those specific to this component.
 ## 7. Boundaries this component must not cross
 
 - **The timebase boundary — internal to this component.** Only the transform
-  stage converts between tempo time and wall-clock time. Nothing in the render
+  stage converts between musical time and physical time. Nothing in the render
   path may acquire knowledge of the tempo model.
 
   This used to be a component boundary, enforced by `db-transformer` being a
-  separate program. It is now enforced by convention and review. Treat a
-  tempo-aware type reaching the render path as a defect of the same severity as
-  a correctness bug, because the architecture no longer has any way to stop it.
+  separate program. It is now enforced by convention and review. The transform
+  is the namespace `rainbohz::rendering_engine::transform` and the directory
+  `transform/` under `include`, `src` and `test`; the musical unit types and
+  the tempo map live there and nowhere else ([transform.md](transform.md)
+  §10). Treat a tempo-aware type reaching the render path as a defect of the
+  same severity as a correctness bug, because the architecture no longer has
+  any way to stop it.
 
 - **The network boundary.** Specifications and URLs cross it; audio payloads do
   not. Audio moves through `object-storage`.

@@ -18,10 +18,14 @@
 //     schema documents. Columns of features not yet implemented are not
 //     checked; their rules arrive with the feature.
 //
-// Plus three that are neither: EngineConfig is a singleton with a frame
-// size; every Partial is in exactly one PartialSet; and each partial's
+// Plus checks that are neither: EngineConfig is a singleton with a frame
+// size; every Partial is in exactly one PartialSet; each partial's
 // amplitude and frequency timelines start and end at the same times, since
-// they define the lifeline together.
+// they define the lifeline together; and, for the musical-time tables the
+// transform reads (docs/transform.md section 9), every TempoMap is well
+// shaped, every musical timeline point has a usable POINT_AT to its Score's
+// TempoMap and the points are in musical order, and every PartialState is
+// linked to one set and one partial of the right PartialSet.
 //
 // Checks report; they never modify the database.
 
@@ -43,7 +47,7 @@ inline constexpr std::size_t kMaxReportedViolations = 20;
 
 /// The outcome of one integrity check.
 struct IntegrityCheck {
-    /// What the check establishes when it passes, e.g. "FrequencyTimeline
+    /// What the check establishes when it passes, e.g. "FrequencyPhysicalTimeline
     /// lists have no cycles".
     std::string name;
 

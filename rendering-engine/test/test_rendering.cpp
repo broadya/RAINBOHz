@@ -139,16 +139,18 @@ protected:
                    name + "'});");
         std::string cypher =
             "MATCH (p:Partial {name: '" + name +
-            "'}) CREATE (p)-[:HAS_TIMELINE]->(t:FrequencyTimeline) WITH t CREATE (t)";
+            "'}) CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:FrequencyPhysicalTimeline) WITH t CREATE "
+            "(t)";
         for (const auto& [time, frequencyValue] : frequency) {
-            cypher += "-[:NEXT_POINT]->(:FrequencyTimelinePoint {time: " + literal(time) +
+            cypher += "-[:NEXT_POINT]->(:FrequencyPhysicalTimelinePoint {time: " + literal(time) +
                       ", frequency: " + literal(frequencyValue) + ", frequency_curve_type: 0})";
         }
         db.execute(cypher + ";");
         cypher = "MATCH (p:Partial {name: '" + name +
-                 "'}) CREATE (p)-[:HAS_TIMELINE]->(t:AmplitudeTimeline) WITH t CREATE (t)";
+                 "'}) CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:AmplitudePhysicalTimeline) WITH t "
+                 "CREATE (t)";
         for (const auto& [time, decibels] : amplitude) {
-            cypher += "-[:NEXT_POINT]->(:AmplitudeTimelinePoint {time: " + literal(time) +
+            cypher += "-[:NEXT_POINT]->(:AmplitudePhysicalTimelinePoint {time: " + literal(time) +
                       ", amplitude: " + literal(decibels) + ", amplitude_curve_type: 0})";
         }
         db.execute(cypher + ";");
@@ -257,9 +259,10 @@ TEST_F(RenderingDb, APartialThatFailsValidationFailsItsFramesAndNoOthers) {
     precompute();
     // Break the bad partial's only segment after precomputation: a curve
     // component, which this version refuses.
-    db.execute("MATCH (:Partial {name: 'bad'})-[:HAS_TIMELINE]->(:PartialSegmentTimeline)"
-               "-[:NEXT_POINT]->(:PartialIntegrableSegment)-[:SEGMENT_TO_FREQUENCY_NOMINAL]->"
-               "(n:PartialSegmentNominalFrequency) SET n.curve_component = true;");
+    db.execute(
+        "MATCH (:Partial {name: 'bad'})-[:HAS_PHYSICAL_TIMELINE]->(:PartialSegmentPhysicalTimeline)"
+        "-[:NEXT_POINT]->(:PartialIntegrableSegment)-[:SEGMENT_TO_FREQUENCY_NOMINAL]->"
+        "(n:PartialSegmentNominalFrequency) SET n.curve_component = true;");
 
     const RenderingReport report = render({0, 1, 2});
 
@@ -332,10 +335,10 @@ TEST_F(RenderingDb, AStaleEntryIsDetected) {
     // Re-point frame 2's entry at the first segment, which does not cover
     // 2000.
     db.execute("MATCH (:Frame {frame_number: 2})-[:FRAME_ENTRY]->(e:FrameEntry)"
-               "-[r:FRAME_ENTRY_TIMELINE]->(:PartialIntegrableSegment) DELETE r;");
+               "-[r:FRAME_ENTRY_PHYSICAL_TIMELINE]->(:PartialIntegrableSegment) DELETE r;");
     db.execute("MATCH (:Frame {frame_number: 2})-[:FRAME_ENTRY]->(e:FrameEntry), "
                "(s:PartialIntegrableSegment) WHERE s.start_time = 0.0 "
-               "CREATE (e)-[:FRAME_ENTRY_TIMELINE]->(s);");
+               "CREATE (e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(s);");
 
     const RenderingReport report = render({1, 2});
 
@@ -350,7 +353,9 @@ TEST_F(RenderingDb, AnEntryWithoutAnAmplitudePointIsRefused) {
     addSet("S");
     addPartial("S", "p", {{0.0, 0.1}, {1000.0, 0.1}}, {{0.0, -6.0}, {1000.0, -6.0}});
     precompute();
-    db.execute("MATCH (:FrameEntry)-[r:FRAME_ENTRY_TIMELINE]->(:AmplitudeTimelinePoint) DELETE r;");
+    db.execute(
+        "MATCH (:FrameEntry)-[r:FRAME_ENTRY_PHYSICAL_TIMELINE]->(:AmplitudePhysicalTimelinePoint) "
+        "DELETE r;");
 
     const RenderingReport report = render({0});
     ASSERT_FALSE(report.frames[0].ok());

@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -27,9 +28,12 @@
 /// range rule is checked against its column. EngineConfig is checked for being
 /// a singleton that yields a frame size; every Partial for being in exactly
 /// one PartialSet; and each partial's two timelines for starting and ending
-/// together. checkIntegrity() runs them all and
-/// gathers the results in an IntegrityReport; message text is capped at
-/// kMaxReportedViolations per check, while counts stay exact.
+/// together. The musical-time checks cover what the transform reads: the
+/// shape of each TempoMap, every musical point's POINT_AT, the order of each
+/// musical timeline, and the links and membership of PartialStates.
+/// checkIntegrity() runs them all and gathers the results in an
+/// IntegrityReport; message text is capped at kMaxReportedViolations per
+/// check, while counts stay exact.
 ///
 /// Read-only: nothing here modifies the database. The design is
 /// docs/integrity.md.
@@ -47,10 +51,10 @@ namespace {
 /// One linked-list type of NEXT_POINT: a timeline table whose node points to
 /// the first list node, and the node table of the list itself.
 struct ListType {
-    /// The table holding the list's head, e.g. "FrequencyTimeline".
+    /// The table holding the list's head, e.g. "FrequencyPhysicalTimeline".
     std::string_view timeline;
 
-    /// The table holding the list's nodes, e.g. "FrequencyTimelinePoint".
+    /// The table holding the list's nodes, e.g. "FrequencyPhysicalTimelinePoint".
     std::string_view node;
 };
 
@@ -60,17 +64,25 @@ struct ListType {
 /// These are checked whether or not the engine uses them yet: a cycle or a
 /// merge is a structural defect in any list, and the check is the same for
 /// all of them.
-constexpr std::array<ListType, 10> kListTypes{{
-    {.timeline = "PartialSegmentTimeline", .node = "PartialIntegrableSegment"},
-    {.timeline = "SpatialPositionTimeline", .node = "SpatialPositionTimelinePoint"},
-    {.timeline = "AmplitudeTimeline", .node = "AmplitudeTimelinePoint"},
-    {.timeline = "FrequencyTimeline", .node = "FrequencyTimelinePoint"},
-    {.timeline = "PhaseTimeline", .node = "PhaseTimelinePoint"},
-    {.timeline = "AmplitudeModulatorTimeline", .node = "AmplitudeModulatorTimelinePoint"},
-    {.timeline = "PhaseModulatorTimeline", .node = "PhaseModulatorTimelinePoint"},
-    {.timeline = "AzimuthModulatorTimeline", .node = "AzimuthModulatorTimelinePoint"},
-    {.timeline = "ElevationModulatorTimeline", .node = "ElevationModulatorTimelinePoint"},
-    {.timeline = "DistanceModulatorTimeline", .node = "DistanceModulatorTimelinePoint"},
+constexpr std::array<ListType, 13> kListTypes{{
+    {.timeline = "PartialSegmentPhysicalTimeline", .node = "PartialIntegrableSegment"},
+    {.timeline = "SpatialPositionMusicalTimeline", .node = "SpatialPositionMusicalTimelinePoint"},
+    {.timeline = "AmplitudePhysicalTimeline", .node = "AmplitudePhysicalTimelinePoint"},
+    {.timeline = "FrequencyPhysicalTimeline", .node = "FrequencyPhysicalTimelinePoint"},
+    {.timeline = "PhasePhysicalTimeline", .node = "PhasePhysicalTimelinePoint"},
+    {.timeline = "FrequencyModulatorPhysicalTimeline",
+        .node = "FrequencyModulatorPhysicalTimelinePoint"},
+    {.timeline = "AmplitudeModulatorPhysicalTimeline",
+        .node = "AmplitudeModulatorPhysicalTimelinePoint"},
+    {.timeline = "PhaseModulatorPhysicalTimeline", .node = "PhaseModulatorPhysicalTimelinePoint"},
+    {.timeline = "AzimuthModulatorPhysicalTimeline",
+        .node = "AzimuthModulatorPhysicalTimelinePoint"},
+    {.timeline = "ElevationModulatorPhysicalTimeline",
+        .node = "ElevationModulatorPhysicalTimelinePoint"},
+    {.timeline = "DistanceModulatorPhysicalTimeline",
+        .node = "DistanceModulatorPhysicalTimelinePoint"},
+    {.timeline = "TempoMap", .node = "TempoMapPoint"},
+    {.timeline = "PartialSetMusicalTimeline", .node = "PartialSetMusicalTimelinePoint"},
 }};
 
 /// One end of a permitted range.
@@ -87,7 +99,7 @@ struct Bound {
 /// Every non-NULL value must also be finite. Integer columns are compared as
 /// doubles, which is exact for every integer type the schema uses here.
 struct RangeRule {
-    /// Node table, e.g. "FrequencyTimelinePoint".
+    /// Node table, e.g. "FrequencyPhysicalTimelinePoint".
     std::string_view table;
 
     /// Column of that table.
@@ -114,10 +126,15 @@ struct RangeRule {
 /// amplitude above 0 dB is an error (author, 2026-09-23): the renderer clips
 /// it as a defence, not as permission to store it.
 ///
+/// The canonical-model rows arrived with the transform (docs/transform.md
+/// section 9): tempo map resolution and points, the curve fields of musical
+/// timeline points, and PartialState values, which may be NULL by design (a
+/// NULL property is "no knot here").
+///
 /// @return The rules, in the order their checks are reported. Valid for the
 ///         whole program.
-const std::array<RangeRule, 11>& rangeRules() {
-    static const std::array<RangeRule, 11> kRules{{
+const std::array<RangeRule, 20>& rangeRules() {
+    static const std::array<RangeRule, 20> kRules{{
         {.table = "EngineConfig",
             .column = "frameSize",
             .nullable = true,
@@ -133,46 +150,91 @@ const std::array<RangeRule, 11>& rangeRules() {
             .nullable = false,
             .min = Bound{.value = 0.0, .inclusive = true},
             .max = Bound{.value = 2.0, .inclusive = true}},
-        {.table = "FrequencyTimelinePoint",
+        {.table = "FrequencyPhysicalTimelinePoint",
             .column = "time",
             .nullable = false,
             .min = Bound{.value = 0.0, .inclusive = true},
             .max = std::nullopt},
-        {.table = "FrequencyTimelinePoint",
+        {.table = "FrequencyPhysicalTimelinePoint",
             .column = "frequency",
             .nullable = false,
             .min = std::nullopt,
             .max = std::nullopt},
-        {.table = "FrequencyTimelinePoint",
+        {.table = "FrequencyPhysicalTimelinePoint",
             .column = "frequency_curve_type",
             .nullable = false,
             .min = Bound{.value = 0.0, .inclusive = true},
             .max = Bound{.value = 4.0, .inclusive = true}},
-        {.table = "FrequencyTimelinePoint",
+        {.table = "FrequencyPhysicalTimelinePoint",
             .column = "frequency_curve_amount",
             .nullable = false,
             .min = Bound{.value = 0.0, .inclusive = true},
             .max = Bound{.value = 1.0, .inclusive = true}},
-        {.table = "AmplitudeTimelinePoint",
+        {.table = "AmplitudePhysicalTimelinePoint",
             .column = "time",
             .nullable = false,
             .min = Bound{.value = 0.0, .inclusive = true},
             .max = std::nullopt},
-        {.table = "AmplitudeTimelinePoint",
+        {.table = "AmplitudePhysicalTimelinePoint",
             .column = "amplitude",
             .nullable = false,
             .min = std::nullopt,
             .max = Bound{.value = 0.0, .inclusive = true}},
-        {.table = "AmplitudeTimelinePoint",
+        {.table = "AmplitudePhysicalTimelinePoint",
             .column = "amplitude_curve_type",
             .nullable = false,
             .min = Bound{.value = 0.0, .inclusive = true},
             .max = Bound{.value = 4.0, .inclusive = true}},
-        {.table = "AmplitudeTimelinePoint",
+        {.table = "AmplitudePhysicalTimelinePoint",
             .column = "amplitude_curve_amount",
             .nullable = false,
             .min = Bound{.value = 0.0, .inclusive = true},
             .max = Bound{.value = 1.0, .inclusive = true}},
+        {.table = "TempoMap",
+            .column = "ticks_per_beat",
+            .nullable = false,
+            .min = Bound{.value = 0.0, .inclusive = false},
+            .max = std::nullopt},
+        {.table = "TempoMapPoint",
+            .column = "position",
+            .nullable = false,
+            .min = Bound{.value = 0.0, .inclusive = true},
+            .max = std::nullopt},
+        {.table = "TempoMapPoint",
+            .column = "start_tempo",
+            .nullable = false,
+            .min = Bound{.value = 1.0, .inclusive = true},
+            .max = Bound{.value = 1000.0, .inclusive = true}},
+        {.table = "PartialSetMusicalTimelinePoint",
+            .column = "frequency_curve_type",
+            .nullable = false,
+            .min = Bound{.value = 0.0, .inclusive = true},
+            .max = Bound{.value = 4.0, .inclusive = true}},
+        {.table = "PartialSetMusicalTimelinePoint",
+            .column = "frequency_curve_amount",
+            .nullable = false,
+            .min = Bound{.value = 0.0, .inclusive = true},
+            .max = Bound{.value = 1.0, .inclusive = true}},
+        {.table = "PartialSetMusicalTimelinePoint",
+            .column = "amplitude_curve_type",
+            .nullable = false,
+            .min = Bound{.value = 0.0, .inclusive = true},
+            .max = Bound{.value = 4.0, .inclusive = true}},
+        {.table = "PartialSetMusicalTimelinePoint",
+            .column = "amplitude_curve_amount",
+            .nullable = false,
+            .min = Bound{.value = 0.0, .inclusive = true},
+            .max = Bound{.value = 1.0, .inclusive = true}},
+        {.table = "PartialState",
+            .column = "frequency",
+            .nullable = true,
+            .min = std::nullopt,
+            .max = std::nullopt},
+        {.table = "PartialState",
+            .column = "amplitude",
+            .nullable = true,
+            .min = Bound{.value = -144.0, .inclusive = true},
+            .max = Bound{.value = 0.0, .inclusive = true}},
     }};
     return kRules;
 }
@@ -201,7 +263,7 @@ std::string formatNumber(double value) {
 /// Describes a rule as the property a passing check establishes.
 ///
 /// @param rule  The rule.
-/// @return e.g. "FrequencyTimelinePoint.time is not NULL, finite and >= 0".
+/// @return e.g. "FrequencyPhysicalTimelinePoint.time is not NULL, finite and >= 0".
 std::string describe(const RangeRule& rule) {
     std::string text = std::string{rule.table} + "." + std::string{rule.column} + " is ";
     text += rule.nullable ? "NULL or finite" : "not NULL, finite";
@@ -382,7 +444,7 @@ IntegrityCheck checkSetMembership(EngineDb& db) {
 /// has a first time and some last time to report.
 ///
 /// @param db        Database to read.
-/// @param timeline  The timeline table, e.g. "FrequencyTimeline".
+/// @param timeline  The timeline table, e.g. "FrequencyPhysicalTimeline".
 /// @param node      Its node table, which has a `time` column.
 /// @return For each partial with such a timeline, the `time` of the list's
 ///         first node and of its last, either of which is nullopt when NULL
@@ -391,7 +453,7 @@ IntegrityCheck checkSetMembership(EngineDb& db) {
 std::unordered_map<std::int64_t, std::pair<std::optional<double>, std::optional<double>>> listEnds(
     EngineDb& db, const std::string& timeline, const std::string& node) {
     std::unordered_map<std::int64_t, std::optional<std::int64_t>> headOfPartial;
-    std::string headsQuery = "MATCH (p:Partial)-[:HAS_TIMELINE]->(t:";
+    std::string headsQuery = "MATCH (p:Partial)-[:HAS_PHYSICAL_TIMELINE]->(t:";
     headsQuery += timeline;
     headsQuery += ") OPTIONAL MATCH (t)-[:NEXT_POINT]->(n:";
     headsQuery += node;
@@ -427,7 +489,7 @@ std::unordered_map<std::int64_t, std::pair<std::optional<double>, std::optional<
 }
 
 /// Checks that, for every partial with both timelines, the first
-/// AmplitudeTimelinePoint's time equals the first FrequencyTimelinePoint's
+/// AmplitudePhysicalTimelinePoint's time equals the first FrequencyPhysicalTimelinePoint's
 /// and the last equals the last, exactly.
 ///
 /// The two timelines define the lifeline together; interior points are
@@ -439,12 +501,14 @@ std::unordered_map<std::int64_t, std::pair<std::optional<double>, std::optional<
 ///         partial id order.
 /// @throws EngineDbError  If a query fails.
 IntegrityCheck checkLifelineEquality(EngineDb& db) {
-    IntegrityCheck check{
-        .name = "AmplitudeTimeline and FrequencyTimeline lists start and end at the same times",
+    IntegrityCheck check{.name = "AmplitudePhysicalTimeline and FrequencyPhysicalTimeline lists "
+                                 "start and end at the same times",
         .violationCount = 0,
         .violations = {}};
-    const auto frequency = listEnds(db, "FrequencyTimeline", "FrequencyTimelinePoint");
-    const auto amplitude = listEnds(db, "AmplitudeTimeline", "AmplitudeTimelinePoint");
+    const auto frequency =
+        listEnds(db, "FrequencyPhysicalTimeline", "FrequencyPhysicalTimelinePoint");
+    const auto amplitude =
+        listEnds(db, "AmplitudePhysicalTimeline", "AmplitudePhysicalTimelinePoint");
 
     std::vector<std::int64_t> partials;
     for (const auto& [partial, ends] : frequency) {
@@ -461,14 +525,14 @@ IntegrityCheck checkLifelineEquality(EngineDb& db) {
         const auto& [fFirst, fLast] = frequency.at(partial);
         const auto& [aFirst, aLast] = amplitude.at(partial);
         if (fFirst != aFirst) {
-            check.add("Partial " + std::to_string(partial) + ": AmplitudeTimeline starts at " +
-                      describeTime(aFirst) + " but FrequencyTimeline starts at " +
-                      describeTime(fFirst));
+            check.add("Partial " + std::to_string(partial) +
+                      ": AmplitudePhysicalTimeline starts at " + describeTime(aFirst) +
+                      " but FrequencyPhysicalTimeline starts at " + describeTime(fFirst));
         }
         if (fLast != aLast) {
-            check.add("Partial " + std::to_string(partial) + ": AmplitudeTimeline ends at " +
-                      describeTime(aLast) + " but FrequencyTimeline ends at " +
-                      describeTime(fLast));
+            check.add("Partial " + std::to_string(partial) +
+                      ": AmplitudePhysicalTimeline ends at " + describeTime(aLast) +
+                      " but FrequencyPhysicalTimeline ends at " + describeTime(fLast));
         }
     }
     return check;
@@ -518,6 +582,339 @@ void checkLists(
                        : " in a list no " + timeline + " reaches";
         merges.add(std::move(message));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Musical-time checks: the transform's inputs (docs/transform.md section 9)
+// ---------------------------------------------------------------------------
+
+/// Follows a NEXT_POINT list from its head, stopping silently at a revisited
+/// node: cycles are the list checks' business.
+///
+/// @param head  Id of the first node, or nullopt for an empty list.
+/// @param next  For each node id, the id of its successor.
+/// @return The node ids in list order, each at most once.
+std::vector<std::int64_t> walkQuietly(
+    std::optional<std::int64_t> head, const std::unordered_map<std::int64_t, std::int64_t>& next) {
+    std::vector<std::int64_t> chain;
+    std::unordered_set<std::int64_t> seen;
+    for (std::optional<std::int64_t> at = head; at.has_value() && seen.insert(*at).second;) {
+        chain.push_back(*at);
+        const auto link = next.find(*at);
+        at = link == next.end() ? std::nullopt : std::optional<std::int64_t>{link->second};
+    }
+    return chain;
+}
+
+/// Checks the shape of every TempoMap's point list: at least one point, the
+/// first at position 0, positions strictly increasing, hold set on every
+/// point and true on the last (docs/transform.md section 6.1).
+///
+/// NULL positions are the range rule's business and are skipped here.
+///
+/// @param db  Database to check.
+/// @return The check's outcome, in TempoMap id order.
+/// @throws EngineDbError  If a query fails.
+IntegrityCheck checkTempoMapShape(EngineDb& db) {
+    IntegrityCheck check{.name = "TempoMap lists start at position 0, strictly increase, and "
+                                 "end with a point that holds",
+        .violationCount = 0,
+        .violations = {}};
+    std::vector<std::pair<std::int64_t, std::optional<std::int64_t>>> maps;
+    for (const DbRow& row : db.query("MATCH (m:TempoMap) OPTIONAL MATCH (m)-[:NEXT_POINT]->"
+                                     "(p:TempoMapPoint) RETURN m.id, p.id ORDER BY m.id;")) {
+        maps.emplace_back(requireInt64(row.at(0)), optionalInt64(row.at(1)));
+    }
+    std::unordered_map<std::int64_t, std::pair<std::optional<std::int64_t>, std::optional<bool>>>
+        points;
+    for (const DbRow& row : db.query("MATCH (p:TempoMapPoint) RETURN p.id, p.position, p.hold;")) {
+        std::optional<bool> hold;
+        if (const auto* flag = std::get_if<bool>(&row.at(2))) {
+            hold = *flag;
+        }
+        points.emplace(requireInt64(row.at(0)), std::make_pair(optionalInt64(row.at(1)), hold));
+    }
+    const auto next = readIdMap(
+        db, "MATCH (a:TempoMapPoint)-[:NEXT_POINT]->(b:TempoMapPoint) RETURN a.id, b.id;");
+
+    for (const auto& [mapId, head] : maps) {
+        const std::vector<std::int64_t> chain = walkQuietly(head, next);
+        const std::string map = "TempoMap " + std::to_string(mapId);
+        if (chain.empty()) {
+            check.add(map + ": has no TempoMapPoint; at least one is required");
+            continue;
+        }
+        std::optional<std::int64_t> previous;
+        for (std::size_t i = 0; i < chain.size(); ++i) {
+            const auto& [position, hold] = points.at(chain[i]);
+            const auto at = [&](const std::string& reason) {
+                return "TempoMapPoint " + std::to_string(chain[i]) + ": " + reason;
+            };
+            if (i == 0 && position.has_value() && *position != 0) {
+                check.add(at("position is " + std::to_string(*position) + "; the first point of " +
+                             map + " must be at position 0"));
+            }
+            if (i > 0 && position.has_value() && previous.has_value() && *position <= *previous) {
+                check.add(at("position " + std::to_string(*position) +
+                             " is not after the previous point's " + std::to_string(*previous) +
+                             " in " + map));
+            }
+            if (position.has_value()) {
+                previous = position;
+            }
+            if (!hold.has_value()) {
+                check.add(at("hold is NULL"));
+            } else if (i + 1 == chain.size() && !*hold) {
+                check.add(
+                    at("hold is false on the last point of " + map + "; the last point must hold"));
+            }
+        }
+    }
+    return check;
+}
+
+/// What a PartialSetMusicalTimelinePoint's POINT_AT says, as read.
+struct PointAt {
+    std::optional<std::int64_t> tempoMapId;
+    std::optional<std::int64_t> syncPoint;
+    std::optional<double> offsetSeconds;
+};
+
+/// Reads every musical timeline point's POINT_AT, or its absence.
+///
+/// @param db  Database to read.
+/// @return By point id. A point without a POINT_AT has every field nullopt.
+/// @throws EngineDbError  If the query fails.
+std::map<std::int64_t, PointAt> readPointAts(EngineDb& db) {
+    std::map<std::int64_t, PointAt> result;
+    for (const DbRow& row :
+        db.query("MATCH (p:PartialSetMusicalTimelinePoint) OPTIONAL MATCH "
+                 "(p)-[a:POINT_AT]->(m:TempoMap) "
+                 "RETURN p.id, m.id, a.sync_point, a.offset_seconds ORDER BY p.id;")) {
+        result.emplace(requireInt64(row.at(0)), PointAt{.tempoMapId = optionalInt64(row.at(1)),
+                                                    .syncPoint = optionalInt64(row.at(2)),
+                                                    .offsetSeconds = optionalDouble(row.at(3))});
+    }
+    return result;
+}
+
+/// Checks that every PartialSetMusicalTimelinePoint has a POINT_AT (the
+/// schema enforces at most one) with a non-NULL sync_point of 0 or more and
+/// an offset that is NULL or finite.
+///
+/// @param db  Database to check.
+/// @return The check's outcome, in point id order.
+/// @throws EngineDbError  If the query fails.
+IntegrityCheck checkPointAt(EngineDb& db) {
+    IntegrityCheck check{.name = "every PartialSetMusicalTimelinePoint has one POINT_AT with "
+                                 "sync_point >= 0 and a NULL or finite offset_seconds",
+        .violationCount = 0,
+        .violations = {}};
+    for (const auto& [pointId, at] : readPointAts(db)) {
+        const std::string point = "PartialSetMusicalTimelinePoint " + std::to_string(pointId);
+        if (!at.tempoMapId.has_value()) {
+            check.add(point + ": has no POINT_AT");
+            continue;
+        }
+        if (!at.syncPoint.has_value()) {
+            check.add(point + ": sync_point is NULL");
+        } else if (*at.syncPoint < 0) {
+            check.add(
+                point + ": sync_point is " + std::to_string(*at.syncPoint) + "; it must be >= 0");
+        }
+        if (at.offsetSeconds.has_value() && !std::isfinite(*at.offsetSeconds)) {
+            check.add(point + ": offset_seconds is " + formatNumber(*at.offsetSeconds) +
+                      ", which is not finite");
+        }
+    }
+    return check;
+}
+
+/// A PartialSet's musical timeline, with the Score it hangs from and that
+/// Score's TempoMap, as far as they exist.
+struct MusicalList {
+    std::int64_t setId = 0;
+    std::vector<std::int64_t> points;
+    std::optional<std::int64_t> scoreId;
+    std::optional<std::int64_t> tempoMapId;
+};
+
+/// Reads every PartialSet with a musical timeline, its points in list order,
+/// and its Score and TempoMap.
+///
+/// @param db  Database to read.
+/// @return The lists, in PartialSet id order. A set with two timelines
+///         appears once per timeline; the database allows at most one.
+/// @throws EngineDbError  If a query fails.
+std::vector<MusicalList> readMusicalLists(EngineDb& db) {
+    std::unordered_map<std::int64_t, std::pair<std::int64_t, std::optional<std::int64_t>>> owner;
+    for (const DbRow& row : db.query(
+             "MATCH (s:Score)-[:HAS_SOUNDENTITY]->(:SoundEntity)-[:HAS_SOUNDSOURCE]->(:SoundSource)"
+             "-[:HAS_PARTIALSET]->(ps:PartialSet) OPTIONAL MATCH (s)-[:NEXT_POINT]->(m:TempoMap) "
+             "RETURN ps.id, s.id, m.id;")) {
+        owner.emplace(requireInt64(row.at(0)),
+            std::make_pair(requireInt64(row.at(1)), optionalInt64(row.at(2))));
+    }
+    const auto next = readIdMap(db, "MATCH (a:PartialSetMusicalTimelinePoint)-[:NEXT_POINT]->"
+                                    "(b:PartialSetMusicalTimelinePoint) RETURN a.id, b.id;");
+    std::vector<MusicalList> lists;
+    for (const DbRow& row :
+        db.query("MATCH (ps:PartialSet)-[:HAS_MUSICAL_TIMELINE]->(t:PartialSetMusicalTimeline) "
+                 "OPTIONAL MATCH (t)-[:NEXT_POINT]->(p:PartialSetMusicalTimelinePoint) "
+                 "RETURN ps.id, p.id ORDER BY ps.id, t.id;")) {
+        MusicalList list{.setId = requireInt64(row.at(0)),
+            .points = walkQuietly(optionalInt64(row.at(1)), next),
+            .scoreId = std::nullopt,
+            .tempoMapId = std::nullopt};
+        if (const auto found = owner.find(list.setId); found != owner.end()) {
+            list.scoreId = found->second.first;
+            list.tempoMapId = found->second.second;
+        }
+        lists.push_back(std::move(list));
+    }
+    return lists;
+}
+
+/// Checks that the points of every musical timeline are in non-decreasing
+/// sync_point order, and that each leads to the TempoMap of the Score the
+/// timeline's PartialSet hangs from.
+///
+/// Points without a POINT_AT, or with a NULL sync_point, are checkPointAt()'s
+/// business and are skipped here.
+///
+/// @param db  Database to check.
+/// @return The check's outcome, in PartialSet id order.
+/// @throws EngineDbError  If a query fails.
+IntegrityCheck checkMusicalOrder(EngineDb& db) {
+    IntegrityCheck check{.name = "PartialSetMusicalTimeline points are in non-decreasing "
+                                 "sync_point order on the TempoMap of their Score",
+        .violationCount = 0,
+        .violations = {}};
+    const std::map<std::int64_t, PointAt> pointAts = readPointAts(db);
+    for (const MusicalList& list : readMusicalLists(db)) {
+        const std::string set = "PartialSet " + std::to_string(list.setId);
+        if (!list.scoreId.has_value()) {
+            check.add(set + ": has a musical timeline but is not reached from any Score");
+            continue;
+        }
+        if (!list.tempoMapId.has_value()) {
+            check.add(set + ": has a musical timeline but its Score " +
+                      std::to_string(*list.scoreId) + " has no TempoMap");
+            continue;
+        }
+        const std::int64_t scoreId = *list.scoreId;
+        const std::int64_t mapId = *list.tempoMapId;
+        std::optional<std::int64_t> previous;
+        for (const std::int64_t pointId : list.points) {
+            const auto found = pointAts.find(pointId);
+            if (found == pointAts.end()) {
+                continue;
+            }
+            const PointAt& at = found->second;
+            if (!at.tempoMapId.has_value()) {
+                continue;
+            }
+            const std::int64_t target = *at.tempoMapId;
+            const auto describe = [pointId](const std::string& reason) {
+                return "PartialSetMusicalTimelinePoint " + std::to_string(pointId) + ": " + reason;
+            };
+            if (target != mapId) {
+                check.add(describe("POINT_AT leads to TempoMap " + std::to_string(target) +
+                                   ", not TempoMap " + std::to_string(mapId) + " of Score " +
+                                   std::to_string(scoreId)));
+            }
+            if (!at.syncPoint.has_value()) {
+                continue;
+            }
+            const std::int64_t sync = *at.syncPoint;
+            if (previous.has_value() && sync < *previous) {
+                check.add(describe("sync_point " + std::to_string(sync) +
+                                   " is before the previous point's " + std::to_string(*previous) +
+                                   " in " + set + "'s timeline"));
+            }
+            previous = sync;
+        }
+    }
+    return check;
+}
+
+/// Checks that every PartialState is in exactly one PartialStateSet and is
+/// the state of exactly one Partial. The schema enforces at most one of each;
+/// zero is the defect.
+///
+/// @param db  Database to check.
+/// @return The check's outcome, in PartialState id order.
+/// @throws EngineDbError  If the query fails.
+IntegrityCheck checkPartialStateLinks(EngineDb& db) {
+    IntegrityCheck check{
+        .name = "every PartialState is in one PartialStateSet and is the state of one Partial",
+        .violationCount = 0,
+        .violations = {}};
+    for (const DbRow& row :
+        db.query("MATCH (st:PartialState) OPTIONAL MATCH (st)-[:MEMBER_OF_SET_MANY_ONE]->"
+                 "(ss:PartialStateSet) OPTIONAL MATCH (st)-[:STATE_OF]->(p:Partial) "
+                 "RETURN st.id, count(DISTINCT ss), count(DISTINCT p) ORDER BY st.id;")) {
+        const std::int64_t sets = requireInt64(row.at(1));
+        const std::int64_t partials = requireInt64(row.at(2));
+        if (sets != 1 || partials != 1) {
+            check.add("PartialState " + std::to_string(requireInt64(row.at(0))) + ": in " +
+                      std::to_string(sets) + " PartialStateSet(s) and the state of " +
+                      std::to_string(partials) + " Partial(s)");
+        }
+    }
+    return check;
+}
+
+/// Checks that a PartialStateSet reached from a timeline point holds states
+/// only of partials in that point's PartialSet, and at most one per partial.
+///
+/// @param db  Database to check.
+/// @return The check's outcome, in point id order.
+/// @throws EngineDbError  If a query fails.
+IntegrityCheck checkStateMembership(EngineDb& db) {
+    IntegrityCheck check{.name = "a PartialStateSet used by a timeline point holds at most one "
+                                 "state per partial, all of that point's PartialSet",
+        .violationCount = 0,
+        .violations = {}};
+    std::unordered_map<std::int64_t, std::int64_t> setOfPartial;
+    for (const DbRow& row :
+        db.query("MATCH (ps:PartialSet)-[:HAS_PARTIAL]->(p:Partial) RETURN p.id, ps.id;")) {
+        setOfPartial.emplace(requireInt64(row.at(0)), requireInt64(row.at(1)));
+    }
+    std::unordered_map<std::int64_t, std::int64_t> setOfPoint;
+    for (const MusicalList& list : readMusicalLists(db)) {
+        for (const std::int64_t pointId : list.points) {
+            setOfPoint.emplace(pointId, list.setId);
+        }
+    }
+    std::optional<std::int64_t> currentPoint;
+    std::unordered_set<std::int64_t> seenPartials;
+    for (const DbRow& row :
+        db.query("MATCH (p:PartialSetMusicalTimelinePoint)-[:POINT_STATE]->(:PartialStateSet)"
+                 "<-[:MEMBER_OF_SET_MANY_ONE]-(st:PartialState)-[:STATE_OF]->(partial:Partial) "
+                 "RETURN p.id, st.id, partial.id ORDER BY p.id, st.id;")) {
+        const std::int64_t pointId = requireInt64(row.at(0));
+        const std::int64_t stateId = requireInt64(row.at(1));
+        const std::int64_t partialId = requireInt64(row.at(2));
+        if (currentPoint != pointId) {
+            currentPoint = pointId;
+            seenPartials.clear();
+        }
+        const std::string where = "PartialSetMusicalTimelinePoint " + std::to_string(pointId) +
+                                  ": PartialState " + std::to_string(stateId);
+        const auto set = setOfPoint.find(pointId);
+        const auto partialSet = setOfPartial.find(partialId);
+        if (set != setOfPoint.end() &&
+            (partialSet == setOfPartial.end() || partialSet->second != set->second)) {
+            check.add(where + " belongs to Partial " + std::to_string(partialId) +
+                      ", which is not in PartialSet " + std::to_string(set->second));
+        }
+        if (!seenPartials.insert(partialId).second) {
+            check.add(where + " is a second state of Partial " + std::to_string(partialId) +
+                      " at this point");
+        }
+    }
+    return check;
 }
 
 } // namespace
@@ -680,6 +1077,11 @@ IntegrityReport checkIntegrity(EngineDb& db) {
     }
     report.checks.push_back(checkSetMembership(db));
     report.checks.push_back(checkLifelineEquality(db));
+    report.checks.push_back(checkTempoMapShape(db));
+    report.checks.push_back(checkPointAt(db));
+    report.checks.push_back(checkMusicalOrder(db));
+    report.checks.push_back(checkPartialStateLinks(db));
+    report.checks.push_back(checkStateMembership(db));
     for (const ListType& type : kListTypes) {
         IntegrityCheck cycles;
         IntegrityCheck merges;

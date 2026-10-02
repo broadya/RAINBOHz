@@ -1,12 +1,14 @@
 # rendering-engine
 
 **Status: partly implemented.** The engine stands up `engine-db`, loads it,
-reads and checks a render request, precomputes every partial's integrable
-segments and frame entries (first version: linear frequency envelopes only;
-see [docs/precomputation.md](docs/precomputation.md)), and renders the
-requested frames to WAV files (first version: mono, linear curves, labels
-ignored; see [docs/rendering.md](docs/rendering.md)). It does not yet
-transform anything.
+reads and checks a render request, transforms every partial set written in
+musical time into per-partial physical timelines through the score's tempo
+map (first version: one tempo map per score, frequency and amplitude; see
+[docs/transform.md](docs/transform.md)), precomputes every partial's
+integrable segments and frame entries (first version: linear frequency
+envelopes only; see [docs/precomputation.md](docs/precomputation.md)), and
+renders the requested frames to WAV files (first version: mono, linear
+curves, labels ignored; see [docs/rendering.md](docs/rendering.md)).
 
 This directory holds the component identified as `rendering-engine` in
 [architecture/overview.md](../architecture/overview.md). What exists today is
@@ -15,8 +17,8 @@ the `engine-db` schema is applied to it, and an initial database state is
 loaded from a Cypher file named on the command line, with every failure
 attributed to its source line; a YAML render request, naming the frames to
 render and the labels that select their partials, is read and checked against
-what loaded; every partial is precomputed; and each requested frame is
-rendered to a file.
+what loaded; every partial set in musical time is transformed; every partial
+is precomputed; and each requested frame is rendered to a file.
 
 ## What the component will do
 
@@ -41,11 +43,9 @@ to them over the network. That split was abandoned because the bandwidth cost of
 shipping specifications exceeded the compute it offloaded. See overview.md §11.
 
 See [docs/design.md](docs/design.md) for the component design and its open
-questions, [docs/precomputation.md](docs/precomputation.md) for the
-precomputation step, and [docs/rendering.md](docs/rendering.md) for the
-rendering step that follows it — of which the largest is that the engine schema is still under
-construction, holding the rendering-model concepts but not yet the canonical
-ones.
+questions, [docs/transform.md](docs/transform.md) for the transform step,
+[docs/precomputation.md](docs/precomputation.md) for the precomputation step
+that follows it, and [docs/rendering.md](docs/rendering.md) for rendering.
 
 ## Run modes
 
@@ -55,7 +55,7 @@ so that the mode axis exists in the code rather than being retrofitted later.
 
 | Mode | Lifetime | Input | Output | Status |
 | --- | --- | --- | --- | --- |
-| `test` | batch, then exits | a Cypher state file and a YAML render request | WAV files in a local directory | implemented for the first versions of precomputation and rendering |
+| `test` | batch, then exits | a Cypher state file and a YAML render request | WAV files in a local directory | implemented for the first versions of the transform, precomputation and rendering |
 | `distributed` | long-running server | requests over a mechanism not yet chosen | object storage | not implemented |
 | `standalone` | long-running server | as `distributed` | a local directory | not implemented |
 
@@ -95,16 +95,23 @@ What `test` mode does today:
    merged lists in any `NEXT_POINT` list, and the columns the engine reads in
    their valid ranges. A violation stops the run here, with exit 1. See
    [docs/integrity.md](docs/integrity.md).
-7. Precomputes every partial ([docs/precomputation.md](docs/precomputation.md)).
-8. Lists the requested frames and checks every requested label against the
+7. Transforms every partial set that has a musical timeline: its points are
+   placed in physical time through the score's tempo map, with the offsets
+   and collisions resolved as [docs/transform.md](docs/transform.md) §6.3
+   describes, and each partial gets its frequency and amplitude physical
+   timelines. Sets written in physical time directly are left alone. A set
+   or partial that cannot be transformed stops the run here, with exit 1.
+8. Precomputes every partial ([docs/precomputation.md](docs/precomputation.md)).
+9. Lists the requested frames and checks every requested label against the
    `Label` nodes that loaded.
-9. Renders each requested frame to `--out-dir/frame-NNNNNN.wav`, a 32-bit
-   float mono WAV of one frame ([docs/rendering.md](docs/rendering.md)); with
-   `--per-set-wav`, also `frame-NNNNNN.set-NNNNNN.wav` per contributing
-   partial set. A frame with nothing in scope is a file of silence. Then
-   exits 0, or 1 if any statement did not apply, an integrity check failed,
-   a partial could not be precomputed, any label is unknown, or any frame
-   could not be rendered. Labels are checked but do not yet select partials.
+10. Renders each requested frame to `--out-dir/frame-NNNNNN.wav`, a 32-bit
+    float mono WAV of one frame ([docs/rendering.md](docs/rendering.md)); with
+    `--per-set-wav`, also `frame-NNNNNN.set-NNNNNN.wav` per contributing
+    partial set. A frame with nothing in scope is a file of silence. Then
+    exits 0, or 1 if any statement did not apply, an integrity check failed,
+    a set or partial could not be transformed, a partial could not be
+    precomputed, any label is unknown, or any frame could not be rendered.
+    Labels are checked but do not yet select partials.
 
 ### The render request
 
@@ -158,10 +165,17 @@ the example score holds no labels, so it asks for every partial. `make` sets
 repository. A second, richer score, `two-partial-sets.cypher`, with its
 request `examples/two-partial-sets-request.yaml`, exercises two partial
 sets, glides, fades, a mid-frame start and partials leaving the audio
-range; each score has a JSON mirror beside it for the oracle
-(`test/oracle/render_oracle.py`, [docs/rendering.md](docs/rendering.md)
-§11.1), which checks the engine's output against an independent NumPy
-implementation.
+range. Two more are written in the canonical model, in musical time, and
+go through the transform: `tempo-map-score.cypher`, a tempo ramp with
+per-property NULL states, and `offset-collision-score.cypher`, percussive
+hits whose fixed offsets collide ([docs/transform.md](docs/transform.md)
+§11), with requests `examples/tempo-map-request.yaml` and
+`examples/offset-collision-request.yaml`. Each score has a JSON mirror beside
+it for the oracle (`test/oracle/render_oracle.py`,
+[docs/rendering.md](docs/rendering.md) §11.1), which checks the engine's
+output against an independent NumPy implementation; for the musical-time
+scores the mirror holds the physical values the transform must produce,
+computed outside the engine.
 
 The example score is example data, not a specification of `canonical-form` —
 how a score actually reaches `engine-db` is still open (overview.md §10).
@@ -180,7 +194,9 @@ rendering-engine/
 │   └── toolchains/         cross-compile configurations
 ├── examples/
 │   ├── minimum-request.yaml  the render request `make run-rendering-engine` passes
-│   └── two-partial-sets-request.yaml  for engine-db/examples/two-partial-sets.cypher
+│   ├── two-partial-sets-request.yaml  for engine-db/examples/two-partial-sets.cypher
+│   ├── tempo-map-request.yaml         for engine-db/examples/tempo-map-score.cypher
+│   └── offset-collision-request.yaml  for engine-db/examples/offset-collision-score.cypher
 ├── include/rainbohz/rendering_engine/
 │   ├── amplitude_maths.hpp  amplitude ramp, dB conversion, roll-off
 │   ├── cypher_script.hpp   statement splitting, with line attribution
@@ -196,7 +212,12 @@ rendering-engine/
 │   ├── script_loader.hpp   applying Cypher files to engine-db
 │   ├── segment_maths.hpp   a segment's frequency and phase
 │   ├── units.hpp           unit types for physical quantities
-│   └── wav_writer.hpp      32-bit float WAV output (dr_wav)
+│   ├── wav_writer.hpp      32-bit float WAV output (dr_wav)
+│   └── transform/          the transform stage: the only home of musical time
+│       ├── musical_units.hpp  ticks, tempo, ticks per beat
+│       ├── tempo_map.hpp      the TempoMap and its conversion to seconds
+│       ├── squash.hpp         placing colliding points in physical time
+│       └── transform.hpp      knots, envelopes, the run and its report
 ├── src/
 │   ├── main.cpp            entry point and test-mode driver
 │   ├── cypher_script.cpp
@@ -209,7 +230,11 @@ rendering-engine/
 │   ├── render_request.cpp
 │   ├── rendering.cpp
 │   ├── script_loader.cpp
-│   └── wav_writer.cpp
+│   ├── wav_writer.cpp
+│   └── transform/
+│       ├── squash.cpp
+│       ├── tempo_map.cpp
+│       └── transform.cpp
 └── test/
     ├── oracle/
     │   ├── render_oracle.py      independent NumPy check of one frame
@@ -227,7 +252,12 @@ rendering-engine/
     ├── test_script_loader.cpp
     ├── test_segment_maths.cpp
     ├── test_units.cpp
-    └── test_wav_writer.cpp
+    ├── test_wav_writer.cpp
+    └── transform/
+        ├── test_musical_units.cpp
+        ├── test_squash.cpp
+        ├── test_tempo_map.cpp
+        └── test_transform.cpp
 ```
 
 ## Building

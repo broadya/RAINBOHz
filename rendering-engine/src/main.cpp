@@ -5,6 +5,7 @@
 #include "rainbohz/rendering_engine/render_request.hpp"
 #include "rainbohz/rendering_engine/rendering.hpp"
 #include "rainbohz/rendering_engine/script_loader.hpp"
+#include "rainbohz/rendering_engine/transform/transform.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -27,10 +28,11 @@
 /// run modes are anticipated; only `test` is implemented: read the render
 /// request, stand up engine-db by applying the schema from one Cypher file,
 /// load an initial database state from a second, optionally check its
-/// integrity (`--validate-db`), precompute every partial's integrable segments
-/// and frame entries, check the request's labels against what loaded, and
-/// render the requested frames to WAV files. Transformation is not
-/// implemented, and labels do not yet select partials.
+/// integrity (`--validate-db`), transform every partial set with a musical
+/// timeline into physical timelines, precompute every partial's integrable
+/// segments and frame entries, check the request's labels against what loaded,
+/// and render the requested frames to WAV files. Labels do not yet select
+/// partials.
 ///
 /// The library modules return reports; this file turns them into output on
 /// stdout and stderr and into the process exit code. The reporting format
@@ -62,6 +64,11 @@ using rainbohz::rendering_engine::RenderRequestError;
 using rainbohz::rendering_engine::RequestProblem;
 using rainbohz::rendering_engine::RowCount;
 using rainbohz::rendering_engine::TableEntry;
+using rainbohz::rendering_engine::transform::PartialSetTransformOutcome;
+using rainbohz::rendering_engine::transform::PartialTransformOutcome;
+using rainbohz::rendering_engine::transform::TempoMapSummary;
+using rainbohz::rendering_engine::transform::TransformError;
+using rainbohz::rendering_engine::transform::TransformReport;
 
 /// @name Process exit codes
 /// @{
@@ -70,9 +77,10 @@ using rainbohz::rendering_engine::TableEntry;
 constexpr int kExitOk = 0;
 
 /// Something did not work: a bad request, a statement that did not apply, an
-/// integrity violation under --validate-db, a partial that could not be
-/// precomputed, an unknown label, a frame that could not be rendered, or an
-/// exception that reached main().
+/// integrity violation under --validate-db, a partial set or partial that
+/// could not be transformed, a partial that could not be precomputed, an
+/// unknown label, a frame that could not be rendered, or an exception that
+/// reached main().
 constexpr int kExitFailed = 1;
 
 /// The requested mode exists on the command line but has no implementation
@@ -254,6 +262,69 @@ std::string describePartial(const PartialOutcome& outcome) {
            ")";
 }
 
+/// Names a partial for the transform report.
+///
+/// @param outcome  The partial's outcome.
+/// @return Its name followed by its id, as describePartial() formats it.
+std::string describeTransformedPartial(const PartialTransformOutcome& outcome) {
+    return outcome.partialName.value_or("(unnamed)") + " (id " + std::to_string(outcome.partialId) +
+           ")";
+}
+
+/// Names a partial set for the transform report.
+///
+/// @param outcome  The set's outcome.
+/// @return Its name followed by its id, e.g. "PartialSet Chord (id 0)".
+std::string describeSet(const PartialSetTransformOutcome& outcome) {
+    return "PartialSet " + outcome.setName.value_or("(unnamed)") + " (id " +
+           std::to_string(outcome.setId) + ")";
+}
+
+/// Reports the outcome of the transform: the tempo maps found, then one line
+/// per set or partial that failed, and under --verbose one per partial that
+/// succeeded, in the layout reportPrecomputation() uses. A closing line
+/// gives the totals.
+///
+/// @param report   Result of transformAll().
+/// @param verbose  Whether to list the partials that succeeded.
+void reportTransform(const TransformReport& report, bool verbose) {
+    std::cout << "  transform: sample rate " << report.sampleRate.value() << '\n';
+    for (const TempoMapSummary& map : report.tempoMaps) {
+        std::cout << "    Score " << map.scoreId << " keeps time by TempoMap "
+                  << map.name.value_or("(unnamed)") << " (id " << map.tempoMapId
+                  << "): " << map.ticksPerBeat << " ticks per beat, " << map.pointCount
+                  << " point(s)\n";
+    }
+    if (report.sets.empty()) {
+        std::cout << "    no PartialSet has a musical timeline; nothing to transform\n";
+    }
+    for (const PartialSetTransformOutcome& set : report.sets) {
+        if (set.error.has_value()) {
+            std::cout << "    FAILED   " << describeSet(set) << ": " << *set.error << '\n';
+            continue;
+        }
+        for (const PartialTransformOutcome& partial : set.partials) {
+            if (partial.error.has_value()) {
+                std::cout << "    FAILED   " << describeTransformedPartial(partial) << " in "
+                          << describeSet(set) << ": " << *partial.error << '\n';
+            } else if (verbose) {
+                std::cout << "    ok       " << describeTransformedPartial(partial) << ": "
+                          << partial.frequencyPoints << " frequency point(s), "
+                          << partial.amplitudePoints << " amplitude point(s)\n";
+            }
+        }
+    }
+    std::size_t failedSets = 0;
+    std::size_t failedPartials = 0;
+    for (const PartialSetTransformOutcome& set : report.sets) {
+        failedSets += set.error.has_value() ? 1 : 0;
+        failedPartials += set.failureCount();
+    }
+    std::cout << "  transformed " << report.partialCount() - failedPartials << " of "
+              << report.partialCount() << " partial(s) in " << report.sets.size() - failedSets
+              << " of " << report.sets.size() << " partial set(s)\n";
+}
+
 /// Reports the outcome of precomputation, one line per partial.
 ///
 /// A partial that failed always gets a FAILED line with the reason, in the
@@ -362,10 +433,11 @@ void reportRequest(const RenderRequest& request) {
 ///
 /// In order: loads the render request; applies the schema file, then the state
 /// file, to a fresh engine-db; and, only if every statement applied, checks
-/// the database's integrity if --validate-db was given, precomputes every
-/// partial, checks the request's labels against those in the database, and
-/// renders the requested frames into --out-dir, creating it if absent. What
-/// the database holds is reported after loading fails, or after
+/// the database's integrity if --validate-db was given, transforms every
+/// partial set in musical time, precomputes every partial, checks the
+/// request's labels against those in the database, and renders the requested
+/// frames into --out-dir, creating it if absent. What the database holds is
+/// reported after loading fails, after the transform fails, or after
 /// precomputation, so that the census includes its output. Progress goes to
 /// standard output and the closing verdict on a failure to standard error.
 ///
@@ -374,7 +446,8 @@ void reportRequest(const RenderRequest& request) {
 /// @return kExitOk if everything loaded, every partial was precomputed, every
 ///         requested label exists and every requested frame was rendered;
 ///         kExitFailed if the request is unusable, any statement did not
-///         apply, an integrity check failed under --validate-db,
+///         apply, an integrity check failed under --validate-db, the
+///         transform could not run or any set or partial failed it,
 ///         precomputation could not run or any partial failed, any requested
 ///         label is unknown, the output directory cannot be created,
 ///         rendering could not run, or any frame failed.
@@ -449,6 +522,29 @@ int runTestMode(const Options& options) {
         }
     }
 
+    // The transform runs first: it writes the physical timelines that
+    // precomputation reads. A set or partial it cannot convert stops the run,
+    // as an integrity violation does, before precomputation reports the
+    // same partials as failures for want of their timelines.
+    std::cout << '\n';
+    TransformReport transform;
+    try {
+        transform = rainbohz::rendering_engine::transform::transformAll(db);
+    } catch (const TransformError& e) {
+        reportDataCensus(db);
+        std::cerr << "\nrendering-engine: the transform could not run: " << e.what() << '\n';
+        return kExitFailed;
+    }
+    reportTransform(transform, options.verbose);
+    if (!transform.ok()) {
+        std::cout << '\n';
+        reportDataCensus(db);
+        std::cerr << "\nrendering-engine: " << transform.failureCount()
+                  << " partial set(s) or partial(s) could not be transformed. "
+                     "Precomputation was not run.\n";
+        return kExitFailed;
+    }
+
     // Precomputation runs only on a score that loaded whole, for the same
     // reason the labels are checked only against one.
     std::cout << '\n';
@@ -511,9 +607,9 @@ int runTestMode(const Options& options) {
         return kExitFailed;
     }
 
-    std::cout << "\nLoaded, precomputed, and rendered " << rendering.frames.size()
+    std::cout << "\nLoaded, transformed, precomputed, and rendered " << rendering.frames.size()
               << " frame(s) to " << options.outputDir.string()
-              << ". Transformation is not implemented, and labels do not yet select partials.\n";
+              << ". Labels do not yet select partials.\n";
     return kExitOk;
 }
 

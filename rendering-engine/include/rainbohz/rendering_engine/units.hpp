@@ -190,6 +190,125 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Seconds
+// ---------------------------------------------------------------------------
+//
+// Physical time in seconds exists only where the engine meets the canonical
+// model: a TempoMap converts musical time to seconds, and POINT_AT carries an
+// offset in seconds. The transform stage turns seconds into samples at the
+// configured sample rate (toSampleTime) and nothing downstream of it sees a
+// second again. See docs/transform.md section 3.
+
+/// A length of time, or an offset between two points in time, in seconds.
+///
+/// Continuous. May be negative: POINT_AT.offset_seconds is allowed to pull a
+/// point earlier than its musical position.
+class SecondsDuration {
+public:
+    /// A zero duration.
+    constexpr SecondsDuration() noexcept = default;
+
+    /// A duration of `seconds` seconds.
+    ///
+    /// @param seconds  Length in seconds; any value, including negative and
+    ///                 non-finite ones.
+    constexpr explicit SecondsDuration(double seconds) noexcept : value_{seconds} {}
+
+    /// The duration in seconds.
+    constexpr double value() const noexcept { return value_; }
+
+    /// Orders two values of this type by their representation.
+    friend constexpr auto operator<=>(SecondsDuration, SecondsDuration) noexcept = default;
+
+    /// The sum of the two operands.
+    friend constexpr SecondsDuration operator+(SecondsDuration a, SecondsDuration b) noexcept {
+        return SecondsDuration{a.value_ + b.value_};
+    }
+    /// The first operand less the second.
+    friend constexpr SecondsDuration operator-(SecondsDuration a, SecondsDuration b) noexcept {
+        return SecondsDuration{a.value_ - b.value_};
+    }
+    /// The negation of this value.
+    friend constexpr SecondsDuration operator-(SecondsDuration a) noexcept {
+        return SecondsDuration{-a.value_};
+    }
+    /// The product of the two operands.
+    friend constexpr SecondsDuration operator*(SecondsDuration a, double scale) noexcept {
+        return SecondsDuration{a.value_ * scale};
+    }
+    /// The product of the two operands.
+    friend constexpr SecondsDuration operator*(double scale, SecondsDuration a) noexcept {
+        return SecondsDuration{scale * a.value_};
+    }
+    /// The first operand divided by the second.
+    friend constexpr SecondsDuration operator/(SecondsDuration a, double divisor) noexcept {
+        return SecondsDuration{a.value_ / divisor};
+    }
+    /// The ratio of two durations, which is unitless.
+    friend constexpr double operator/(SecondsDuration a, SecondsDuration b) noexcept {
+        return a.value_ / b.value_;
+    }
+
+    /// Adds `other` to this value in place.
+    constexpr SecondsDuration& operator+=(SecondsDuration other) noexcept {
+        value_ += other.value_;
+        return *this;
+    }
+
+private:
+    double value_ = 0.0;
+};
+
+/// An absolute point in physical time, in seconds from the start of the
+/// score.
+///
+/// Continuous. Modelled on SampleTime: subtracting two gives a
+/// SecondsDuration, and adding two does not compile.
+class SecondsTime {
+public:
+    /// The start of the score.
+    constexpr SecondsTime() noexcept = default;
+
+    /// The point `seconds` seconds after the start of the score.
+    ///
+    /// @param seconds  Position in seconds; any value. Validation is the
+    ///                 caller's concern.
+    constexpr explicit SecondsTime(double seconds) noexcept : value_{seconds} {}
+
+    /// The position in seconds from the start of the score.
+    constexpr double value() const noexcept { return value_; }
+
+    /// Orders two values of this type by their representation.
+    friend constexpr auto operator<=>(SecondsTime, SecondsTime) noexcept = default;
+
+    /// The duration from `b` to `a`.
+    friend constexpr SecondsDuration operator-(SecondsTime a, SecondsTime b) noexcept {
+        return SecondsDuration{a.value_ - b.value_};
+    }
+    /// The sum of the two operands.
+    friend constexpr SecondsTime operator+(SecondsTime t, SecondsDuration d) noexcept {
+        return SecondsTime{t.value_ + d.value()};
+    }
+    /// The sum of the two operands.
+    friend constexpr SecondsTime operator+(SecondsDuration d, SecondsTime t) noexcept {
+        return SecondsTime{d.value() + t.value_};
+    }
+    /// The first operand less the second.
+    friend constexpr SecondsTime operator-(SecondsTime t, SecondsDuration d) noexcept {
+        return SecondsTime{t.value_ - d.value()};
+    }
+
+    /// Adds `d` to this value in place.
+    constexpr SecondsTime& operator+=(SecondsDuration d) noexcept {
+        value_ += d.value();
+        return *this;
+    }
+
+private:
+    double value_ = 0.0;
+};
+
+// ---------------------------------------------------------------------------
 // Phase and frequency
 // ---------------------------------------------------------------------------
 
@@ -613,6 +732,28 @@ inline std::optional<FrameNumber> toFrameNumber(double position) noexcept {
 constexpr AngularFrequency toAngular(Hertz frequency, SampleRate rate) noexcept {
     return AngularFrequency{
         2.0 * std::numbers::pi * frequency.value() / static_cast<double>(rate.value())};
+}
+
+/// Converts a duration in seconds to samples at `rate`.
+///
+/// @param d     Duration in seconds.
+/// @param rate  Sample rate. Must be positive.
+/// @return `d · rate`, in samples, continuous.
+constexpr SampleDuration toSampleDuration(SecondsDuration d, SampleRate rate) noexcept {
+    return SampleDuration{d.value() * static_cast<double>(rate.value())};
+}
+
+/// Converts a point in time from seconds to samples at `rate`.
+///
+/// This is the one place physical time changes unit. Everything the transform
+/// writes to engine-db has been through it, and nothing downstream sees a
+/// second again.
+///
+/// @param t     Point in time, seconds from the start of the score.
+/// @param rate  Sample rate. Must be positive.
+/// @return `t · rate`, in samples, continuous.
+constexpr SampleTime toSampleTime(SecondsTime t, SampleRate rate) noexcept {
+    return SampleTime{t.value() * static_cast<double>(rate.value())};
 }
 
 /// The frame that contains the point `t`: ⌊t / size⌋.

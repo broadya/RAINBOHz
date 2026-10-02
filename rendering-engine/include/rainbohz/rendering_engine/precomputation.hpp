@@ -55,24 +55,24 @@ public:
     using std::runtime_error::runtime_error;
 };
 
-/// The value of FrequencyTimelinePoint.frequency_curve_type for a linear
+/// The value of FrequencyPhysicalTimelinePoint.frequency_curve_type for a linear
 /// curve: the only one this version supports.
 inline constexpr std::int64_t kLinearCurve = 0;
 
-/// A FrequencyTimelinePoint exactly as read from engine-db, before any
+/// A FrequencyPhysicalTimelinePoint exactly as read from engine-db, before any
 /// validation. Every property is nullable in the schema, so every one is
 /// optional here.
 struct FrequencyPointRecord {
-    /// FrequencyTimelinePoint.id.
+    /// FrequencyPhysicalTimelinePoint.id.
     std::int64_t id = 0;
 
-    /// FrequencyTimelinePoint.time, samples.
+    /// FrequencyPhysicalTimelinePoint.time, samples.
     std::optional<double> time;
 
-    /// FrequencyTimelinePoint.frequency, radians per sample.
+    /// FrequencyPhysicalTimelinePoint.frequency, radians per sample.
     std::optional<double> frequency;
 
-    /// FrequencyTimelinePoint.frequency_curve_type. Describes the curve from
+    /// FrequencyPhysicalTimelinePoint.frequency_curve_type. Describes the curve from
     /// this point to the next; ignored on the last point.
     std::optional<std::int64_t> curveType;
 };
@@ -86,22 +86,22 @@ struct FrequencyPoint {
     AngularFrequency frequency;
 };
 
-/// An AmplitudeTimelinePoint as read for precomputation, before validation.
+/// An AmplitudePhysicalTimelinePoint as read for precomputation, before validation.
 ///
 /// Only its time is read here (§4): the amplitude and curve values are
 /// rendering's concern. The list is validated whole by precomputation because
 /// this is where lists are walked, and because the frame entries of §6.7 lead
 /// into it.
 struct AmplitudePointRecord {
-    /// AmplitudeTimelinePoint.id.
+    /// AmplitudePhysicalTimelinePoint.id.
     std::int64_t id = 0;
 
-    /// AmplitudeTimelinePoint.time, samples.
+    /// AmplitudePhysicalTimelinePoint.time, samples.
     std::optional<double> time;
 };
 
 /// Where the rendering of one frame starts for one partial: the in-memory
-/// form of a FrameEntry node and its FRAME_ENTRY_TIMELINE edges (§6.7).
+/// form of a FrameEntry node and its FRAME_ENTRY_PHYSICAL_TIMELINE edges (§6.7).
 struct FrameEntryTarget {
     /// The frame.
     FrameNumber frame{0};
@@ -160,7 +160,7 @@ struct FrameRange {
 /// @param next  For each node id, the id of the node its NEXT_POINT leads to.
 ///              Nodes absent from it end the list.
 /// @param what  What the list is, for the error message, e.g.
-///              "FrequencyTimeline".
+///              "FrequencyPhysicalTimeline".
 /// @return The node ids in list order, head first. Empty when `head` is
 ///         nullopt.
 /// @throws PartialPrecomputationError  If the list returns to a node it has
@@ -171,7 +171,7 @@ std::vector<std::int64_t> walkChain(std::optional<std::int64_t> head,
 /// Checks a partial's frequency points and converts them to typed values
 /// (§7).
 ///
-/// @param points  The points of the partial's FrequencyTimeline, in
+/// @param points  The points of the partial's FrequencyPhysicalTimeline, in
 ///                NEXT_POINT order.
 /// @return The envelope: one FrequencyPoint per input point, in order.
 /// @throws PartialPrecomputationError  If there are fewer than 2 points; a
@@ -189,7 +189,7 @@ std::vector<FrequencyPoint> validateFrequencyEnvelope(std::span<const FrequencyP
 /// point's time must equal the first frequency point's, and the last the
 /// last, exactly (author, 2026-09-24). Interior points are independent.
 ///
-/// @param points    The points of the partial's AmplitudeTimeline, in
+/// @param points    The points of the partial's AmplitudePhysicalTimeline, in
 ///                  NEXT_POINT order.
 /// @param envelope  The partial's validated frequency envelope.
 /// @return One time per input point, in order, strictly increasing.
@@ -341,7 +341,7 @@ struct PrecomputationReport {
 ///
 /// Reads the EngineConfig and every partial's inputs, then precomputes the
 /// partials one at a time, in Partial.id order, each in its own transaction.
-/// Any output a partial already has -- its PartialSegmentTimeline, segments,
+/// Any output a partial already has -- its PartialSegmentPhysicalTimeline, segments,
 /// their nominal frequencies, its PARTIAL_IN_FRAME edges and its FrameEntry
 /// nodes -- is deleted and rebuilt. Frame nodes are created as needed and
 /// never deleted.

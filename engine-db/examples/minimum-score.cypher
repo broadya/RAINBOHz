@@ -31,21 +31,21 @@ CREATE (partial0:Partial {name:"Partial 0"})
 CREATE (partialSet0)-[:HAS_PARTIAL]->(partial0)
 
 // A partial has an amplitude timeline
-CREATE (amplitudeTimeline0:AmplitudeTimeline {})
-CREATE (partial0)-[:HAS_TIMELINE]->(amplitudeTimeline0)
+CREATE (amplitudePhysicalTimeline0:AmplitudePhysicalTimeline {})
+CREATE (partial0)-[:HAS_PHYSICAL_TIMELINE]->(amplitudePhysicalTimeline0)
 
 // This amplitude timeline has two amplitude timeline points, defaulting to a linear curve
-CREATE (amplitudeTimelinePoint0:AmplitudeTimelinePoint {time:0.0, amplitude:-6.0})
-CREATE (amplitudeTimelinePoint1:AmplitudeTimelinePoint {time:480000.0, amplitude:-6.0}) // samples, dB
-CREATE (amplitudeTimeline0)-[:NEXT_POINT]->(amplitudeTimelinePoint0)
-CREATE (amplitudeTimelinePoint0)-[:NEXT_POINT]->(amplitudeTimelinePoint1)
+CREATE (amplitudePhysicalTimelinePoint0:AmplitudePhysicalTimelinePoint {time:0.0, amplitude:-6.0})
+CREATE (amplitudePhysicalTimelinePoint1:AmplitudePhysicalTimelinePoint {time:480000.0, amplitude:-6.0}) // samples, dB
+CREATE (amplitudePhysicalTimeline0)-[:NEXT_POINT]->(amplitudePhysicalTimelinePoint0)
+CREATE (amplitudePhysicalTimelinePoint0)-[:NEXT_POINT]->(amplitudePhysicalTimelinePoint1)
 
 // A partial has a frequency timeline
-CREATE (frequencyTimeline0:FrequencyTimeline {})
-CREATE (partial0)-[:HAS_TIMELINE]->(frequencyTimeline0)
+CREATE (frequencyPhysicalTimeline0:FrequencyPhysicalTimeline {})
+CREATE (partial0)-[:HAS_PHYSICAL_TIMELINE]->(frequencyPhysicalTimeline0)
 
 // This frequency timeline has two frequency timeline points, defaulting to a linear curve
-CREATE (frequencyTimelinePoint0:FrequencyTimelinePoint {time:0.0, frequency:0.1})
-CREATE (frequencyTimelinePoint1:FrequencyTimelinePoint {time:480000.0, frequency:0.1})
-CREATE (frequencyTimeline0)-[:NEXT_POINT]->(frequencyTimelinePoint0)
-CREATE (frequencyTimelinePoint0)-[:NEXT_POINT]->(frequencyTimelinePoint1);
+CREATE (frequencyPhysicalTimelinePoint0:FrequencyPhysicalTimelinePoint {time:0.0, frequency:0.1})
+CREATE (frequencyPhysicalTimelinePoint1:FrequencyPhysicalTimelinePoint {time:480000.0, frequency:0.1})
+CREATE (frequencyPhysicalTimeline0)-[:NEXT_POINT]->(frequencyPhysicalTimelinePoint0)
+CREATE (frequencyPhysicalTimelinePoint0)-[:NEXT_POINT]->(frequencyPhysicalTimelinePoint1);

@@ -1,0 +1,74 @@
+{
+  "_comment": "Mirror of offset-collision-score.cypher for rendering-engine/test/oracle/render_oracle.py: the physical values the transform must produce after squashing. Times in samples, frequencies in radians per sample, amplitudes in dB. Three hits of 0.1875 s on beats 0.125 s apart: the start of each later hit replaces the end of the one before it, and its peak is compressed in proportion.",
+  "sample_rate": 48000,
+  "partial_sets": [
+    {
+      "id": 0,
+      "partials": [
+        {
+          "id": 0,
+          "frequency": [
+            [
+              0.0,
+              0.1308996938995747
+            ],
+            [
+              375.0,
+              0.1308996938995747
+            ],
+            [
+              9000.0,
+              0.1308996938995747
+            ],
+            [
+              9250.0,
+              0.1308996938995747
+            ],
+            [
+              15000.0,
+              0.1308996938995747
+            ],
+            [
+              15250.0,
+              0.1308996938995747
+            ],
+            [
+              21000.0,
+              0.1308996938995747
+            ]
+          ],
+          "amplitude": [
+            [
+              0.0,
+              -60.0
+            ],
+            [
+              375.0,
+              -6.0
+            ],
+            [
+              9000.0,
+              -60.0
+            ],
+            [
+              9250.0,
+              -6.0
+            ],
+            [
+              15000.0,
+              -60.0
+            ],
+            [
+              15250.0,
+              -6.0
+            ],
+            [
+              21000.0,
+              -60.0
+            ]
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -270,11 +270,11 @@ TEST(ScriptLoader, RealSchemaDeclaresEverythingTheExampleScoreNeeds) {
     static_cast<void>(loadCypherFile(db, realSchemaFile()));
     const auto tables = db.tables();
 
-    for (const std::string_view table :
-        {"EngineConfig", "Score", "SoundEntity", "SoundSource", "PartialSet", "Partial",
-            "AmplitudeTimeline", "AmplitudeTimelinePoint", "FrequencyTimeline",
-            "FrequencyTimelinePoint", "HAS_SOUNDENTITY", "HAS_SOUNDSOURCE", "HAS_PARTIALSET",
-            "HAS_PARTIAL", "HAS_TIMELINE", "NEXT_POINT"}) {
+    for (const std::string_view table : {"EngineConfig", "Score", "SoundEntity", "SoundSource",
+             "PartialSet", "Partial", "AmplitudePhysicalTimeline", "AmplitudePhysicalTimelinePoint",
+             "FrequencyPhysicalTimeline", "FrequencyPhysicalTimelinePoint", "HAS_SOUNDENTITY",
+             "HAS_SOUNDSOURCE", "HAS_PARTIALSET", "HAS_PARTIAL", "HAS_PHYSICAL_TIMELINE",
+             "NEXT_POINT"}) {
         EXPECT_TRUE(std::ranges::any_of(
             tables, [table](const auto& entry) { return entry.first == table; }))
             << "the example score needs " << table << ", which the schema did not create";
@@ -307,11 +307,11 @@ TEST(ScriptLoader, ExampleScoreHasTheShapeOfAScore) {
     const Census census = db.census();
 
     EXPECT_EQ(rowsIn(census.nodes, "Partial"), 1);
-    EXPECT_EQ(rowsIn(census.nodes, "AmplitudeTimelinePoint"), 2);
-    EXPECT_EQ(rowsIn(census.nodes, "FrequencyTimelinePoint"), 2);
+    EXPECT_EQ(rowsIn(census.nodes, "AmplitudePhysicalTimelinePoint"), 2);
+    EXPECT_EQ(rowsIn(census.nodes, "FrequencyPhysicalTimelinePoint"), 2);
 
     // An amplitude timeline and a frequency timeline, on the one partial.
-    EXPECT_EQ(rowsIn(census.relationships, "HAS_TIMELINE"), 2);
+    EXPECT_EQ(rowsIn(census.relationships, "HAS_PHYSICAL_TIMELINE"), 2);
 
     // Score -> SoundEntity -> SoundSource -> PartialSet -> Partial.
     EXPECT_EQ(rowsIn(census.relationships, "HAS_SOUNDENTITY"), 1);

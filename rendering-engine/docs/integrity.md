@@ -73,19 +73,29 @@ the schema documents a range for it.
 | --- | --- | --- | --- |
 | `EngineConfig.frameSize` | allowed (means one second) | > 0 | schema |
 | `EngineConfig.sampleRate` | allowed | > 0 | schema |
-| `FrequencyTimelinePoint.time` | no | ≥ 0 | author, 2026-09-23: a partial cannot start before the score does |
-| `FrequencyTimelinePoint.frequency` | no | any finite value | schema: unbounded in both directions |
-| `FrequencyTimelinePoint.frequency_curve_type` | no | 0 to 4 | schema's enumeration |
-| `FrequencyTimelinePoint.frequency_curve_amount` | no | 0 to 1 | schema: 0 linear, 1 curve |
+| `FrequencyPhysicalTimelinePoint.time` | no | ≥ 0 | author, 2026-09-23: a partial cannot start before the score does |
+| `FrequencyPhysicalTimelinePoint.frequency` | no | any finite value | schema: unbounded in both directions |
+| `FrequencyPhysicalTimelinePoint.frequency_curve_type` | no | 0 to 4 | schema's enumeration |
+| `FrequencyPhysicalTimelinePoint.frequency_curve_amount` | no | 0 to 1 | schema: 0 linear, 1 curve |
 | `EngineConfig.channelMode` | no | 0 to 2 | schema's enumeration |
-| `AmplitudeTimelinePoint.time` | no | ≥ 0 | as for frequency points |
-| `AmplitudeTimelinePoint.amplitude` | no | ≤ 0 | schema; an amplitude above 0 dB is an **error** (decided 2026-09-23): the schema's "values above 0dB will be clipped" is the renderer's defence against bad data, not permission to store it |
-| `AmplitudeTimelinePoint.amplitude_curve_type` | no | 0 to 4 | schema's enumeration |
-| `AmplitudeTimelinePoint.amplitude_curve_amount` | no | 0 to 1 | schema: 0 linear, 1 curve |
+| `AmplitudePhysicalTimelinePoint.time` | no | ≥ 0 | as for frequency points |
+| `AmplitudePhysicalTimelinePoint.amplitude` | no | ≤ 0 | schema; an amplitude above 0 dB is an **error** (decided 2026-09-23): the schema's "values above 0dB will be clipped" is the renderer's defence against bad data, not permission to store it |
+| `AmplitudePhysicalTimelinePoint.amplitude_curve_type` | no | 0 to 4 | schema's enumeration |
+| `AmplitudePhysicalTimelinePoint.amplitude_curve_amount` | no | 0 to 1 | schema: 0 linear, 1 curve |
 
-The `EngineConfig.channelMode` and `AmplitudeTimelinePoint` rows arrived
+| `TempoMap.ticks_per_beat` | no | > 0 | schema |
+| `TempoMapPoint.position` | no | ≥ 0 | ticks from the map's start ([transform.md](transform.md) §6.1) |
+| `TempoMapPoint.start_tempo` | no | 1 to 1000 | schema's tempo range |
+| `PartialSetMusicalTimelinePoint.frequency_curve_type`, `amplitude_curve_type` | no | 0 to 4 | schema's enumeration |
+| `PartialSetMusicalTimelinePoint.frequency_curve_amount`, `amplitude_curve_amount` | no | 0 to 1 | schema |
+| `PartialState.frequency` | **allowed**: no knot here | any finite value | transform.md §6.2 (author, 2026-10-02) |
+| `PartialState.amplitude` | **allowed**: no knot here | −144 to 0 | schema's canonical range |
+
+The `EngineConfig.channelMode` and `AmplitudePhysicalTimelinePoint` rows arrived
 with rendering ([rendering.md](rendering.md) §9, decided 2026-09-24,
-implemented 2026-09-25).
+implemented 2026-09-25). The `TempoMap`, `TempoMapPoint`,
+`PartialSetMusicalTimelinePoint` and `PartialState` rows arrived with the
+transform ([transform.md](transform.md) §9, 2026-10-02).
 
 Three further checks cover what no single column can:
 
@@ -95,7 +105,7 @@ Three further checks cover what no single column can:
   `PartialSet`. Ladybug enforces at most one; zero is the defect, and
   rendering needs the set to group by.
 - **Lifeline equality.** For every partial with both timelines, the first
-  `AmplitudeTimelinePoint.time` equals the first `FrequencyTimelinePoint.time`
+  `AmplitudePhysicalTimelinePoint.time` equals the first `FrequencyPhysicalTimelinePoint.time`
   and the last equals the last, exactly. The two timelines define the
   partial's lifeline together; interior points are independent (author,
   2026-09-24). A partial with only one of the timelines is precomputation's
@@ -103,9 +113,33 @@ Three further checks cover what no single column can:
   stopping silently at a revisited node, since cycles are the list checks'
   business.
 
+Five more arrived with the transform, covering the musical-time tables it
+reads (transform.md §9; all decided by the author on 2026-10-02):
+
+- **Tempo map shape.** Every `TempoMap` has at least one point; the first is
+  at position 0; positions strictly increase; `hold` is set on every point
+  and true on the last.
+- **POINT_AT.** Every `PartialSetMusicalTimelinePoint` has a `POINT_AT` (the
+  schema enforces at most one) with `sync_point` ≥ 0 and `offset_seconds`
+  NULL or finite.
+- **Musical order.** Along each `PartialSetMusicalTimeline`, `sync_point` is
+  non-decreasing (equal ticks with different offsets are how a fixed-length
+  attack is written), and every `POINT_AT` leads to the `TempoMap` of the
+  Score the set hangs from, which must exist.
+- **PartialState links.** Every `PartialState` is in exactly one
+  `PartialStateSet` and is the state of exactly one `Partial`; the schema
+  enforces at most one of each.
+- **State membership.** A `PartialStateSet` reached from a timeline point
+  holds states only of partials in that point's `PartialSet`, at most one
+  per partial.
+
+That there is one `TempoMap` per Score and no synchronisation edge is a limit
+of the transform's first version, not of the model, so the transform checks
+it itself and these checks do not.
+
 **Decided and not yet a check** (rendering.md §9): **frame entries**. Every
 `FrameEntry` has exactly one `FRAME_ENTRY`, one `FRAME_ENTRY_PARTIAL` and one
-`FRAME_ENTRY_TIMELINE` of each pair (the multiplicities enforce "at most
+`FRAME_ENTRY_PHYSICAL_TIMELINE` of each pair (the multiplicities enforce "at most
 one"; "at least one" is the check); its frame and partial are joined by
 `PARTIAL_IN_FRAME`, and every `PARTIAL_IN_FRAME` edge has exactly one
 `FrameEntry`; and each list node it leads to is on the list of that partial,
@@ -118,7 +152,10 @@ validation covers the entries it reads, per frame (rendering.md §9).
 
 Every list type in `NEXT_POINT` is checked, not just the ones the engine
 reads. A cycle or a merge is a structural defect in any list, and the check is
-the same for all ten types. These checks are about the graph's shape, not the
+the same for all thirteen types. (`FrequencyModulatorPhysicalTimeline` was
+missing from the table until the transform's checks were added on
+2026-10-02, although the schema declares it; `TempoMap` and
+`PartialSetMusicalTimeline` arrived at the same time.) These checks are about the graph's shape, not the
 meaning of any feature, so they do not come under §3's rule.
 
 `NEXT_POINT` is `ONE_ONE`, but Ladybug counts multiplicity separately for each
@@ -153,15 +190,15 @@ a cycle, is not a defect under this check.
 ## 5. Output
 
 ```
-  integrity: 31 of 34 check(s) passed, 3 violation(s)
+  integrity: 51 of 54 check(s) passed, 3 violation(s)
 ```
 
 Every violation gets a `FAILED` line in the layout the loader uses, prefixed
 with the name of its check. The name states what a passing check establishes:
 
 ```
-    FAILED   FrequencyTimelinePoint.time is not NULL, finite and >= 0: FrequencyTimelinePoint 2: time is -3; it must be >= 0
-    FAILED   FrequencyTimeline lists do not merge into one another: FrequencyTimeline 1 starts at FrequencyTimelinePoint 1, which also follows FrequencyTimelinePoint 0 in the list of FrequencyTimeline 0
+    FAILED   FrequencyPhysicalTimelinePoint.time is not NULL, finite and >= 0: FrequencyPhysicalTimelinePoint 2: time is -3; it must be >= 0
+    FAILED   FrequencyPhysicalTimeline lists do not merge into one another: FrequencyPhysicalTimeline 1 starts at FrequencyPhysicalTimelinePoint 1, which also follows FrequencyPhysicalTimelinePoint 0 in the list of FrequencyPhysicalTimeline 0
 ```
 
 Ids are `SERIAL` ids, as they are in `engine-db` after this load. Each check
@@ -195,7 +232,7 @@ only ever hold identifiers from the schema, never input.
   §9). The same invariant holds for every timeline, and it would sit
   naturally here as a third list check.
 - **Checking precomputation's output.** The list checks already cover
-  `PartialSegmentTimeline`, but they run before precomputation, so they see
+  `PartialSegmentPhysicalTimeline`, but they run before precomputation, so they see
   only output left from an earlier run (`--db-path`). Running the checks again
   after precomputation would check the engine's own output too.
 - **Orphans.** Whether nodes that no timeline reaches should be reported

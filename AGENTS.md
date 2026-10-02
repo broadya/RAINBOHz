@@ -69,7 +69,7 @@ LadybugDB (inheriting from Kuzu) uses a **structured property graph model** that
 - **Relationship tables are typed and constrained.** Each `CREATE REL TABLE` declares its `FROM` and `TO` node table types. The database enforces these constraints — you cannot create an edge between node types that the relationship table does not permit.
 - **Edges are fully property-bearing.** Relationship tables carry their own typed properties, queried and filtered in Cypher exactly like node properties.
 - **Multiplicity constraints.** Relationships can be declared `MANY_TO_MANY` (default), `ONE_TO_MANY`, `MANY_TO_ONE`, or `ONE_TO_ONE`. The database enforces these at write time.
-- **Multiplicity is enforced per FROM/TO pair, not across the whole table.** In a relationship table that lists several pairs, each pair is counted on its own (established by experiment on Ladybug 0.19.1). `HAS_TIMELINE` depends on this: a `Partial` can hold one `FrequencyTimeline` *and* one `PhaseTimeline`, but not two `FrequencyTimeline`s. The same rule means a `ONE_ONE` table cannot limit a node to one predecessor across pairs; see Linked Lists below.
+- **Multiplicity is enforced per FROM/TO pair, not across the whole table.** In a relationship table that lists several pairs, each pair is counted on its own (established by experiment on Ladybug 0.19.1). `HAS_PHYSICAL_TIMELINE` depends on this: a `Partial` can hold one `FrequencyPhysicalTimeline` *and* one `PhasePhysicalTimeline`, but not two `FrequencyPhysicalTimeline`s. The same rule means a `ONE_ONE` table cannot limit a node to one predecessor across pairs; see Linked Lists below.
 - **Each node has exactly one label.** Unlike Neo4j, a node belongs to exactly one node table. No multi-label nodes.
 
 ### No Class Hierarchies
@@ -89,9 +89,9 @@ LadybugDB (inheriting from Kuzu) uses a **structured property graph model** that
 ### Linked Lists
 
 Timelines are linked lists: `NEXT_POINT` leads from the timeline node to its
-first point (the head pair, e.g. `FrequencyTimeline → FrequencyTimelinePoint`)
+first point (the head pair, e.g. `FrequencyPhysicalTimeline → FrequencyPhysicalTimelinePoint`)
 and from each point to the next (the successor pair, e.g.
-`FrequencyTimelinePoint → FrequencyTimelinePoint`). The table is `ONE_ONE`, but
+`FrequencyPhysicalTimelinePoint → FrequencyPhysicalTimelinePoint`). The table is `ONE_ONE`, but
 because multiplicity is counted per pair, the database guarantees less than
 that suggests:
 
@@ -126,7 +126,7 @@ given the defence above. Do not propose it again without new grounds.
 a frame must not walk a list from its head. Precomputation writes, per partial
 per frame in scope, one `FrameEntry` node, reached from the `Frame` node by
 `FRAME_ENTRY`, leading to the partial by `FRAME_ENTRY_PARTIAL` and by
-`FRAME_ENTRY_TIMELINE` to the node in each list from which that frame's
+`FRAME_ENTRY_PHYSICAL_TIMELINE` to the node in each list from which that frame's
 rendering starts. Every step is an indexed edge from a primary-key lookup;
 nothing is filtered on a property. The node carries no domain meaning and is
 the place for any per-partial per-frame state a later version keeps. See
@@ -210,9 +210,9 @@ Four subsystems: compilation, rendering, playback, and orchestration.
    - **HzL (Hertz Language)** — A declarative, domain-specific language for macro-scale additive synthesis.
    - **HzL Compiler** — Python. Transforms HzL (YAML) through intermediate representations into `canonical-form`.
    - **Build System** — Ninja-based, with a Python generator for `.ninja` files.
-   - **`canonical-form`** — the loadable, durable representation of a score, in tempo time and composer-facing units. What it actually consists of is undecided.
+   - **`canonical-form`** — the loadable, durable representation of a score, in musical time and composer-facing units. What it actually consists of is undecided.
 2. **Rendering** — one component, doing all of it.
-   - **`rendering-engine`** — C++. Hosts `engine-db` in process; loads `canonical-form` into it; transforms the canonical model into the rendering model in place; determines the calculation delta from dirty flags; precomputes phase integration; performs phase compensation; renders frames to multi-channel WAV objects. Implemented in [`rendering-engine/`](rendering-engine/); see `architecture/overview.md` §5.2 and §9, where C++ is recorded as Settled. Precomputation (`rendering-engine/docs/precomputation.md`) and rendering (`rendering-engine/docs/rendering.md`) are designed and implemented in their first versions; transformation and label selection are not.
+   - **`rendering-engine`** — C++. Hosts `engine-db` in process; loads `canonical-form` into it; transforms the canonical model into the rendering model in place; determines the calculation delta from dirty flags; precomputes phase integration; performs phase compensation; renders frames to multi-channel WAV objects. Implemented in [`rendering-engine/`](rendering-engine/); see `architecture/overview.md` §5.2 and §9, where C++ is recorded as Settled. The transform (`rendering-engine/docs/transform.md`), precomputation (`rendering-engine/docs/precomputation.md`) and rendering (`rendering-engine/docs/rendering.md`) are designed and implemented in their first versions; label selection is not. The transform is the only code that reads musical time: it lives in the namespace `rainbohz::rendering_engine::transform` and the `transform/` directories, and nothing outside them includes its musical unit types or tempo map.
    - **`engine-db`** — LadybugDB (embedded), the one physical database in the system, sharded by partial set.
    - **Object storage** — WAV objects addressed by URL.
 3. **Playback** — merging the shards on demand and serving them.
@@ -233,9 +233,9 @@ disagree, that one wins.
 
 | Directory | Contents | Language | Status |
 | --- | --- | --- | --- |
-| `engine-db/` | `engine-db` — **the implementation** | Cypher DDL | Under construction; rendering concepts only so far |
+| `engine-db/` | `engine-db` — **the implementation** | Cypher DDL | Under construction; rendering concepts, plus the canonical tempo map and partial-set timelines the transform reads |
 | `canonical-db/` | Canonical model — **design artefact** | Cypher DDL | Loads cleanly; not the implementation |
-| `rendering-engine/` | `rendering-engine` | C++20 | Hosts and loads `engine-db`; precomputes; renders frames to WAV files (first version: mono, linear curves, labels ignored) |
+| `rendering-engine/` | `rendering-engine` | C++20 | Hosts and loads `engine-db`; transforms musical time to physical time (first version: one tempo map, frequency and amplitude); precomputes; renders frames to WAV files (first version: mono, linear curves, labels ignored) |
 | `playback/` | `playback-client` / `playback-plugin` | C++ | Docs only |
 
 Component directory names match the canonical component identifiers from
@@ -253,8 +253,10 @@ current file. When a new concept is needed for dependency tracking,
 precomputation or rendering, `engine-db` is where it goes; there is nowhere
 else for it to go.
 
-That schema is under construction: it currently holds the rendering-model
-concepts, and the canonical-model concepts have still to be merged in. See
+That schema is under construction: it holds the rendering-model concepts and
+the canonical-model tables the transform reads (tempo maps, partial-set
+musical timelines, partial states); the remaining canonical concepts have
+still to be merged in. See
 [ADR 0006](docs/adr/0006-retire-rendering-db-engine-db-is-the-whole-database.md)
 and [ADR 0004](docs/adr/0004-name-the-one-database-engine-db.md).
 
@@ -421,7 +423,7 @@ list.
 
 - Schema changes are DDL files, not ad-hoc queries.
 - During early development, schema migration = drop and recreate from DDL + full rebuild from source YAML.
-- Architecture Decision Records (ADRs) in `docs/adr/` for non-obvious design choices, following the [MADR](https://adr.github.io/madr/) convention. Start from `docs/adr/adr-template.md`; see `docs/adr/README.md` for numbering and status rules. ADRs are immutable once accepted — a changed decision is a new ADR that supersedes the old one.
+- Architecture Decision Records (ADRs) in `docs/adr/` for non-obvious design choices, following the [MADR](https://adr.github.io/madr/) convention. Start from `docs/adr/adr-template.md`; see `docs/adr/README.md` for numbering and status rules. ADRs record the current situation and are edited in place when it changes; git holds the history. A decision replaced outright is marked superseded by its successor.
 - The `proof-of-concept/` directory is archived reference material, kept for historical purposes. Do not modify it, extend it, or add it to any build.
 
 ### C++ Conventions

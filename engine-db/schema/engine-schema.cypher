@@ -33,8 +33,8 @@
 // ============================================================
 // Key paths through the data model
 // Note the two types of timeline and two relationships
-// HAS_TIMELINE_BEAT, based on beat time
-// HAS_TIMELINE_WALLCLOCK, based on wall clock time
+// HAS_MUSICAL_TIMELINE, measured in ticks of a beat
+// HAS_PHYSICAL_TIMELINE, measured in physical units - seconds or samples.
 //
 // 1. The core structure of the model, common for both specification and precomputation / rendering
 // Score 1->m SoundEntity 1->m SoundSource 1-->m PartialSet 1->m Partial
@@ -46,52 +46,56 @@
 // Note that higher levels of abstraction may be possible in the HzL language, but any such concepts flatten to this model.
 //
 // 2. Spatial position
-// Canonical, linked to beat time.
-// SoundSource -> SpatialPositionBeatTimeline
-// Precomputation / Rendering, linked to wall clock time.
-// SoundSource -> SpatialPositionTimeline
+// Canonical, linked to musical time.
+// SoundSource -> SpatialPositionMusicalTimeline
+// Precomputation / Rendering, linked to physical time.
+// SoundSource -> AzimuthPhysicalTimeline
+// SoundSource -> ElevationPhysicalTimeline
+// SoundSource -> DistancePhysicalTimeline
 //
 // 3. Spatial position modulators
-// Canonical, linked to beat time.
-// SoundSource -> AzimuthModulatorBeatTimeline
-// SoundSource -> ElevationModulatorBeatTimeline
-// SoundSource -> DistanceModulatorBeatTimeline
-// Precomputation / Rendering, linked to wall clock time.
-// SoundSource -> AzimuthModulatorTimeline
-// SoundSource -> ElevationModulatorTimeline
-// SoundSource -> DistanceModulatorTimeline
+// Canonical, linked to musical time.
+// SoundSource -> AzimuthModulatorMusicalTimeline
+// SoundSource -> ElevationModulatorMusicalTimeline
+// SoundSource -> DistanceModulatorMusicalTimeline
+// Precomputation / Rendering, linked to physical time.
+// SoundSource -> AzimuthModulatorPhysicalTimeline
+// SoundSource -> ElevationModulatorPhysicalTimeline
+// SoundSource -> DistanceModulatorPhysicalTimeline
 // 
 // 4. Nominal parameters of a partial
 // Canonical, linked to beat time. Explicit relationships between Partials in a PartialSet.
-// PartialSet -> PartialSetBeatTimeline -> PartialSetBeatTimelinePoint -> PartialSetState -> PartialState (freq / ampl / phase) <- Partial
-// Precomputation / Rendering, linked to wall clock time.
+// PartialSet -> PartialSetMusicalTimeline -> PartialSetMusicalTimelinePoint -> PartialSetState -> PartialState (freq / ampl / phase) <- Partial
+// Precomputation / Rendering, linked to physical time.
 // Partials decoupled from sets because curves do not map to the same parameters.
-// Partial -> FrequencyTimeline
-// Partial -> AmplitudeTimeline
-// Partial -> PhaseTimeline
+// Partial -> FrequencyPhysicalTimeline
+// Partial -> AmplitudePhysicalTimeline
+// Partial -> PhasePhysicalTimeline
 //
 // 5. Partial modulators
 // Canonical, linked to beat time.
-// PartialSet -> FrequencyModulatorBeatTimeline
-// PartialSet -> AmplitudeModulatorBeatTimeline
-// PartialSet -> PhaseModulatorBeatTimeline
-// PartialSet -> FrequencyModulatorBeatTimeline
+// PartialSet -> FrequencyModulatorMusicalTimeline
+// PartialSet -> AmplitudeModulatorMusicalTimeline
+// PartialSet -> PhaseModulatorMusicalTimeline
+// PartialSet -> FrequencyModulatorMusicalTimeline
 // Precomputation / Rendering, linked to wall clock time.
 // Remain with PartialSets because they are intentionally common per PartialSet and modulate relative to the different
 // nominal values of the Partials in each PartialSet.
-// PartialSet -> FrequencyModulatorTimeline
-// PartialSet -> AmplitudeModulatorTimeline
-// PartialSet -> PhaseModulatorTimeline
-// PartialSet -> FrequencyModulatorTimeline
+// PartialSet -> FrequencyModulatorPhysicalTimeline
+// PartialSet -> AmplitudeModulatorPhysicalTimeline
+// PartialSet -> PhaseModulatorPhysicalTimeline
+// PartialSet -> FrequencyModulatorPhysicalTimeline
 //
 // 6. Timing
-// Beat timelines link to positions in a TempoMap that are integer counts of ticks.
+// Musical timelines link to positions in a TempoMap that are integer counts of ticks.
 // The number of ticks per beat depends on the TempoMap. They can also have fixed time
 // offets - useful e.g. for fixed percussive attack portions of a sound.
-// Non-beat timelines link to wall clock time. They are also linked to Frame through
+//
+// Physical timelines link to "wall clock" time in the conventional sense. They are also linked to Frame through
 // FrameEntry. This allows rapid location of the correct start point when rendering a
-// given Frame with random access. It is possible to generate a non-beat Timeline via
-// a single pass through a Timeline.
+// given Frame with random access. It is possible to generate a physial Timeline via
+// a single pass through a musical Timeline.
+//
 // This is a different computation than the calculation of PartialIntegrableSegment,
 // which can occur on-demand when rendering a Frame of audio, where it is necessary to 
 // do so.
@@ -364,35 +368,21 @@ CREATE REL TABLE HAS_PARTIAL (
 // TempoMap: Tempo maps may define directed acyclic graphs that
 // together act as the framework for all timing of a Score.
 //
-// A TempoMap has a single TempoMapTimeline.
+// ticks_per_beat is an indication of how many subdivisions are
+// possible in a beat. Note that if the tempo is 60 then this
+// becomes subdivisions of a second, which can be useful when the
+// user wishes to express a concept in physcial time e.g. in
+// milliseonds or samples.
 // ============================================================
 CREATE NODE TABLE TempoMap (
     id              SERIAL,
     name            STRING,
-    PRIMARY KEY (id)
-);
-
-// ============================================================
-// TempoMapTimeline: A TempoMapTimeline references musical time,
-// expressed in ticks (similar to ppqn).
-//
-// ticks_per_beat allows for exact fractions with any kind of rhythm, while also allowing for
-//
-// It is possible to
-// represent wall clock time by setting BPM at 60 and
-// e.g. ticks_per_beat at 1000 for millisecond accuracy.
-// This also allows sample rates to be used (e.g. set ticks_per_beat at 48000),
-// even though the canonical model is generally sample rate neutral.
-//
-// ============================================================
-CREATE NODE TABLE TempoMapTimeline (
-    id              SERIAL,
     ticks_per_beat  INT32,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// TempoMapTimelinePoint: An point in a tempo map determines
+// TempoMapPoint: An point in a tempo map determines
 // the start tempo of the following segment.
 //
 // hold is a BOOLEAN flag that can be used to indicate a fixed
@@ -402,7 +392,7 @@ CREATE NODE TABLE TempoMapTimeline (
 // the next segment start tempo.
 //
 // ============================================================
-CREATE NODE TABLE TempoMapTimelinePoint (
+CREATE NODE TABLE TempoMapPoint (
     id              SERIAL,
     position        INT64,
     start_tempo     DOUBLE, // BPM
@@ -425,7 +415,7 @@ CREATE NODE TABLE TempoMapTimelinePoint (
 // ============================================================
 CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
     FROM TempoMap TO TempoMap,  // child to parent
-    sync_point_parent INT64, // position in parent where this map is rooted in the other TempoMap, > 0 
+    sync_point_parent INT64, // position in parent where this map is rooted in the other TempoMap, >= 0 
     sync_point_child INT64, // offset of where this TempoMap starts, in its local TempoMap i.e. where the alignment point is. 
     MANY_ONE
 );
@@ -744,18 +734,18 @@ CREATE NODE TABLE Frame (
 );
 
 // ============================================================
-// PartialSetTimeline: Objects representing a sequence of states
+// PartialSetMusicalTimeline: Objects representing a sequence of states
 // and transformations for a particular set of partials.
 //
 // @canonical
 // ============================================================
-CREATE NODE TABLE PartialSetTimeline (
+CREATE NODE TABLE PartialSetMusicalTimeline (
     id      SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// PartialSetTimelinePoint: An point within a PartialSetTimeline.
+// PartialSetMusicalTimelinePoint: An point within a PartialSetMusicalTimeline.
 // Defines the state of the partials for that timeline at a given
 // point in time.
 //
@@ -777,7 +767,7 @@ CREATE NODE TABLE PartialSetTimeline (
 //
 // @canonical
 // ============================================================
-CREATE NODE TABLE PartialSetTimelinePoint (
+CREATE NODE TABLE PartialSetMusicalTimelinePoint (
     id                      SERIAL,
     amplitude_curve_type    INT8 DEFAULT 0,
     amplitude_curve_amount  FLOAT DEFAULT 0.0,
@@ -949,7 +939,7 @@ CREATE REL TABLE REGION_TO_SEGMENT (
 // Note that exact same algorithms, maths conventions etc. must be used
 // for precomputation and for rendering.
 //
-// Corresponds to the PartialSetTimeline in the canonical model.
+// Corresponds to the PartialSetMusicalTimeline in the canonical model.
 //
 // start_nominal_frequency The initial frequency of the partial, radians per sample.
 // linear_component        Flag to indicate there is a linear component present.
@@ -1043,7 +1033,7 @@ CREATE REL TABLE MEMBER_OF_SET_MANY_ONE (
 );
 
 // ============================================================
-// SpatialPositionTimelinePoint: An point within a SpatialPositionTimeline.
+// SpatialPositionMusicalTimelinePoint: A point within a SpatialPositionMusicalTimeline.
 // Defines the spatial position of the related partials for that timeline at a given
 // point in time.
 //
@@ -1060,9 +1050,8 @@ CREATE REL TABLE MEMBER_OF_SET_MANY_ONE (
 // 1 curve
 //
 // ============================================================
-CREATE NODE TABLE SpatialPositionTimelinePoint (
+CREATE NODE TABLE SpatialPositionMusicalTimelinePoint (
     id                      SERIAL,
-    time                    DOUBLE,
     azimuth_curve_type      INT8 DEFAULT 0,
     azimuth_curve_amount    FLOAT DEFAULT 0.0,
     elevation_curve_type    INT8 DEFAULT 0,
@@ -1073,7 +1062,7 @@ CREATE NODE TABLE SpatialPositionTimelinePoint (
 );
 
 // ============================================================
-// AmplitudeTimelinePoint: A point within an AmplitudeTimeline.
+// AmplitudePhysicalTimelinePoint: A point within an AmplitudePhysicalTimeline.
 // Defines the amplitude of a single partial for that timeline at a given
 // point in time.
 //
@@ -1091,7 +1080,7 @@ CREATE NODE TABLE SpatialPositionTimelinePoint (
 //
 // amplitude     dB,   Valid range (-∞,0]
 // ============================================================
-CREATE NODE TABLE AmplitudeTimelinePoint (
+CREATE NODE TABLE AmplitudePhysicalTimelinePoint (
     id                          SERIAL,
     time                        DOUBLE,
     amplitude_curve_type        INT8 DEFAULT 0,
@@ -1101,7 +1090,7 @@ CREATE NODE TABLE AmplitudeTimelinePoint (
 );
 
 // ============================================================
-// FrequencyTimelinePoint: A point within a FrequencyTimeline.
+// FrequencyPhysicalTimelinePoint: A point within a FrequencyPhysicalTimeline.
 // Defines the frequency of a single partial for that timeline at a given
 // point in time.
 //
@@ -1118,7 +1107,7 @@ CREATE NODE TABLE AmplitudeTimelinePoint (
 // 1 curve
 //
 // ============================================================
-CREATE NODE TABLE FrequencyTimelinePoint (
+CREATE NODE TABLE FrequencyPhysicalTimelinePoint (
     id                          SERIAL,
     time                        DOUBLE,
     frequency_curve_type        INT8 DEFAULT 0,
@@ -1128,7 +1117,7 @@ CREATE NODE TABLE FrequencyTimelinePoint (
 );
 
 // ============================================================
-// PhaseTimelinePoint: A point within a PhaseTimeline.
+// PhasePhysicalTimelinePoint: A point within a PhasePhysicalTimeline.
 // Defines the absolute phase of a single partial for that timeline at a given
 // point in time.
 //
@@ -1138,7 +1127,7 @@ CREATE NODE TABLE FrequencyTimelinePoint (
 // how much phase will be added / subtracted and so cannot
 // make a judgement as to the effect of the curve.
 // ============================================================
-CREATE NODE TABLE PhaseTimelinePoint (
+CREATE NODE TABLE PhasePhysicalTimelinePoint (
     id                          SERIAL,
     time                        DOUBLE,
     phase                       FLOAT,
@@ -1146,154 +1135,154 @@ CREATE NODE TABLE PhaseTimelinePoint (
 );
 
 // ============================================================
-// FrequencyModulatorTimelinePoint: An point within a FrequencyModulatorTimeline.
+// FrequencyModulatorPhysicalTimelinePoint: An point within a FrequencyModulatorPhysicalTimeline.
 // Defines the modulator state for that timeline at a given
 // point in time.
 // ============================================================
-CREATE NODE TABLE FrequencyModulatorTimelinePoint (
+CREATE NODE TABLE FrequencyModulatorPhysicalTimelinePoint (
     id  SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// AmplitudeModulatorTimelinePoint: An point within an AmplitudeModulatorTimeline.
+// AmplitudeModulatorPhysicalTimelinePoint: An point within an AmplitudeModulatorPhysicalTimeline.
 // Defines the modulator state for that timeline at a given
 // point in time.
 // ============================================================
-CREATE NODE TABLE AmplitudeModulatorTimelinePoint (
-    id  SERIAL,
-    time DOUBLE,
-    PRIMARY KEY (id)
-);
-
-// ============================================================
-// PhaseModulatorTimelinePoint: An point within a PhaseModulatorTimeline.
-// Defines the modulator state for that timeline at a given
-// point in time.
-// ============================================================
-CREATE NODE TABLE PhaseModulatorTimelinePoint (
+CREATE NODE TABLE AmplitudeModulatorPhysicalTimelinePoint (
     id  SERIAL,
     time DOUBLE,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// AzimuthModulatorTimelinePoint: An point within an AzimuthModulatorTimeline.
+// PhaseModulatorPhysicalTimelinePoint: An point within a PhaseModulatorPhysicalTimeline.
 // Defines the modulator state for that timeline at a given
 // point in time.
 // ============================================================
-CREATE NODE TABLE AzimuthModulatorTimelinePoint (
+CREATE NODE TABLE PhaseModulatorPhysicalTimelinePoint (
+    id  SERIAL,
+    time DOUBLE,
+    PRIMARY KEY (id)
+);
+
+// ============================================================
+// AzimuthModulatorPhysicalTimelinePoint: An point within an AzimuthModulatorPhysicalTimeline.
+// Defines the modulator state for that timeline at a given
+// point in time.
+// ============================================================
+CREATE NODE TABLE AzimuthModulatorPhysicalTimelinePoint (
     id SERIAL,
     time DOUBLE,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// ElevationModulatorTimelinePoint: An point within an ElevationModulatorTimeline.
+// ElevationModulatorPhysicalTimelinePoint: An point within an ElevationModulatorPhysicalTimeline.
 // Defines the modulator state for that timeline at a given
 // point in time.
 // ============================================================
-CREATE NODE TABLE ElevationModulatorTimelinePoint (
+CREATE NODE TABLE ElevationModulatorPhysicalTimelinePoint (
     id SERIAL,
     time DOUBLE,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// DistanceModulatorTimelinePoint: An point within a DistanceModulatorTimeline.
+// DistanceModulatorPhysicalTimelinePoint: An point within a DistanceModulatorPhysicalTimeline.
 // Defines the modulator state for that timeline at a given
 // point in time.
 // ============================================================
-CREATE NODE TABLE DistanceModulatorTimelinePoint (
+CREATE NODE TABLE DistanceModulatorPhysicalTimelinePoint (
     id SERIAL,
     time DOUBLE,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// SpatialPositionTimeline: The timeline of a SoundEntity in space
+// SpatialPositionMusicalTimeline: The timeline of a SoundEntity in space
 // ============================================================
-CREATE NODE TABLE SpatialPositionTimeline (
+CREATE NODE TABLE SpatialPositionMusicalTimeline (
     id SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// AmplitudeTimeline: The timeline of the amplitude of a Partial
+// AmplitudePhysicalTimeline: The timeline of the amplitude of a Partial
 // ============================================================
-CREATE NODE TABLE AmplitudeTimeline (
+CREATE NODE TABLE AmplitudePhysicalTimeline (
     id SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// FrequencyTimeline: The timeline of the frequency of a Partial
+// FrequencyPhysicalTimeline: The timeline of the frequency of a Partial
 // ============================================================
-CREATE NODE TABLE FrequencyTimeline (
+CREATE NODE TABLE FrequencyPhysicalTimeline (
     id SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// PhaseTimeline: The timeline of the phase of a Partial
+// PhasePhysicalTimeline: The timeline of the phase of a Partial
 // ============================================================
-CREATE NODE TABLE PhaseTimeline (
+CREATE NODE TABLE PhasePhysicalTimeline (
     id SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// PartialSegmentTimeline: The timeline of the frequency of a Partial
+// PartialSegmentPhysicalTimeline: The timeline of the frequency of a Partial
 // ============================================================
-CREATE NODE TABLE PartialSegmentTimeline (
+CREATE NODE TABLE PartialSegmentPhysicalTimeline (
     id SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// FrequencyModulatorTimeline: The timeline of a FrequencyModulator
+// FrequencyModulatorPhysicalTimeline: The timeline of a FrequencyModulator
 // ============================================================
-CREATE NODE TABLE FrequencyModulatorTimeline (
+CREATE NODE TABLE FrequencyModulatorPhysicalTimeline (
     id SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// AmplitudeModulatorTimeline: The timeline of an AmplitudeModulator
+// AmplitudeModulatorPhysicalTimeline: The timeline of an AmplitudeModulator
 // ============================================================
-CREATE NODE TABLE AmplitudeModulatorTimeline (
+CREATE NODE TABLE AmplitudeModulatorPhysicalTimeline (
     id SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// PhaseModulatorTimeline: The timeline of an PhaseModulator
+// PhaseModulatorPhysicalTimeline: The timeline of an PhaseModulator
 // ============================================================
-CREATE NODE TABLE PhaseModulatorTimeline (
+CREATE NODE TABLE PhaseModulatorPhysicalTimeline (
     id SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// AzimuthModulatorTimeline: The timeline of an AzimuthModulator
+// AzimuthModulatorPhysicalTimeline: The timeline of an AzimuthModulator
 // ============================================================
-CREATE NODE TABLE AzimuthModulatorTimeline (
+CREATE NODE TABLE AzimuthModulatorPhysicalTimeline (
     id SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// ElevationModulatorTimeline: The timeline of an ElevationModulator
+// ElevationModulatorPhysicalTimeline: The timeline of an ElevationModulator
 // ============================================================
-CREATE NODE TABLE ElevationModulatorTimeline (
+CREATE NODE TABLE ElevationModulatorPhysicalTimeline (
     id SERIAL,
     PRIMARY KEY (id)
 );
 
 // ============================================================
-// DistanceModulatorTimeline: The timeline of an DistanceModulator
+// DistanceModulatorPhysicalTimeline: The timeline of an DistanceModulator
 // ============================================================
-CREATE NODE TABLE DistanceModulatorTimeline (
+CREATE NODE TABLE DistanceModulatorPhysicalTimeline (
     id SERIAL,
     PRIMARY KEY (id)
 );
@@ -1444,16 +1433,16 @@ CREATE NODE TABLE DistanceModulatorState (
 // POINT_STATE: Defines the state of a given point on a timeline.
 // ============================================================
 CREATE REL TABLE POINT_STATE (
-    FROM SpatialPositionTimelinePoint TO SpatialPositionState,
-    FROM FrequencyModulatorTimelinePoint TO FrequencyModulatorState,
-    FROM AmplitudeModulatorTimelinePoint TO AmplitudeModulatorState,
-    FROM PhaseModulatorTimelinePoint TO PhaseModulatorState,
-    FROM AzimuthModulatorTimelinePoint TO AzimuthModulatorState,
-    FROM ElevationModulatorTimelinePoint TO ElevationModulatorState,
-    FROM DistanceModulatorTimelinePoint TO DistanceModulatorState,
+    FROM FrequencyModulatorPhysicalTimelinePoint TO FrequencyModulatorState,
+    FROM AmplitudeModulatorPhysicalTimelinePoint TO AmplitudeModulatorState,
+    FROM PhaseModulatorPhysicalTimelinePoint TO PhaseModulatorState,
+    FROM AzimuthModulatorPhysicalTimelinePoint TO AzimuthModulatorState,
+    FROM ElevationModulatorPhysicalTimelinePoint TO ElevationModulatorState,
+    FROM DistanceModulatorPhysicalTimelinePoint TO DistanceModulatorState,
 
     // @canonical
-    FROM PartialSetTimelinePoint TO PartialStateSet,
+    FROM PartialSetMusicalTimelinePoint TO PartialStateSet,
+    FROM SpatialPositionMusicalTimelinePoint TO SpatialPositionState,
     MANY_ONE
 );
 
@@ -1463,74 +1452,101 @@ CREATE REL TABLE POINT_STATE (
 // ============================================================
 CREATE REL TABLE NEXT_POINT (
     // Head of the linked lists
-    FROM PartialSegmentTimeline TO PartialIntegrableSegment,
-    FROM SpatialPositionTimeline TO SpatialPositionTimelinePoint,
-    FROM AmplitudeTimeline TO AmplitudeTimelinePoint,
-    FROM FrequencyTimeline TO FrequencyTimelinePoint,
-    FROM PhaseTimeline TO PhaseTimelinePoint,
-    FROM FrequencyModulatorTimeline TO FrequencyModulatorTimelinePoint,
-    FROM AmplitudeModulatorTimeline TO AmplitudeModulatorTimelinePoint,
-    FROM PhaseModulatorTimeline TO PhaseModulatorTimelinePoint,
-    FROM AzimuthModulatorTimeline TO AzimuthModulatorTimelinePoint,
-    FROM ElevationModulatorTimeline TO ElevationModulatorTimelinePoint,
-    FROM DistanceModulatorTimeline TO DistanceModulatorTimelinePoint,
+    FROM PartialSegmentPhysicalTimeline TO PartialIntegrableSegment,
+    FROM SpatialPositionMusicalTimeline TO SpatialPositionMusicalTimelinePoint,
+    FROM AmplitudePhysicalTimeline TO AmplitudePhysicalTimelinePoint,
+    FROM FrequencyPhysicalTimeline TO FrequencyPhysicalTimelinePoint,
+    FROM PhasePhysicalTimeline TO PhasePhysicalTimelinePoint,
+    FROM FrequencyModulatorPhysicalTimeline TO FrequencyModulatorPhysicalTimelinePoint,
+    FROM AmplitudeModulatorPhysicalTimeline TO AmplitudeModulatorPhysicalTimelinePoint,
+    FROM PhaseModulatorPhysicalTimeline TO PhaseModulatorPhysicalTimelinePoint,
+    FROM AzimuthModulatorPhysicalTimeline TO AzimuthModulatorPhysicalTimelinePoint,
+    FROM ElevationModulatorPhysicalTimeline TO ElevationModulatorPhysicalTimelinePoint,
+    FROM DistanceModulatorPhysicalTimeline TO DistanceModulatorPhysicalTimelinePoint,
 
     // @canonical
-    FROM TempoMapTimeline TO TempoMapTimelinePoint,
-    FROM PartialSetTimeline TO PartialSetTimelinePoint,
-    FROM Score TO TempoMapTimelinePoint, // Defines time = zero
+    FROM TempoMap TO TempoMapPoint,
+    FROM PartialSetMusicalTimeline TO PartialSetMusicalTimelinePoint,
+    FROM Score TO TempoMap, // Defines time = zero
 
     // Further nodes of the linked lists
     FROM PartialIntegrableSegment TO PartialIntegrableSegment,
-    FROM SpatialPositionTimelinePoint TO SpatialPositionTimelinePoint,
-    FROM AmplitudeTimelinePoint TO AmplitudeTimelinePoint,
-    FROM FrequencyTimelinePoint TO FrequencyTimelinePoint,
-    FROM PhaseTimelinePoint TO PhaseTimelinePoint,
-    FROM FrequencyModulatorTimelinePoint TO FrequencyModulatorTimelinePoint,
-    FROM AmplitudeModulatorTimelinePoint TO AmplitudeModulatorTimelinePoint,
-    FROM PhaseModulatorTimelinePoint TO PhaseModulatorTimelinePoint,
-    FROM AzimuthModulatorTimelinePoint TO AzimuthModulatorTimelinePoint,
-    FROM ElevationModulatorTimelinePoint TO ElevationModulatorTimelinePoint,
-    FROM DistanceModulatorTimelinePoint TO DistanceModulatorTimelinePoint,
+    FROM SpatialPositionMusicalTimelinePoint TO SpatialPositionMusicalTimelinePoint,
+    FROM AmplitudePhysicalTimelinePoint TO AmplitudePhysicalTimelinePoint,
+    FROM FrequencyPhysicalTimelinePoint TO FrequencyPhysicalTimelinePoint,
+    FROM PhasePhysicalTimelinePoint TO PhasePhysicalTimelinePoint,
+    FROM FrequencyModulatorPhysicalTimelinePoint TO FrequencyModulatorPhysicalTimelinePoint,
+    FROM AmplitudeModulatorPhysicalTimelinePoint TO AmplitudeModulatorPhysicalTimelinePoint,
+    FROM PhaseModulatorPhysicalTimelinePoint TO PhaseModulatorPhysicalTimelinePoint,
+    FROM AzimuthModulatorPhysicalTimelinePoint TO AzimuthModulatorPhysicalTimelinePoint,
+    FROM ElevationModulatorPhysicalTimelinePoint TO ElevationModulatorPhysicalTimelinePoint,
+    FROM DistanceModulatorPhysicalTimelinePoint TO DistanceModulatorPhysicalTimelinePoint,
 
     // @canonical
-    FROM TempoMapTimelinePoint TO TempoMapTimelinePoint,
-    FROM PartialSetTimelinePoint TO PartialSetTimelinePoint,
+    FROM TempoMapPoint TO TempoMapPoint,
+    FROM PartialSetMusicalTimelinePoint TO PartialSetMusicalTimelinePoint,
     ONE_ONE
 );
 
 // ============================================================
-// HAS_TIMELINE: Defines the hierarchy of timelines within a
-// given SoundSource.
+// HAS_PHYSICAL_TIMELINE: Defines the hierarchy of timelines within a
+// given SoundSource that are measured in linear time, independent
+// of tempo, time signature or other concepts from music.
 // ============================================================
-CREATE REL TABLE HAS_TIMELINE (
+CREATE REL TABLE HAS_PHYSICAL_TIMELINE (
     // Optimisations for precomputation and rendeering
-    FROM Partial TO AmplitudeTimeline,
-    FROM Partial TO FrequencyTimeline,
-    FROM Partial TO PhaseTimeline,
-    FROM Partial TO PartialSegmentTimeline,
-
-    // @canonical
-    FROM TempoMap TO TempoMapTimeline,
-    FROM SoundSource TO SpatialPositionTimeline,
-    FROM PartialSet TO PartialSetTimeline,
+    FROM Partial TO AmplitudePhysicalTimeline,
+    FROM Partial TO FrequencyPhysicalTimeline,
+    FROM Partial TO PhasePhysicalTimeline,
+    FROM Partial TO PartialSegmentPhysicalTimeline,
     ONE_ONE
 );
 
 // ============================================================
-// HAS_MODULATOR_TIMELINE: Defines the hierarchy of modulator
+// HAS_MUSICAL_TIMELINE: Defines the hierarchy of timelines within a
+// given SoundSource that are measured in beat time, which can
+// vary with tempo, time signature or the number of "ticks" in
+// a beat.
+//
+// @canonical
+// ============================================================
+CREATE REL TABLE HAS_MUSICAL_TIMELINE (
+    FROM SoundSource TO SpatialPositionMusicalTimeline,
+    FROM PartialSet TO PartialSetMusicalTimeline,
+    ONE_ONE
+);
+
+// ============================================================
+// HAS_MODULATOR_PHYSICAL_TIMELINE: Defines the hierarchy of modulator
 // timelines within a given SoundSource, and so also determines which objects 
 // modulators apply to.
 // ============================================================
-CREATE REL TABLE HAS_MODULATOR_TIMELINE (
-    FROM SoundSource TO AzimuthModulatorTimeline,
-    FROM SoundSource TO ElevationModulatorTimeline,
-    FROM SoundSource TO DistanceModulatorTimeline,
-    FROM PartialSet TO FrequencyModulatorTimeline,
-    FROM PartialSet TO AmplitudeModulatorTimeline,
-    FROM PartialSet TO PhaseModulatorTimeline,
+CREATE REL TABLE HAS_MODULATOR_PHYSICAL_TIMELINE (
+    FROM SoundSource TO AzimuthModulatorPhysicalTimeline,
+    FROM SoundSource TO ElevationModulatorPhysicalTimeline,
+    FROM SoundSource TO DistanceModulatorPhysicalTimeline,
+    FROM PartialSet TO FrequencyModulatorPhysicalTimeline,
+    FROM PartialSet TO AmplitudeModulatorPhysicalTimeline,
+    FROM PartialSet TO PhaseModulatorPhysicalTimeline,
     ONE_MANY
 );
+
+// ============================================================
+// HAS_MODULATOR_MUSICAL_TIMELINE: Defines the hierarchy of modulator
+// timelines within a given SoundSource, and so also determines which objects 
+// modulators apply to.
+// ============================================================
+/* TODO
+CREATE REL TABLE HAS_MODULATOR_MUSICAL_TIMELINE (
+    FROM SoundSource TO AzimuthModulatorMusicalTimeline,
+    FROM SoundSource TO ElevationModulatorMusicalTimeline,
+    FROM SoundSource TO DistanceModulatorMusicalTimeline,
+    FROM PartialSet TO FrequencyModulatorMusicalTimeline,
+    FROM PartialSet TO AmplitudeModulatorMusicalTimeline,
+    FROM PartialSet TO PhaseModulatorMusicalTimeline,
+    ONE_MANY
+);
+*/
 
 // ============================================================
 // OPTIMISATION FOR RENDERING PERFORMANCE
@@ -1542,7 +1558,7 @@ CREATE REL TABLE HAS_MODULATOR_TIMELINE (
 // From Frame node via FRAME_ENTRY to FrameEntry.
 // From FrameEntry via FRAME_ENTRY_PARTIAL to the partial
 // in question.
-// From FrameEntry via FRAME_ENTRY_TIMELINE to the timelines
+// From FrameEntry via FRAME_ENTRY_PHYSICAL_TIMELINE to the timelines
 // for that partial.
 // ============================================================
 
@@ -1571,16 +1587,16 @@ CREATE REL TABLE FRAME_ENTRY (
 );
 
 // ============================================================
-// FRAME_ENTRY_TIMELINE: For each frame a partial is in scope for, the
+// FRAME_ENTRY_PHYSICAL_TIMELINE: For each frame a partial is in scope for, the
 // first node of each of its lists that the frame can need.
 // Under Doppler this points at the node covering the latest
 // source time the frame start can map to (delay zero), so the renderer walks
 // backwards from it and never forward. With no distance delay
 // it is already exact.
 // ============================================================
-CREATE REL TABLE FRAME_ENTRY_TIMELINE (
+CREATE REL TABLE FRAME_ENTRY_PHYSICAL_TIMELINE (
     FROM FrameEntry TO PartialIntegrableSegment,
-    FROM FrameEntry TO AmplitudeTimelinePoint,
+    FROM FrameEntry TO AmplitudePhysicalTimelinePoint,
     MANY_MANY
 );
 
@@ -1604,16 +1620,18 @@ CREATE REL TABLE FRAME_ENTRY_PARTIAL (
 // @canonical
 // ============================================================
 CREATE REL TABLE POINT_AT (
-    FROM PartialSetTimelinePoint TO TempoMapTimeline,
-    FROM SpatialPositionTimelinePoint TO TempoMapTimeline,
-    FROM FrequencyModulatorTimelinePoint TO TempoMapTimeline,
-    FROM AmplitudeModulatorTimelinePoint TO TempoMapTimeline,
-    FROM PhaseModulatorTimelinePoint TO TempoMapTimeline,
-    FROM AzimuthModulatorTimelinePoint TO TempoMapTimeline,
-    FROM ElevationModulatorTimelinePoint TO TempoMapTimeline,
-    FROM DistanceModulatorTimelinePoint TO TempoMapTimeline,
-    sync_point INT64, // position in the TempoMapTimeline in units of ticks for that timeline, > 0 
-    offset_seconds FLOAT,  // offset in wall clock time.
+    FROM PartialSetMusicalTimelinePoint TO TempoMap,
+    FROM SpatialPositionMusicalTimelinePoint TO TempoMap,
+/* TODO
+    FROM FrequencyModulatorMusicalTimelinePoint TO TempoMap,
+    FROM AmplitudeModulatorMusicalTimelinePoint TO TempoMap,
+    FROM PhaseModulatorMusicalTimelinePoint TO TempoMap,
+    FROM AzimuthModulatorMusicalTimelinePoint TO TempoMap,
+    FROM ElevationModulatorMusicalTimelinePoint TO TempoMap,
+    FROM DistanceModulatorMusicalTimelinePoint TO TempoMap,
+*/
+    sync_point INT64, // position in the TempoMap in units of ticks for that timeline, >= 0 
+    offset_seconds FLOAT,  // offset in physical time.
     MANY_ONE
 );
 

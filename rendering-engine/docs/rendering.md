@@ -50,7 +50,7 @@ Built one feature at a time, as precomputation was.
 | --- | --- |
 | Every partial in a frame's scope; labels are ignored (§4, §13) | Label selection |
 | Linear frequency segments from precomputation | Curve components in segments |
-| One `AmplitudeTimeline` per partial, linear curves only | Amplitude curve types other than linear |
+| One `AmplitudePhysicalTimeline` per partial, linear curves only | Amplitude curve types other than linear |
 | Amplitude in dB, summed per sample, one conversion to linear | Amplitude modulators (they join the dB sum, §8.1) |
 | Frequency-range roll-off, stateless (§8.2) | Frequency modulators |
 | One partial set at a time, with a shared source clock per set (§6.2) | Threads across partial sets; SIMD across partials |
@@ -100,7 +100,9 @@ distinguish wrapped from unwrapped.
 
 ### 3.1 Two timebases
 
-Two clocks appear in this document, both in samples:
+Two clocks appear in this document, both in samples, and both are physical
+time ([ADR 0012](../../docs/adr/0012-distinguish-musical-and-physical-time.md)).
+Musical time never reaches the render path:
 
 - **Receiver time** is the timebase of the output. It is discrete: sample *n*
   of frame *k* is the instant `k·F + n`. A sample is a point in time, not a
@@ -143,8 +145,8 @@ And per requested frame *k* (§6.3):
   one per partial in scope; from each, the partial and its set,
   `(e)-[:FRAME_ENTRY_PARTIAL]->(p:Partial)<-[:HAS_PARTIAL]-(ps:PartialSet)`,
   and the two list nodes from which the frame's rendering starts,
-  `(e)-[:FRAME_ENTRY_TIMELINE]->(node)`: a `PartialIntegrableSegment` and an
-  `AmplitudeTimelinePoint` (precomputation.md §6.7);
+  `(e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(node)`: a `PartialIntegrableSegment` and an
+  `AmplitudePhysicalTimelinePoint` (precomputation.md §6.7);
 - from each entry node, the nodes that follow it along `NEXT_POINT` until
   one starts at or after the frame's end; and each segment's
   `PartialSegmentNominalFrequency`.
@@ -284,8 +286,8 @@ the length of any list:
    A frame with no `Frame` node, or no entries, is empty.
 2. **Entry nodes.** One query per list type returns each entry's list node
    with its properties:
-   `MATCH (:Frame {frame_number: $k})-[:FRAME_ENTRY]->(e:FrameEntry)-[:FRAME_ENTRY_TIMELINE]->(s:PartialIntegrableSegment)-[:SEGMENT_TO_FREQUENCY_NOMINAL]->(n) RETURN e.id, s.*, n.*`,
-   and the same for `AmplitudeTimelinePoint`. Rows are matched to partials
+   `MATCH (:Frame {frame_number: $k})-[:FRAME_ENTRY]->(e:FrameEntry)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(s:PartialIntegrableSegment)-[:SEGMENT_TO_FREQUENCY_NOMINAL]->(n) RETURN e.id, s.*, n.*`,
+   and the same for `AmplitudePhysicalTimelinePoint`. Rows are matched to partials
    by the entry id from query 1.
 3. **Frontier walks.** Starting from the entry nodes, one query per hop
    returns the successors of every node that has not yet reached the

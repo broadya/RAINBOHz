@@ -38,6 +38,10 @@ add_executable(rendering_engine_tests
     test_segment_maths.cpp
     test_units.cpp
     test_wav_writer.cpp
+    transform/test_musical_units.cpp
+    transform/test_squash.cpp
+    transform/test_tempo_map.cpp
+    transform/test_transform.cpp
 )
 
 # dr_wav is linked so that test_wav_writer can read a written file back with
@@ -63,6 +67,8 @@ target_compile_definitions(rendering_engine_tests
         RE_TEST_SCHEMA_FILE="${RE_DEFAULT_SCHEMA_FILE}"
         RE_TEST_EXAMPLE_STATE="${RE_EXAMPLE_STATE_FILE}"
         RE_TEST_TWO_SETS_STATE="${RE_TWO_SETS_STATE_FILE}"
+        RE_TEST_TEMPO_MAP_STATE="${RE_TEMPO_MAP_STATE_FILE}"
+        RE_TEST_OFFSET_COLLISION_STATE="${RE_OFFSET_COLLISION_STATE_FILE}"
 )
 
 gtest_discover_tests(rendering_engine_tests
@@ -103,6 +109,8 @@ if(Python3_Interpreter_FOUND)
 
     re_add_oracle_test(minimum-score minimum-score minimum-request.yaml)
     re_add_oracle_test(two-partial-sets two-partial-sets two-partial-sets-request.yaml)
+    re_add_oracle_test(tempo-map-score tempo-map-score tempo-map-request.yaml)
+    re_add_oracle_test(offset-collision-score offset-collision-score offset-collision-request.yaml)
 else()
     message(STATUS "rendering-engine: no Python 3 interpreter; the oracle tests are not registered")
 endif()

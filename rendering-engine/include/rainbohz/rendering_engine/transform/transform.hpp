@@ -1,0 +1,259 @@
+#pragma once
+
+// The transform stage: the canonical model, in musical time, becomes the
+// rendering model, in physical time, in place in engine-db.
+//
+// This is responsibility 3 of docs/design.md section 1. The design is
+// docs/transform.md; section numbers below refer to it. This first version
+// converts each PartialSet's PartialSetMusicalTimeline into one
+// FrequencyPhysicalTimeline and one AmplitudePhysicalTimeline per partial,
+// through one TempoMap per Score. Phase, spatial position, modulators and
+// synchronised tempo maps are not yet converted (§2).
+//
+// The stage is a module of the engine library, not a separate target: the
+// namespace rainbohz::rendering_engine::transform is the boundary between
+// musical and physical time (docs/design.md section 7). Nothing outside it
+// includes musical_units.hpp or tempo_map.hpp.
+//
+// Like precomputation, each partial goes through pure stages over in-memory
+// data, declared here so that they can be tested without a database; reading
+// and writing happen only inside transformAll().
+
+#include "rainbohz/rendering_engine/engine_db.hpp"
+#include "rainbohz/rendering_engine/units.hpp"
+
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+namespace rainbohz::rendering_engine::transform {
+
+/// Thrown when the transform cannot run at all: the configuration or a
+/// TempoMap is unusable, or the score uses a feature this version does not
+/// convert. Nothing has been written.
+class TransformError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+
+/// Thrown when one PartialSet cannot be transformed: its timeline, its
+/// POINT_AT edges or its states are invalid. None of its partials is
+/// written; transformAll() records it and carries on with the next set.
+class PartialSetTransformError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+
+/// Thrown when one partial cannot be transformed. transformAll() records it
+/// against the partial and carries on with the next.
+///
+/// The message says what is wrong in terms of the input, naming the timeline
+/// point involved by its position in the list, counting from 0, where there
+/// is one; it does not name the partial, which the caller knows.
+class PartialTransformError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+
+/// One defined value of one property of one partial: the point of the set's
+/// timeline it sits on, the value, and the curve from here to the next knot.
+///
+/// A partial's envelope for a property is its knots in point order (§6.2).
+/// Points where the property is NULL, or where the partial has no state, are
+/// not knots.
+struct Knot {
+    /// Index of the point in the set's timeline, from 0.
+    std::size_t point = 0;
+
+    /// The value in the canonical model's unit: Hz for frequency, dB for
+    /// amplitude.
+    double value = 0.0;
+
+    /// The set point's curve type for this property, describing the path to
+    /// the next knot.
+    std::int64_t curveType = 0;
+
+    /// The set point's curve amount for this property.
+    double curveAmount = 0.0;
+};
+
+/// A point of a physical timeline as it will be written.
+struct PhysicalPoint {
+    /// When the envelope passes through this point.
+    SampleTime time;
+
+    /// The value; in the unit the caller put into the knots it came from.
+    double value = 0.0;
+
+    /// Curve type from here to the next point.
+    std::int64_t curveType = 0;
+
+    /// Curve amount from here to the next point.
+    double curveAmount = 0.0;
+
+    friend bool operator==(const PhysicalPoint&, const PhysicalPoint&) = default;
+};
+
+/// Checks that frequency and amplitude share the partial's first and last
+/// points (§6.2).
+///
+/// A partial exists from the first point where any of its properties is
+/// defined to the last. Both properties must be defined at those two points;
+/// in between they are independent.
+///
+/// @param frequency  The partial's frequency knots, in point order. At least
+///                   two.
+/// @param amplitude  The partial's amplitude knots, in point order. At least
+///                   two.
+/// @throws PartialTransformError  If either property has fewer than two
+///         knots, or the first or last knots are on different points.
+void requireSharedEndPoints(std::span<const Knot> frequency, std::span<const Knot> amplitude);
+
+/// Places one property's knots in physical time (§6.3).
+///
+/// Each knot's computed time is its point's time; the knots are squashed
+/// (squash.hpp) so that the result is strictly increasing and never negative,
+/// with the user's order kept and later states winning a collision.
+///
+/// @param knots       The property's knots, in point order.
+/// @param pointTimes  The computed physical time of every point of the set's
+///                    timeline, by point index. Every value finite.
+/// @return One point per surviving knot, in order, carrying that knot's
+///         value and curve. Fewer than the knots when any collided.
+std::vector<PhysicalPoint> placeKnots(
+    std::span<const Knot> knots, std::span<const SampleTime> pointTimes);
+
+/// Fits a placed amplitude envelope to the partial's lifeline (§6.4).
+///
+/// The frequency envelope defines the lifeline (author, 2026-10-02). The
+/// amplitude envelope's last point is moved to the lifeline's end, and any
+/// other amplitude point at or after that end is dropped, so that the two
+/// timelines end together exactly, as precomputation requires.
+///
+/// @param[in,out] amplitude  Placed amplitude points, strictly increasing,
+///                           at least two. On return, strictly increasing,
+///                           at least two, ending exactly at `end`.
+/// @param end                The frequency envelope's last time. Later than
+///                           the first amplitude point.
+void fitToLifeline(std::vector<PhysicalPoint>& amplitude, SampleTime end);
+
+/// What happened to one partial.
+struct PartialTransformOutcome {
+    /// Partial.id.
+    std::int64_t partialId = 0;
+
+    /// Partial.name; nullopt when NULL.
+    std::optional<std::string> partialName;
+
+    /// Why the partial failed; nullopt when it succeeded. A failed partial
+    /// has nothing written for it by this run.
+    std::optional<std::string> error;
+
+    /// Points written to its FrequencyPhysicalTimeline. Zero on failure.
+    std::size_t frequencyPoints = 0;
+
+    /// Points written to its AmplitudePhysicalTimeline. Zero on failure.
+    std::size_t amplitudePoints = 0;
+
+    /// True when the partial was transformed and written.
+    bool ok() const noexcept { return !error.has_value(); }
+};
+
+/// What happened to one PartialSet with a musical timeline.
+struct PartialSetTransformOutcome {
+    /// PartialSet.id.
+    std::int64_t setId = 0;
+
+    /// PartialSet.name; nullopt when NULL.
+    std::optional<std::string> setName;
+
+    /// Why the whole set failed; nullopt when its partials were attempted.
+    /// A failed set has no partial outcomes and nothing written.
+    std::optional<std::string> error;
+
+    /// One outcome per partial of the set, in Partial.id order. Empty when
+    /// the set failed.
+    std::vector<PartialTransformOutcome> partials;
+
+    /// How many of its partials failed.
+    ///
+    /// @return The number of entries in `partials` whose error is set.
+    std::size_t failureCount() const noexcept;
+
+    /// True when the set and every partial in it succeeded.
+    bool ok() const noexcept { return !error.has_value() && failureCount() == 0; }
+};
+
+/// A Score's tempo map, as the run found it.
+struct TempoMapSummary {
+    /// Score.id.
+    std::int64_t scoreId = 0;
+
+    /// TempoMap.id.
+    std::int64_t tempoMapId = 0;
+
+    /// TempoMap.name; nullopt when NULL.
+    std::optional<std::string> name;
+
+    /// TempoMap.ticks_per_beat.
+    std::int32_t ticksPerBeat = 0;
+
+    /// How many TempoMapPoints it has.
+    std::size_t pointCount = 0;
+};
+
+/// The result of a transform run.
+struct TransformReport {
+    /// The sample rate every time was converted at.
+    SampleRate sampleRate{0};
+
+    /// Every Score's tempo map, in Score.id order. A Score without one is
+    /// absent.
+    std::vector<TempoMapSummary> tempoMaps;
+
+    /// One outcome per PartialSet with a musical timeline, in PartialSet.id
+    /// order. Sets without one are not transformed and do not appear.
+    std::vector<PartialSetTransformOutcome> sets;
+
+    /// How many partials were attempted, over every set that did not fail.
+    std::size_t partialCount() const noexcept;
+
+    /// How many sets failed whole, plus how many partials failed.
+    std::size_t failureCount() const noexcept;
+
+    /// True when everything succeeded, including when there was nothing to
+    /// transform.
+    bool ok() const noexcept { return failureCount() == 0; }
+};
+
+/// Transforms every PartialSet with a musical timeline in `db` (§6).
+///
+/// Reads the EngineConfig, every Score's TempoMap, and every musical set's
+/// timeline, points, POINT_AT edges and states; then transforms the sets one
+/// at a time in PartialSet.id order, and within a set the partials in
+/// Partial.id order, each partial in its own transaction. Any
+/// FrequencyPhysicalTimeline or AmplitudePhysicalTimeline a transformed
+/// partial already has is deleted and rebuilt. Partial sets with no musical
+/// timeline, and their partials, are left exactly as they are.
+///
+/// A set or partial that fails is recorded in the report and the run carries
+/// on. A failed partial's transaction is rolled back, so any timelines from
+/// an earlier run are left as they were.
+///
+/// @param[in,out] db  Database holding the score. Modified: every partial
+///                    that succeeds has its two physical timelines replaced.
+/// @return What was found and what happened to each set and partial.
+/// @throws TransformError  If there is not exactly one EngineConfig or its
+///         sampleRate is unusable; if any TempoMap is invalid; or if any
+///         TEMPO_MAP_SYNCHRONIZATION_POINT edge exists, which this version
+///         does not support. Nothing has been written.
+/// @throws EngineDbError  If reading the inputs fails. Nothing has been
+///         written. A database failure while writing one partial is recorded
+///         against that partial instead.
+TransformReport transformAll(EngineDb& db);
+
+} // namespace rainbohz::rendering_engine::transform

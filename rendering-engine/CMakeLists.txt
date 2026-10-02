@@ -13,9 +13,10 @@ cmake_minimum_required(VERSION 3.28)
 # from one Cypher file, loads an initial database state from a second, reads
 # and checks a YAML render request, precomputes every partial's integrable
 # segments and frame entries (docs/precomputation.md), and renders the
-# requested frames to WAV files (docs/rendering.md). Transformation is not
-# written, and the `distributed` and `standalone` modes are recognised but not
-# implemented.
+# requested frames to WAV files (docs/rendering.md). Before precomputation it
+# transforms every partial set with a musical timeline into per-partial
+# physical timelines through the score's tempo map (docs/transform.md). The
+# `distributed` and `standalone` modes are recognised but not implemented.
 
 project(rendering_engine
     VERSION 0.1.0
@@ -92,6 +93,9 @@ add_library(rendering_engine_lib STATIC
     src/render_request.cpp
     src/rendering.cpp
     src/script_loader.cpp
+    src/transform/squash.cpp
+    src/transform/tempo_map.cpp
+    src/transform/transform.cpp
     src/wav_writer.cpp
 )
 add_library(rainbohz::rendering_engine_lib ALIAS rendering_engine_lib)
@@ -140,6 +144,14 @@ cmake_path(SET RE_EXAMPLE_STATE_FILE NORMALIZE
 # oracle exercise it.
 cmake_path(SET RE_TWO_SETS_STATE_FILE NORMALIZE
     "${CMAKE_CURRENT_SOURCE_DIR}/../engine-db/examples/two-partial-sets.cypher")
+
+# Two scores in the canonical model, in musical time, which the transform
+# converts before precomputation: one with a tempo ramp and per-property NULL
+# states, one whose fixed offsets make points collide (docs/transform.md).
+cmake_path(SET RE_TEMPO_MAP_STATE_FILE NORMALIZE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../engine-db/examples/tempo-map-score.cypher")
+cmake_path(SET RE_OFFSET_COLLISION_STATE_FILE NORMALIZE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../engine-db/examples/offset-collision-score.cypher")
 
 # See cmake/Dependencies.cmake for why the Ladybug version is passed in rather
 # than read back from the library at runtime.

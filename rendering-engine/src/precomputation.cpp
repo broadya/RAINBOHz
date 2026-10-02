@@ -57,39 +57,39 @@ constexpr std::string_view kReadConfig = "MATCH (c:EngineConfig) RETURN c.frameS
 
 constexpr std::string_view kReadPartials = "MATCH (p:Partial) RETURN p.id, p.name ORDER BY p.id;";
 
-// One row per FrequencyTimeline, with the head of its point list, or NULL
+// One row per FrequencyPhysicalTimeline, with the head of its point list, or NULL
 // when the timeline has no points.
 constexpr std::string_view kReadFrequencyHeads =
-    "MATCH (p:Partial)-[:HAS_TIMELINE]->(t:FrequencyTimeline) "
-    "OPTIONAL MATCH (t)-[:NEXT_POINT]->(f:FrequencyTimelinePoint) "
+    "MATCH (p:Partial)-[:HAS_PHYSICAL_TIMELINE]->(t:FrequencyPhysicalTimeline) "
+    "OPTIONAL MATCH (t)-[:NEXT_POINT]->(f:FrequencyPhysicalTimelinePoint) "
     "RETURN p.id, f.id;";
 
 constexpr std::string_view kReadFrequencyPoints =
-    "MATCH (f:FrequencyTimelinePoint) "
+    "MATCH (f:FrequencyPhysicalTimelinePoint) "
     "RETURN f.id, f.time, f.frequency, f.frequency_curve_type;";
 
 constexpr std::string_view kReadFrequencyLinks =
-    "MATCH (a:FrequencyTimelinePoint)-[:NEXT_POINT]->(b:FrequencyTimelinePoint) "
+    "MATCH (a:FrequencyPhysicalTimelinePoint)-[:NEXT_POINT]->(b:FrequencyPhysicalTimelinePoint) "
     "RETURN a.id, b.id;";
 
 // The amplitude timeline is read for its times only, so that the frame
 // entries of §6.7 can lead into it; its values are rendering's concern.
 constexpr std::string_view kReadAmplitudeHeads =
-    "MATCH (p:Partial)-[:HAS_TIMELINE]->(t:AmplitudeTimeline) "
-    "OPTIONAL MATCH (t)-[:NEXT_POINT]->(a:AmplitudeTimelinePoint) "
+    "MATCH (p:Partial)-[:HAS_PHYSICAL_TIMELINE]->(t:AmplitudePhysicalTimeline) "
+    "OPTIONAL MATCH (t)-[:NEXT_POINT]->(a:AmplitudePhysicalTimelinePoint) "
     "RETURN p.id, a.id;";
 
 constexpr std::string_view kReadAmplitudePoints =
-    "MATCH (a:AmplitudeTimelinePoint) RETURN a.id, a.time;";
+    "MATCH (a:AmplitudePhysicalTimelinePoint) RETURN a.id, a.time;";
 
 constexpr std::string_view kReadAmplitudeLinks =
-    "MATCH (a:AmplitudeTimelinePoint)-[:NEXT_POINT]->(b:AmplitudeTimelinePoint) "
+    "MATCH (a:AmplitudePhysicalTimelinePoint)-[:NEXT_POINT]->(b:AmplitudePhysicalTimelinePoint) "
     "RETURN a.id, b.id;";
 
 // Output from an earlier run, which is deleted before the new output is
 // written.
-constexpr std::string_view kReadExistingTimelines =
-    "MATCH (p:Partial)-[:HAS_TIMELINE]->(t:PartialSegmentTimeline) "
+constexpr std::string_view kReadExistingPhysicalTimelines =
+    "MATCH (p:Partial)-[:HAS_PHYSICAL_TIMELINE]->(t:PartialSegmentPhysicalTimeline) "
     "OPTIONAL MATCH (t)-[:NEXT_POINT]->(s:PartialIntegrableSegment) "
     "RETURN p.id, t.id, s.id;";
 
@@ -104,22 +104,22 @@ constexpr std::string_view kDeleteNominalOfSegment =
 constexpr std::string_view kDeleteSegment =
     "MATCH (s:PartialIntegrableSegment) WHERE s.id = $segment DETACH DELETE s;";
 
-constexpr std::string_view kDeleteTimeline =
-    "MATCH (t:PartialSegmentTimeline) WHERE t.id = $timeline DETACH DELETE t;";
+constexpr std::string_view kDeletePhysicalTimeline =
+    "MATCH (t:PartialSegmentPhysicalTimeline) WHERE t.id = $physicalTimeline DETACH DELETE t;";
 
 constexpr std::string_view kDeleteFrameScope =
     "MATCH (p:Partial)-[r:PARTIAL_IN_FRAME]->(:Frame) WHERE p.id = $partial DELETE r;";
 
-// Deleting a segment removes the FRAME_ENTRY_TIMELINE edges into it, but the
+// Deleting a segment removes the FRAME_ENTRY_PHYSICAL_TIMELINE edges into it, but the
 // FrameEntry nodes themselves, and their other edges, are the partial's
 // output too and go explicitly (§10).
 constexpr std::string_view kDeleteFrameEntries =
     "MATCH (e:FrameEntry)-[:FRAME_ENTRY_PARTIAL]->(p:Partial) WHERE p.id = $partial "
     "DETACH DELETE e;";
 
-constexpr std::string_view kCreateTimeline =
+constexpr std::string_view kCreatePhysicalTimeline =
     "MATCH (p:Partial) WHERE p.id = $partial "
-    "CREATE (p)-[:HAS_TIMELINE]->(t:PartialSegmentTimeline) RETURN t.id;";
+    "CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:PartialSegmentPhysicalTimeline) RETURN t.id;";
 
 // Frame numbers are INT32 in the schema; range() yields INT64.
 constexpr std::string_view kCreateFrameScope = "MATCH (p:Partial) WHERE p.id = $partial "
@@ -132,11 +132,12 @@ constexpr std::string_view kCreateFrameScope = "MATCH (p:Partial) WHERE p.id = $
 // a list parameter is the batching path if the count ever shows in a profile
 // (§10). The Frame node exists: kCreateFrameScope has just merged it.
 constexpr std::string_view kCreateFrameEntry =
-    "MATCH (f:Frame), (p:Partial), (s:PartialIntegrableSegment), (a:AmplitudeTimelinePoint) "
+    "MATCH (f:Frame), (p:Partial), (s:PartialIntegrableSegment), "
+    "(a:AmplitudePhysicalTimelinePoint) "
     "WHERE f.frame_number = CAST($frame AS INT32) AND p.id = $partial "
     "AND s.id = $segment AND a.id = $point "
     "CREATE (f)-[:FRAME_ENTRY]->(e:FrameEntry)-[:FRAME_ENTRY_PARTIAL]->(p), "
-    "(e)-[:FRAME_ENTRY_TIMELINE]->(s), (e)-[:FRAME_ENTRY_TIMELINE]->(a) "
+    "(e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(s), (e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(a) "
     "RETURN e.id;";
 
 /// The statement that creates one segment and its nominal frequency, linked
@@ -148,8 +149,8 @@ constexpr std::string_view kCreateFrameEntry =
 /// they are NULL, as §5 requires. Each variant is a fixed string, so EngineDb
 /// prepares each once.
 ///
-/// @param afterTimeline  True for the first segment, linked from the
-///                       PartialSegmentTimeline; false for the others, linked
+/// @param afterPhysicalTimeline  True for the first segment, linked from the
+///                       PartialSegmentPhysicalTimeline; false for the others, linked
 ///                       from the previous PartialIntegrableSegment.
 /// @param linear         Whether to write linear_gradient, and
 ///                       linear_component true; otherwise linear_component is
@@ -157,10 +158,10 @@ constexpr std::string_view kCreateFrameEntry =
 /// @return The statement. It binds $previous, $startTime, $endTime,
 ///         $startPhase, $startFrequency, and, when `linear`, $linearGradient;
 ///         and returns the new segment's id.
-const std::string& createSegmentStatement(bool afterTimeline, bool linear) {
-    const auto build = [](bool fromTimeline, bool withLinear) {
-        std::string cypher = fromTimeline ? "MATCH (prev:PartialSegmentTimeline) "
-                                          : "MATCH (prev:PartialIntegrableSegment) ";
+const std::string& createSegmentStatement(bool afterPhysicalTimeline, bool linear) {
+    const auto build = [](bool fromPhysicalTimeline, bool withLinear) {
+        std::string cypher = fromPhysicalTimeline ? "MATCH (prev:PartialSegmentPhysicalTimeline) "
+                                                  : "MATCH (prev:PartialIntegrableSegment) ";
         cypher += "WHERE prev.id = $previous "
                   "CREATE (prev)-[:NEXT_POINT]->(s:PartialIntegrableSegment {"
                   "start_time: $startTime, end_time: $endTime, start_phase: $startPhase"
@@ -175,17 +176,17 @@ const std::string& createSegmentStatement(bool afterTimeline, bool linear) {
         {build(false, false), build(false, true)},
         {build(true, false), build(true, true)},
     }};
-    return kVariants[afterTimeline ? 1 : 0][linear ? 1 : 0];
+    return kVariants[afterPhysicalTimeline ? 1 : 0][linear ? 1 : 0];
 }
 
 // ---------------------------------------------------------------------------
 // Inputs, as read in bulk before any partial is processed
 // ---------------------------------------------------------------------------
 
-/// A partial's existing PartialSegmentTimeline, from an earlier run.
-struct ExistingTimeline {
-    /// PartialSegmentTimeline.id.
-    std::int64_t timelineId = 0;
+/// A partial's existing PartialSegmentPhysicalTimeline, from an earlier run.
+struct ExistingPhysicalTimeline {
+    /// PartialSegmentPhysicalTimeline.id.
+    std::int64_t physicalTimelineId = 0;
 
     /// Id of its first segment; nullopt when it has none.
     std::optional<std::int64_t> headSegment;
@@ -200,30 +201,30 @@ struct Inputs {
     /// Partial ids and names, in id order.
     std::vector<std::pair<std::int64_t, std::optional<std::string>>> partials;
 
-    /// For each partial with a FrequencyTimeline, the head of each of its
-    /// FrequencyTimelines' point lists (nullopt for an empty one). The schema
+    /// For each partial with a FrequencyPhysicalTimeline, the head of each of its
+    /// FrequencyPhysicalTimelines' point lists (nullopt for an empty one). The schema
     /// allows at most one timeline per partial; a second is reported rather
     /// than assumed away.
     std::unordered_map<std::int64_t, std::vector<std::optional<std::int64_t>>> frequencyHeads;
 
-    /// Every FrequencyTimelinePoint, by id.
+    /// Every FrequencyPhysicalTimelinePoint, by id.
     std::unordered_map<std::int64_t, FrequencyPointRecord> frequencyPoints;
 
-    /// FrequencyTimelinePoint NEXT_POINT links: id to next id.
+    /// FrequencyPhysicalTimelinePoint NEXT_POINT links: id to next id.
     std::unordered_map<std::int64_t, std::int64_t> frequencyNext;
 
-    /// For each partial with an AmplitudeTimeline, the head of each of its
-    /// AmplitudeTimelines' point lists (nullopt for an empty one).
+    /// For each partial with an AmplitudePhysicalTimeline, the head of each of its
+    /// AmplitudePhysicalTimelines' point lists (nullopt for an empty one).
     std::unordered_map<std::int64_t, std::vector<std::optional<std::int64_t>>> amplitudeHeads;
 
-    /// Every AmplitudeTimelinePoint, by id: its time only.
+    /// Every AmplitudePhysicalTimelinePoint, by id: its time only.
     std::unordered_map<std::int64_t, AmplitudePointRecord> amplitudePoints;
 
-    /// AmplitudeTimelinePoint NEXT_POINT links: id to next id.
+    /// AmplitudePhysicalTimelinePoint NEXT_POINT links: id to next id.
     std::unordered_map<std::int64_t, std::int64_t> amplitudeNext;
 
     /// For each partial with output from an earlier run, its timelines.
-    std::unordered_map<std::int64_t, std::vector<ExistingTimeline>> existing;
+    std::unordered_map<std::int64_t, std::vector<ExistingPhysicalTimeline>> existing;
 
     /// PartialIntegrableSegment NEXT_POINT links: id to next id.
     std::unordered_map<std::int64_t, std::int64_t> segmentNext;
@@ -289,9 +290,9 @@ Inputs readInputs(EngineDb& db) {
 
     inputs.amplitudeNext = readLinks(db, kReadAmplitudeLinks);
 
-    for (const DbRow& row : db.query(kReadExistingTimelines)) {
-        inputs.existing[requireInt64(row.at(0))].push_back(ExistingTimeline{
-            .timelineId = requireInt64(row.at(1)),
+    for (const DbRow& row : db.query(kReadExistingPhysicalTimelines)) {
+        inputs.existing[requireInt64(row.at(0))].push_back(ExistingPhysicalTimeline{
+            .physicalTimelineId = requireInt64(row.at(1)),
             .headSegment = optionalInt64(row.at(2)),
         });
     }
@@ -319,7 +320,7 @@ std::string formatNumber(double value) {
 
 /// Throws a PartialPrecomputationError about the point at `index`.
 ///
-/// @param timeline  The list the point is on, e.g. "FrequencyTimeline".
+/// @param timeline  The list the point is on, e.g. "FrequencyPhysicalTimeline".
 /// @param index     Position of the point in its timeline, from 0.
 /// @param reason    What is wrong with it.
 /// @throws PartialPrecomputationError  Always.
@@ -349,8 +350,8 @@ double requireFinite(const std::optional<double>& value, std::string_view timeli
     return *value;
 }
 
-constexpr std::string_view kFrequencyList = "FrequencyTimeline";
-constexpr std::string_view kAmplitudeList = "AmplitudeTimeline";
+constexpr std::string_view kFrequencyList = "FrequencyPhysicalTimeline";
+constexpr std::string_view kAmplitudeList = "AmplitudePhysicalTimeline";
 
 // ---------------------------------------------------------------------------
 // Writing
@@ -397,16 +398,17 @@ void writePartial(EngineDb& db, const PartialOutput& output) {
     Transaction transaction{db};
 
     db.query(kDeleteFrameEntries, {{"partial", output.partialId}});
-    for (const auto& [timelineId, segmentIds] : output.stale) {
+    for (const auto& [physicalTimelineId, segmentIds] : output.stale) {
         for (const std::int64_t segmentId : segmentIds) {
             db.query(kDeleteNominalOfSegment, {{"segment", segmentId}});
             db.query(kDeleteSegment, {{"segment", segmentId}});
         }
-        db.query(kDeleteTimeline, {{"timeline", timelineId}});
+        db.query(kDeletePhysicalTimeline, {{"physicalTimeline", physicalTimelineId}});
     }
     db.query(kDeleteFrameScope, {{"partial", output.partialId}});
 
-    const std::vector<DbRow> created = db.query(kCreateTimeline, {{"partial", output.partialId}});
+    const std::vector<DbRow> created =
+        db.query(kCreatePhysicalTimeline, {{"partial", output.partialId}});
     if (created.size() != 1) {
         throw PartialPrecomputationError{"the partial disappeared while it was being precomputed"};
     }
@@ -521,10 +523,10 @@ void precomputePartial(EngineDb& db, const Inputs& inputs, std::int64_t partialI
     output.entries = frameEntries(output.segments, amplitudeTimes, output.frames, frameSize);
 
     if (const auto existing = inputs.existing.find(partialId); existing != inputs.existing.end()) {
-        for (const ExistingTimeline& timeline : existing->second) {
-            output.stale.emplace_back(
-                timeline.timelineId, walkChain(timeline.headSegment, inputs.segmentNext,
-                                         "existing PartialSegmentTimeline"));
+        for (const ExistingPhysicalTimeline& physicalTimeline : existing->second) {
+            output.stale.emplace_back(physicalTimeline.physicalTimelineId,
+                walkChain(physicalTimeline.headSegment, inputs.segmentNext,
+                    "existing PartialSegmentPhysicalTimeline"));
         }
     }
 
@@ -561,7 +563,7 @@ std::vector<std::int64_t> walkChain(std::optional<std::int64_t> head,
 std::vector<FrequencyPoint> validateFrequencyEnvelope(
     std::span<const FrequencyPointRecord> points) {
     if (points.size() < 2) {
-        throw PartialPrecomputationError{"its FrequencyTimeline has " +
+        throw PartialPrecomputationError{"its FrequencyPhysicalTimeline has " +
                                          std::to_string(points.size()) +
                                          " point(s); at least 2 are required"};
     }
@@ -601,7 +603,7 @@ std::vector<FrequencyPoint> validateFrequencyEnvelope(
 std::vector<SampleTime> validateAmplitudeTimes(
     std::span<const AmplitudePointRecord> points, std::span<const FrequencyPoint> envelope) {
     if (points.size() < 2) {
-        throw PartialPrecomputationError{"its AmplitudeTimeline has " +
+        throw PartialPrecomputationError{"its AmplitudePhysicalTimeline has " +
                                          std::to_string(points.size()) +
                                          " point(s); at least 2 are required"};
     }
@@ -622,14 +624,14 @@ std::vector<SampleTime> validateAmplitudeTimes(
     if (times.front() != envelope.front().time) {
         failAtPoint(kAmplitudeList, 0,
             "time " + formatNumber(times.front().value()) +
-                " differs from the first FrequencyTimeline point's time " +
+                " differs from the first FrequencyPhysicalTimeline point's time " +
                 formatNumber(envelope.front().time.value()) +
                 "; the two timelines must start together");
     }
     if (times.back() != envelope.back().time) {
         failAtPoint(kAmplitudeList, times.size() - 1,
             "time " + formatNumber(times.back().value()) +
-                " differs from the last FrequencyTimeline point's time " +
+                " differs from the last FrequencyPhysicalTimeline point's time " +
                 formatNumber(envelope.back().time.value()) +
                 "; the two timelines must end together");
     }
