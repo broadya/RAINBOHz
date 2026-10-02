@@ -42,6 +42,7 @@ Non-obvious design choices are recorded here, per AGENTS.md, using the
 | [0014](0014-resolve-time-collisions-by-semantic-order.md) | Resolve physical-time collisions by semantic order: the later state wins, and only the tail yields | Accepted |
 | [0015](0015-the-lowest-hzl-level-is-the-canonical-model-as-tables.md) | The lowest HzL level is the canonical model as tables, emitted as Cypher | Accepted |
 | [0016](0016-serve-rest-with-cpp-httplib-one-call-at-a-time.md) | Serve REST with cpp-httplib, one call at a time, holding one score | Accepted |
+| [0017](0017-rest-resources-under-v1-described-by-openapi-3-1.md) | REST resources under /v1, described by OpenAPI 3.1, with problem+json errors | Accepted |
 
 ## A note on the renames
 

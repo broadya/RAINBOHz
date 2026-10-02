@@ -212,7 +212,7 @@ Four subsystems: compilation, rendering, playback, and orchestration.
    - **Build System** — Ninja-based, with a Python generator for `.ninja` files.
    - **`canonical-form`** — the loadable, durable representation of a score, in musical time and composer-facing units. What it actually consists of is undecided.
 2. **Rendering** — one component, doing all of it.
-   - **`rendering-engine`** — C++. Hosts `engine-db` in process; loads `canonical-form` into it; transforms the canonical model into the rendering model in place; determines the calculation delta from dirty flags; precomputes phase integration; performs phase compensation; renders frames to multi-channel WAV objects. Implemented in [`rendering-engine/`](rendering-engine/); see `architecture/overview.md` §5.2 and §9, where C++ is recorded as Settled. The transform (`rendering-engine/docs/transform.md`), precomputation (`rendering-engine/docs/precomputation.md`) and rendering (`rendering-engine/docs/rendering.md`) are designed and implemented in their first versions; label selection is not. It runs in two modes: `batch` (load, render a request file, exit) and `server`, a long-running REST service that holds one score in memory between calls (`rendering-engine/docs/server.md`, ADR 0016). The transform is the only code that reads musical time: it lives in the namespace `rainbohz::rendering_engine::transform` and the `transform/` directories, and nothing outside them includes its musical unit types or tempo map.
+   - **`rendering-engine`** — C++. Hosts `engine-db` in process; loads `canonical-form` into it; transforms the canonical model into the rendering model in place; determines the calculation delta from dirty flags; precomputes phase integration; performs phase compensation; renders frames to multi-channel WAV objects. Implemented in [`rendering-engine/`](rendering-engine/); see `architecture/overview.md` §5.2 and §9, where C++ is recorded as Settled. The transform (`rendering-engine/docs/transform.md`), precomputation (`rendering-engine/docs/precomputation.md`) and rendering (`rendering-engine/docs/rendering.md`) are designed and implemented in their first versions; label selection is not. It runs in two modes: `batch` (load, render a request file, exit) and `server`, a long-running REST service that holds one score in memory between calls, renders frames and answers questions about the score's tempo maps and engine parameters (`rendering-engine/docs/server.md`, `rendering-engine/api/openapi.yaml`, ADRs 0016 and 0017). The transform is the only code that reads musical time: it lives in the namespace `rainbohz::rendering_engine::transform` and the `transform/` directories, and nothing outside them includes its musical unit types or tempo map.
    - **`engine-db`** — LadybugDB (embedded), the one physical database in the system, sharded by partial set.
    - **Object storage** — WAV objects addressed by URL.
 3. **Playback** — merging the shards on demand and serving them.
@@ -405,8 +405,13 @@ Databases (built from the schema DDL, which is the source of truth):
 - `make run-rendering-engine-server` — run the engine in server mode on
   `RE_HOST`:`RE_PORT` (default `127.0.0.1:8080`), reading scores from beneath
   `RE_INPUT_ROOT` (default the repository root) and writing frames to
-  `RE_OUT_DIR`, until `POST /shutdown`. The engine itself has no defaults for
+  `RE_OUT_DIR`, until `POST /v1/shutdown`. The engine itself has no defaults for
   these; the Makefile supplies them. See `rendering-engine/docs/server.md`.
+  The calls are specified by the OpenAPI 3.1.1 document
+  `rendering-engine/api/openapi.yaml`, following the conventions of ADR 0017
+  (resources under `/v1`, problem+json errors). Change it with the code: CTest
+  `server.openapi` validates it, and the `server.*` tests check live responses
+  against it, when PyYAML, jsonschema and openapi-spec-validator are installed.
   The server includes its own cpp-httplib under a renamed namespace because
   Ladybug links an older copy; see ADR 0016 before bumping either.
 - `make format-rendering-engine` — apply `.clang-format` in place.

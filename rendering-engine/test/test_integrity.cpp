@@ -344,7 +344,7 @@ TEST_F(IntegrityDb, AmplitudeTimeMustNotBeNegative) {
 }
 
 TEST_F(IntegrityDb, ChannelModeMustBeAKnownMode) {
-    db.execute("MATCH (c:EngineConfig) SET c.channelMode = 3;");
+    db.execute("MATCH (c:EngineConfig) SET c.channelMode = 5;");
     EXPECT_EQ(find(checkIntegrity(db), "EngineConfig.channelMode is").violationCount, 1U);
 }
 

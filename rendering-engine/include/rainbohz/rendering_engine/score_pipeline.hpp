@@ -3,8 +3,8 @@
 // The engine's two operations, as sequences of steps: load a score, and render
 // frames from it.
 //
-// Batch mode runs both once and exits. Server mode runs a load per /load call
-// and a render per /render call against the score it holds. Both modes run the
+// Batch mode runs both once and exits. Server mode runs a load per PUT /v1/score
+// and a render per rendering call against the score it holds. Both modes run the
 // same steps in the same order because both call these.
 //
 // Each operation narrates what it does to a stream, using report.hpp, and

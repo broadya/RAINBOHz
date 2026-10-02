@@ -1,0 +1,711 @@
+openapi: 3.1.1
+
+info:
+  title: RAINBOHz rendering engine
+  version: 1.0.0
+  summary: The rendering engine in server mode, as a REST service.
+  description: |
+    The rendering engine run as a long-lived service (`rendering-engine --mode server`).
+    It holds at most one score, loaded into an in-memory engine-db, and answers
+    calls about it: load a score, render a frame of it, read its tempo maps and
+    engine parameters, and find where a musical position falls in its sample
+    stream.
+
+    **Deployment assumptions.** The server is meant to sit deep in a network,
+    behind an API gateway. It does nothing about authentication, authorisation,
+    TLS, rate limiting or hostile clients, and its problem details hide nothing:
+    they name paths and quote the engine's diagnostics. It serves one call at a
+    time, start to finish, on the thread that accepted it.
+
+    **Ids and cursors are valid for the loaded score only.** Tempo-map ids are
+    keys assigned when a score is loaded, and a `PUT /score` assigns them
+    afresh, so an id or a `next` link from before a load may name a different
+    map, or none, after it. Versioning of scores is not yet part of this API.
+
+    **Errors** are RFC 9457 problem documents (`application/problem+json`),
+    with `type` `about:blank`, the status's reason phrase as `title`, and the
+    verdict as `detail`. Where a request has several things wrong, `errors`
+    lists each. The full narrative of every call is written to the server's
+    standard output, not to the response. A path not listed here gets 404, and
+    a listed path asked with another method gets 405 with an `Allow` header;
+    both with a problem document.
+
+    **Musical positions** are written `beats:ticks`, as HzL writes them: two
+    non-negative integers, the ticks below the tempo map's `ticks_per_beat`.
+    A bare integer is that many beats and no ticks.
+  license:
+    name: Apache 2.0
+    identifier: Apache-2.0
+
+servers:
+  - url: http://{host}:{port}/v1
+    description: A server started with --host and --port.
+    variables:
+      host:
+        default: 127.0.0.1
+        description: The address given as --host.
+      port:
+        default: "8080"
+        description: The port given as --port.
+
+tags:
+  - name: score
+    description: The score the server holds.
+  - name: rendering
+    description: Rendering frames of the score.
+  - name: tempo-maps
+    description: |
+      The score's tempo maps. They form a graph whose root is the TempoMap of
+      the Score; a map's children are the maps synchronised to it.
+  - name: engine
+    description: The engine parameters of the score.
+  - name: server
+    description: The server process itself.
+
+paths:
+  /score:
+    put:
+      tags: [score]
+      operationId: putScore
+      summary: Load a score, replacing the one held
+      description: |
+        Discards the score the server holds, then loads, transforms and
+        precomputes the named Cypher file into a fresh engine-db.
+
+        A request refused with 400, 403 or 404 never reaches the score, and
+        the score held before it stays. A request that gets as far as loading
+        discards that score first; if the load then fails, with 422 or 500,
+        the server holds no score, and every call that needs one answers 409
+        until a load succeeds. A score is never half-replaced.
+
+        Loading the same file again gives the same score, so the call is
+        idempotent, though ids are assigned afresh.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScoreRequest"
+            example:
+              uri: file:///Users/me/scores/tempo-map-score.cypher
+      responses:
+        "200":
+          description: The score loaded, transformed and precomputed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoadResult"
+              example:
+                uri: file:///Users/me/scores/tempo-map-score.cypher
+                nodes: 412
+                relationships: 830
+                partials: 2
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: The file lies outside the server's --input-root.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: There is no regular file at that path.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "422":
+          description: |
+            The load stopped short: a statement did not apply, an integrity
+            check failed (--validate-db), or the transform or precomputation
+            failed. The server now holds no score.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: about:blank
+                title: Unprocessable Content
+                status: 422
+                detail: 1 statement(s) did not apply. engine-db is partially loaded.
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /frames/{frame}/renderings:
+    post:
+      tags: [rendering]
+      operationId: renderFrame
+      summary: Render one frame of the score
+      description: |
+        Renders one frame of the loaded score to `--out-dir/frame-NNNNNN.wav`,
+        replacing any earlier file for that frame, and returns the file's URI.
+        Labels must exist in engine-db, but in this version they do not
+        select partials: every partial in the frame's scope is rendered.
+      parameters:
+        - $ref: "#/components/parameters/Frame"
+      requestBody:
+        required: false
+        description: Omitted, empty, `{}`, or with `labels` null or empty, every partial is rendered.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenderRequest"
+            example:
+              labels: [strings, brass]
+      responses:
+        "200":
+          description: The frame was rendered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RenderResult"
+              example:
+                frame: 3
+                uri: file:///Users/me/frames/frame-000003.wav
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/NoScore"
+        "422":
+          description: A label is not in engine-db, or the frame could not be rendered.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /shutdown:
+    post:
+      tags: [server]
+      operationId: shutdown
+      summary: Stop the server
+      description: |
+        Answers, then stops accepting connections; the process exits 0.
+        Rendered files are left where they are.
+      responses:
+        "200":
+          description: The server is shutting down.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShutdownResult"
+              example:
+                message: shutting down
+
+  /tempo-maps/root:
+    get:
+      tags: [tempo-maps]
+      operationId: getRootTempoMap
+      summary: The root tempo map and its children
+      description: |
+        The TempoMap of the Score, which defines time zero, with the maps
+        synchronised to it.
+      responses:
+        "200":
+          description: The root map.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TempoMapWithChildren"
+              example:
+                id: 0
+                name: Main
+                ticks_per_beat: 960
+                children: []
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: There is no Score, or the Score has no TempoMap (a score written in physical time).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          $ref: "#/components/responses/NoScore"
+        "422":
+          description: engine-db holds more than one Score, so the root is ambiguous.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /tempo-maps/{id}/children:
+    get:
+      tags: [tempo-maps]
+      operationId: getTempoMapChildren
+      summary: The children of a tempo map
+      description: |
+        The maps synchronised to this one, each with the synchronisation
+        points of the edge that joins it here, in child id order. A child
+        synchronised to several parents appears under each of them, with that
+        edge's points. Not paged: a map is expected to have few children.
+      parameters:
+        - $ref: "#/components/parameters/TempoMapId"
+      responses:
+        "200":
+          description: The children.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TempoMapChildren"
+              example:
+                tempo_map_id: 0
+                children:
+                  - id: 1
+                    name: Strings
+                    ticks_per_beat: 480
+                    sync_point_parent: 3840
+                    sync_point_child: 0
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NoSuchTempoMap"
+        "409":
+          $ref: "#/components/responses/NoScore"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /tempo-maps/{id}/points:
+    get:
+      tags: [tempo-maps]
+      operationId: getTempoMapPoints
+      summary: A page of a tempo map's points
+      description: |
+        The map's points in order, which is strictly increasing position.
+        Pages are keyed by position, so a page is the same whenever it is
+        asked for while the same score is loaded: follow `next` until it is
+        null.
+      parameters:
+        - $ref: "#/components/parameters/TempoMapId"
+        - name: after
+          in: query
+          required: false
+          description: Only points at a later position, in ticks, are returned. Omitted, the page starts at the first point.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: limit
+          in: query
+          required: false
+          description: The most points to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        "200":
+          description: The page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TempoMapPointPage"
+              example:
+                tempo_map_id: 0
+                ticks_per_beat: 960
+                points:
+                  - position: 0
+                    start_tempo: 120.0
+                    hold: false
+                next: /v1/tempo-maps/0/points?after=0&limit=1
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NoSuchTempoMap"
+        "409":
+          $ref: "#/components/responses/NoScore"
+        "422":
+          description: The map's list cannot be paged by position - a point has no position, positions do not increase, or the list loops.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /tempo-maps/{id}/frame-position:
+    get:
+      tags: [tempo-maps]
+      operationId: getFramePosition
+      summary: Where a musical position falls in the sample stream
+      description: |
+        Converts a position on the map to seconds, to samples at the sample
+        rate, and takes the sample at or before it: a position between two
+        samples gives the earlier, and a position exactly on a sample gives
+        that sample, as nearly as double precision allows (it can land one
+        sample early). The sample is returned as a frame and an offset within
+        that frame, so that sample = frame × frame_size + offset.
+
+        Only a root map, the TempoMap of a Score, converts in this version.
+      parameters:
+        - $ref: "#/components/parameters/TempoMapId"
+        - name: at
+          in: query
+          required: true
+          description: The position, `beats:ticks`, or a bare number of beats.
+          schema:
+            type: string
+            pattern: "^[0-9]+(:[0-9]+)?$"
+          examples:
+            beatsAndTicks:
+              value: "12:480"
+            beatsOnly:
+              value: "3"
+      responses:
+        "200":
+          description: The frame and offset.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FramePosition"
+              example:
+                tempo_map_id: 0
+                at: "1:0"
+                frame: 0
+                offset: 25638
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NoSuchTempoMap"
+        "409":
+          $ref: "#/components/responses/NoScore"
+        "422":
+          description: |
+            The map does not convert: it is not a Score's root, it is not a
+            valid tempo map, the engine parameters are unusable, or the frame
+            does not fit a frame number.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /engine-config:
+    get:
+      tags: [engine]
+      operationId: getEngineConfig
+      summary: The engine parameters
+      description: The score's EngineConfig, with the frame size resolved.
+      responses:
+        "200":
+          description: The parameters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EngineConfig"
+              example:
+                sample_rate: 48000
+                frame_size: 48000
+                channel_mode: mono
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/NoScore"
+        "422":
+          description: There is not exactly one EngineConfig, or it is unusable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+components:
+  parameters:
+    Frame:
+      name: frame
+      in: path
+      required: true
+      description: The frame number, Frame.frame_number. Digits only.
+      schema:
+        type: integer
+        format: int32
+        minimum: 0
+        maximum: 2147483647
+    TempoMapId:
+      name: id
+      in: path
+      required: true
+      description: A TempoMap id, valid for the loaded score. Digits only.
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+
+  responses:
+    BadRequest:
+      description: |
+        The request is unusable: a malformed path segment, body or query
+        parameter, an unknown or repeated query parameter, or a value out of
+        range. `errors` lists each problem when there are several.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: about:blank
+            title: Bad Request
+            status: 400
+            detail: the request is not usable
+            errors:
+              - frame '-1' must be an integer from 0 to 2147483647
+              - unknown key 'extra'
+    NoScore:
+      description: No score is loaded; PUT /score first.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: about:blank
+            title: Conflict
+            status: 409
+            detail: no score is loaded; PUT /v1/score first
+    NoSuchTempoMap:
+      description: The loaded score has no TempoMap with that id.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Internal:
+      description: The engine failed in a way it did not anticipate.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+  schemas:
+    Problem:
+      description: An RFC 9457 problem document.
+      type: object
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          const: about:blank
+        title:
+          type: string
+          description: The reason phrase of the status.
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+          description: What went wrong, in one line.
+        errors:
+          type: array
+          description: Each thing wrong with the request, when there are several.
+          items:
+            type: string
+
+    ScoreRequest:
+      type: object
+      additionalProperties: false
+      required: [uri]
+      properties:
+        uri:
+          type: string
+          format: uri
+          description: |
+            A `file://` URI with an empty or `localhost` authority and an
+            absolute, percent-encoded path; no query or fragment. The file
+            must lie within the server's --input-root.
+
+    LoadResult:
+      type: object
+      required: [uri, nodes, relationships, partials]
+      properties:
+        uri:
+          type: string
+          format: uri
+          description: The file loaded, resolved.
+        nodes:
+          type: integer
+          minimum: 0
+          description: Total node rows in engine-db.
+        relationships:
+          type: integer
+          minimum: 0
+          description: Total relationship rows in engine-db.
+        partials:
+          type: integer
+          minimum: 0
+          description: The number of Partials.
+
+    RenderRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        labels:
+          type: [array, "null"]
+          description: Labels to render; null or empty for every partial.
+          items:
+            type: string
+            minLength: 1
+
+    RenderResult:
+      type: object
+      required: [frame, uri]
+      properties:
+        frame:
+          type: integer
+          format: int32
+          minimum: 0
+        uri:
+          type: string
+          format: uri
+          description: The frame's WAV file.
+        set_uris:
+          type: array
+          description: Each contributing partial set's WAV file; present only under --per-set-wav.
+          items:
+            type: string
+            format: uri
+
+    ShutdownResult:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+
+    TempoMap:
+      type: object
+      required: [id, name, ticks_per_beat]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+          description: TempoMap.id, valid for the loaded score.
+        name:
+          type: [string, "null"]
+        ticks_per_beat:
+          type: [integer, "null"]
+          format: int32
+
+    TempoMapChild:
+      description: A child map, with the synchronisation points of the edge that joins it to its parent.
+      allOf:
+        - $ref: "#/components/schemas/TempoMap"
+        - type: object
+          required: [sync_point_parent, sync_point_child]
+          properties:
+            sync_point_parent:
+              type: [integer, "null"]
+              format: int64
+              description: Where, in the parent's ticks, the child is rooted.
+            sync_point_child:
+              type: [integer, "null"]
+              format: int64
+              description: The alignment point, in the child's own ticks.
+
+    TempoMapWithChildren:
+      allOf:
+        - $ref: "#/components/schemas/TempoMap"
+        - type: object
+          required: [children]
+          properties:
+            children:
+              type: array
+              items:
+                $ref: "#/components/schemas/TempoMapChild"
+
+    TempoMapChildren:
+      type: object
+      required: [tempo_map_id, children]
+      properties:
+        tempo_map_id:
+          type: integer
+          format: int64
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/TempoMapChild"
+
+    TempoMapPoint:
+      type: object
+      required: [position, start_tempo, hold]
+      properties:
+        position:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Where the segment this point opens starts, in ticks.
+        start_tempo:
+          type: [number, "null"]
+          description: The tempo at the position, BPM.
+        hold:
+          type: [boolean, "null"]
+          description: True when the tempo holds to the next point; false when it ramps linearly to it.
+
+    TempoMapPointPage:
+      type: object
+      required: [tempo_map_id, ticks_per_beat, points, next]
+      properties:
+        tempo_map_id:
+          type: integer
+          format: int64
+        ticks_per_beat:
+          type: [integer, "null"]
+          format: int32
+        points:
+          type: array
+          items:
+            $ref: "#/components/schemas/TempoMapPoint"
+        next:
+          type: [string, "null"]
+          format: uri-reference
+          description: The next page, relative to the server's origin; null on the last page.
+
+    FramePosition:
+      type: object
+      required: [tempo_map_id, at, frame, offset]
+      properties:
+        tempo_map_id:
+          type: integer
+          format: int64
+        at:
+          type: string
+          pattern: "^[0-9]+:[0-9]+$"
+          description: The position asked about, written in full as beats:ticks.
+        frame:
+          type: integer
+          format: int32
+          minimum: 0
+          description: The frame holding the sample.
+        offset:
+          type: integer
+          format: int32
+          minimum: 0
+          description: The sample's index within the frame, below frame_size.
+
+    EngineConfig:
+      type: object
+      required: [sample_rate, frame_size, channel_mode]
+      properties:
+        sample_rate:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Samples per second.
+        frame_size:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Samples per frame; one second's worth when EngineConfig.frameSize is NULL.
+        channel_mode:
+          type: string
+          enum: [mono, stereo, mid-side, foa-a-format, foa-b-format]
+          description: |
+            EngineConfig.channelMode 0 to 4: mono; stereo, derived from M/S
+            and decoded to stereo channels; M/S; first-order ambisonics in
+            A-format; and in B-format. Rendering implements only mono in this
+            version.

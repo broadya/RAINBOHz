@@ -65,7 +65,7 @@ have nothing to do but wait. Asynchronous jobs add a job table, a status
 endpoint and a lifecycle for results, for a service whose callers can simply
 wait. Both remain available later, if the bus brings real parallelism.
 
-**A load replaces the score.** A `/load` refused for its request (a bad URI,
+**A load replaces the score.** A `PUT /v1/score` refused for its request (a bad URI,
 a path outside the input root, a missing file) changes nothing. One that
 proceeds discards the held score first, then loads into a fresh `engine-db`;
 if that load fails, the server holds no score and renders are refused until a
@@ -124,14 +124,16 @@ plain HTTP, as a service behind a gateway needs.
   without a socket, through `ServerCore`.
 * Good, because one call at a time needs no locking, and no caller can see a
   half-loaded score.
-* Bad, because a long `/load` delays every call behind it, including a
-  `/shutdown`.
-* Bad, because a failed `/load` leaves the server with nothing to render
+* Bad, because a long score load delays every call behind it, including a
+  `POST /v1/shutdown`.
+* Bad, because a failed score load leaves the server with nothing to render
   until the next good one.
 * Neutral, because the namespace rename is unusual, and only stays correct
   while it is re-checked at each bump of cpp-httplib.
 
 ## More Information
 
-`rendering-engine/docs/server.md` specifies the calls; `rendering-engine/docs/design.md`
-§3 places them among the engine's ingresses.
+`rendering-engine/api/openapi.yaml` specifies the calls, and
+`rendering-engine/docs/server.md` describes them; `rendering-engine/docs/design.md`
+§3 places them among the engine's ingresses. Their paths, bodies and error
+format are the conventions of [ADR 0017](0017-rest-resources-under-v1-described-by-openapi-3-1.md).

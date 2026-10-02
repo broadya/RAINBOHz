@@ -2,37 +2,45 @@
 
 // Server mode: the engine as a long-running REST service (docs/server.md).
 //
-// The server holds at most one score in an in-memory engine-db between calls,
-// and answers three:
+// The server holds at most one score in an in-memory engine-db between calls.
+// Its calls, all under /v1, are described in full by the OpenAPI document
+// api/openapi.yaml:
 //
-//   POST /load      {"uri": "file:///…/score.cypher"}
-//                   Discards the score it holds, then loads, transforms and
-//                   precomputes the named file into a fresh engine-db. If that
-//                   fails, it holds no score.
-//   POST /render    {"frame": 3, "labels": ["bell"]}
-//                   Renders one frame of the score it holds to a WAV file in
-//                   --out-dir and returns the file's URI.
-//   POST /shutdown  Answers, then stops the server; the process exits 0.
+//   PUT  /v1/score                          {"uri": "file:///…/score.cypher"}
+//        Discards the score it holds, then loads, transforms and precomputes
+//        the named file into a fresh engine-db. If that fails, it holds no
+//        score.
+//   POST /v1/frames/{frame}/renderings      {"labels": ["bell"]}, or no body
+//        Renders one frame of the score it holds to a WAV file in --out-dir
+//        and returns the file's URI.
+//   POST /v1/shutdown
+//        Answers, then stops the server; the process exits 0.
+//   GET  /v1/tempo-maps/root                the Score's TempoMap and children
+//   GET  /v1/tempo-maps/{id}/children       a map's children
+//   GET  /v1/tempo-maps/{id}/points         a page of a map's points
+//   GET  /v1/tempo-maps/{id}/frame-position ?at=beats:ticks, the sample there
+//   GET  /v1/engine-config                  sample rate, frame size, channels
 //
-// Every response is a JSON object with `status` ("ok" or "error"), `message`
-// and `log`, which is the narrative of the call line by line, exactly as
-// batch mode would print it. The narrative also goes to standard output.
+// A successful response is the resource as a JSON object. A failure is an
+// RFC 9457 problem document (application/problem+json) whose `detail` is the
+// one-line verdict; the call's full narrative goes to standard output only.
 //
 // Calls are handled strictly one at a time, on the thread that accepts them:
 // there is no worker thread and no pool. With one engine-db and one score,
 // concurrency would buy contention and nothing else (ADR 0016).
 //
 // The split between ServerCore and runServer() keeps HTTP out of everything
-// that can be tested without a socket. ServerCore takes a request body and
-// returns a status code and a response body; runServer() is the only code
-// that knows about HTTP, and cpp-httplib and nlohmann/json are confined to the
-// implementation.
+// that can be tested without a socket. ServerCore takes a call's path
+// parameters, query parameters and body as strings and returns a status code
+// and a response body; runServer() is the only code that knows about HTTP, and
+// cpp-httplib and nlohmann/json are confined to the implementation.
 
 #include "rainbohz/rendering_engine/engine_db.hpp"
 #include "rainbohz/rendering_engine/options.hpp"
 #include "rainbohz/rendering_engine/score_pipeline.hpp"
 
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -55,21 +63,30 @@ struct ServerSettings {
     PipelineSettings pipeline;
 };
 
-/// An HTTP response, before it is HTTP: a status code and a JSON body.
+/// An HTTP response, before it is HTTP: a status code, a JSON body and its
+/// media type.
 struct HttpReply {
     /// The HTTP status code.
     int status = 200;
 
     /// A JSON object, serialised.
     std::string body;
+
+    /// `application/json` for a resource, `application/problem+json` for a
+    /// problem.
+    std::string contentType = "application/json";
 };
+
+/// A call's query parameters, as the URL carries them: a name may repeat.
+using QueryParameters = std::multimap<std::string, std::string>;
 
 /// The server's state and its handling of each call, without HTTP.
 ///
 /// Every handler returns a reply rather than throwing: an exception from the
-/// engine becomes a 500 whose message is the exception's text, so no request
-/// can stop the server. Not thread-safe, and not meant to be: the server calls
-/// it from one thread.
+/// engine becomes a 500 whose detail is the exception's text, so no request
+/// can stop the server. Every failure is a problem document with the status
+/// listed for it here and in api/openapi.yaml. Not thread-safe, and not meant
+/// to be: the server calls it from one thread.
 class ServerCore {
 public:
     /// Prepares a server that holds no score.
@@ -92,7 +109,7 @@ public:
     ServerCore(ServerCore&&) = delete;
     ServerCore& operator=(ServerCore&&) = delete;
 
-    /// Handles POST /load.
+    /// Handles PUT /v1/score.
     ///
     /// The body must be a JSON object whose only key is `uri`, a string
     /// accepted by fileUriToPath(). The path is resolved, through any
@@ -106,28 +123,30 @@ public:
     ///         when the body is not such an object or the URI is unusable;
     ///         403 when the path lies outside the input root; 404 when it
     ///         names no regular file; 422 when the load stopped short, with
-    ///         its verdict as the message; 500 when the engine failed
+    ///         its verdict as the detail; 500 when the engine failed
     ///         otherwise. After a 422 or a 500 the server holds no score.
-    HttpReply load(std::string_view body);
+    HttpReply putScore(std::string_view body);
 
-    /// Handles POST /render.
+    /// Handles POST /v1/frames/{frame}/renderings.
     ///
-    /// The body must be a JSON object with `frame`, an integer from 0 to the
-    /// INT32 maximum, and optionally `labels`, an array of non-empty strings;
-    /// an omitted, null or empty `labels` means every partial, as in the
-    /// batch request. No other key is accepted. The frame is rendered with
-    /// renderRequestedFrames(), which replaces any earlier file for it.
+    /// `frame` must be a decimal integer from 0 to the INT32 maximum, digits
+    /// only. The body is either empty, meaning every partial, or a JSON
+    /// object with at most `labels`, an array of non-empty strings; an
+    /// omitted, null or empty `labels` means every partial, as in the batch
+    /// request. The frame is rendered with renderRequestedFrames(), which
+    /// replaces any earlier file for it.
     ///
-    /// @param body  The request body.
+    /// @param frame  The `{frame}` path segment.
+    /// @param body   The request body.
     /// @return 200 with `frame` and `uri`, and `set_uris` under --per-set-wav,
-    ///         when the frame was rendered; 400 when the body is not such an
-    ///         object, with every problem in `log`; 409 when no score is
+    ///         when the frame was rendered; 400 when the frame or the body is
+    ///         unusable, with every problem in `errors`; 409 when no score is
     ///         loaded; 422 when a label is unknown or the frame could not be
     ///         rendered; 500 when the output directory cannot be created or
     ///         the engine failed otherwise.
-    HttpReply render(std::string_view body);
+    HttpReply renderFrame(std::string_view frame, std::string_view body);
 
-    /// Handles POST /shutdown.
+    /// Handles POST /v1/shutdown.
     ///
     /// Only answers: stopping the server is runServer()'s business, once the
     /// answer has been sent. The body is ignored.
@@ -135,10 +154,71 @@ public:
     /// @return 200, always.
     HttpReply shutdown();
 
+    /// Handles GET /v1/tempo-maps/root.
+    ///
+    /// @param query  The query parameters; there must be none.
+    /// @return 200 with the root TempoMap's `id`, `name`, `ticks_per_beat` and
+    ///         `children`; 400 for a query parameter; 404 when there is no
+    ///         Score or it has no TempoMap; 409 when no score is loaded; 422
+    ///         when there is more than one Score.
+    HttpReply tempoMapRoot(const QueryParameters& query);
+
+    /// Handles GET /v1/tempo-maps/{id}/children.
+    ///
+    /// @param id     The `{id}` path segment: a TempoMap.id, digits only.
+    /// @param query  The query parameters; there must be none.
+    /// @return 200 with `tempo_map_id` and `children`; 400 when `id` is not
+    ///         an id or there is a query parameter; 404 when there is no such
+    ///         map; 409 when no score is loaded.
+    HttpReply tempoMapChildren(std::string_view id, const QueryParameters& query);
+
+    /// Handles GET /v1/tempo-maps/{id}/points.
+    ///
+    /// Query parameters, each at most once: `after`, a position in ticks,
+    /// digits only, which only later points follow; and `limit`, the page
+    /// size, from 1 to kMaxPointsLimit, kDefaultPointsLimit when omitted.
+    ///
+    /// @param id     The `{id}` path segment.
+    /// @param query  The query parameters.
+    /// @return 200 with `tempo_map_id`, `ticks_per_beat`, `points` and `next`,
+    ///         the relative URL of the next page or null; 400 when `id` or a
+    ///         parameter is unusable; 404 when there is no such map; 409 when
+    ///         no score is loaded; 422 when the map's list cannot be paged.
+    HttpReply tempoMapPoints(std::string_view id, const QueryParameters& query);
+
+    /// Handles GET /v1/tempo-maps/{id}/frame-position.
+    ///
+    /// The query must hold `at` exactly once: a position `beats:ticks`, or a
+    /// bare number of beats.
+    ///
+    /// @param id     The `{id}` path segment.
+    /// @param query  The query parameters.
+    /// @return 200 with `tempo_map_id`, `at`, `frame` and `offset`; 400 when
+    ///         `id` or `at` is unusable, including ticks beyond the map's
+    ///         ticks_per_beat; 404 when there is no such map; 409 when no
+    ///         score is loaded; 422 when the map does not convert
+    ///         (framePosition()).
+    HttpReply framePosition(std::string_view id, const QueryParameters& query);
+
+    /// Handles GET /v1/engine-config.
+    ///
+    /// @param query  The query parameters; there must be none.
+    /// @return 200 with `sample_rate`, `frame_size` (resolved) and
+    ///         `channel_mode`; 400 for a query parameter; 409 when no score
+    ///         is loaded; 422 when EngineConfig is unusable.
+    HttpReply engineConfig(const QueryParameters& query);
+
     /// Whether a score is loaded and ready to render.
     ///
-    /// @return True after a /load that succeeded, until the next /load.
+    /// @return True after a PUT /v1/score that succeeded, until the next one.
     bool hasScore() const noexcept { return db_ != nullptr; }
+
+    /// The page size of GET /v1/tempo-maps/{id}/points when `limit` is
+    /// omitted.
+    static constexpr int kDefaultPointsLimit = 100;
+
+    /// The largest `limit` GET /v1/tempo-maps/{id}/points accepts.
+    static constexpr int kMaxPointsLimit = 1000;
 
 private:
     /// The settings, with the input root resolved and the output directory
@@ -152,12 +232,13 @@ private:
     std::unique_ptr<EngineDb> db_;
 };
 
-/// Runs server mode until a /shutdown call.
+/// Runs server mode until a POST /v1/shutdown call.
 ///
 /// Creates --out-dir, binds --host and --port (0 picks a free port), writes a
 /// line `listening on http://<host>:<port>` to standard output once
 /// connections can be accepted, and then serves calls one at a time until
-/// POST /shutdown has been answered.
+/// POST /v1/shutdown has been answered. A known path asked with the wrong
+/// method gets 405 with an `Allow` header; an unknown path gets 404.
 ///
 /// @param options  Validated command-line options, with `mode` equal to
 ///                 Mode::Server.

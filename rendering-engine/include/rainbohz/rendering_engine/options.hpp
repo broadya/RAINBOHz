@@ -13,8 +13,9 @@
 //                request written to a directory as WAV files, terminate.
 //                This is the harness docs/design.md section 3 describes.
 //   server       Long-running, driven over REST (docs/server.md). Holds one
-//                score in memory between calls: /load replaces it, /render
-//                writes one frame to a directory, /shutdown exits. Files are
+//                score in memory between calls: PUT /v1/score replaces it, a
+//                rendering writes one frame to a directory, POST
+//                /v1/shutdown exits. Files are
 //                read only from beneath --input-root.
 //   distributed  Long-running, request-driven over message-bus, writing to
 //                object-storage. Not implemented.
@@ -57,7 +58,7 @@ struct Options {
 
     /// Cypher file holding the initial database state, applied on top of the
     /// schema. Required in batch mode, refused in server mode (a score arrives
-    /// by /load); there is no default, because a run must not silently load a
+    /// by PUT /v1/score); there is no default, because a run must not silently load a
     /// score nobody asked for.
     std::filesystem::path stateFile;
 
@@ -80,14 +81,14 @@ struct Options {
     /// system for a free port, which the server reports once it is listening.
     std::uint16_t port = 0;
 
-    /// Server mode: the directory every /load must read from. A URI that
+    /// Server mode: the directory every score load must read from. A URI that
     /// resolves outside it is refused. Required, and must exist.
     std::filesystem::path inputRoot;
 
     /// Where engine-db lives. Empty means in memory, which is the deployed
     /// configuration; a path is a debugging affordance, so that a run can be
     /// opened afterwards in the `lbug` shell. Batch mode only: a server
-    /// replaces its database on every /load.
+    /// replaces its database on every PUT /v1/score.
     std::string dbPath;
 
     /// Report every statement, not just the failures.

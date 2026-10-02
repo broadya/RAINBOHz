@@ -101,6 +101,7 @@ add_library(rendering_engine_lib STATIC
     src/server.cpp
     src/transform/squash.cpp
     src/transform/tempo_map.cpp
+    src/transform/timing_query.cpp
     src/transform/transform.cpp
     src/wav_writer.cpp
 )

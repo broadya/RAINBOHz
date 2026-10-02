@@ -79,9 +79,12 @@ Three ingresses, one per run mode:
 
 - **`message-bus`** in production (`distributed` mode) — a Kafka topic. This
   is the real path, and it is not implemented.
-- **REST calls** in `server` mode: `POST /load` names a score, `POST /render`
-  names one frame and a label set. The engine stays up between calls and keeps
-  the loaded score in memory. See [server.md](server.md).
+- **REST calls** in `server` mode: `PUT /v1/score` names a score, `POST
+  /v1/frames/{frame}/renderings` names one frame and a label set, and GET calls
+  read the score's tempo maps and engine parameters. The engine stays up
+  between calls and keeps the loaded score in memory. See
+  [server.md](server.md) and the OpenAPI document
+  [api/openapi.yaml](../api/openapi.yaml).
 - **A YAML file** in `batch` mode, the test harness, so the engine can be
   exercised without standing up anything. It carries the same fields.
 
@@ -103,10 +106,10 @@ exists in the code rather than arriving later as a retrofit. (`batch` was
 called `test` until server mode arrived, and a fourth mode, `standalone`, a
 server writing to a local directory, was reserved; `server` is what it became.)
 
-`server` mode is specified in [server.md](server.md). Each `/load` runs the
-loading steps below, up to precomputation, into a fresh in-memory `engine-db`
-that replaces the one before; each `/render` runs the label check and renders
-one frame. Calls are served one at a time
+`server` mode is specified in [server.md](server.md). Each `PUT /v1/score` runs
+the loading steps below, up to precomputation, into a fresh in-memory
+`engine-db` that replaces the one before; each rendering call runs the label
+check and renders one frame; the GET calls only read. Calls are served one at a time
 ([ADR 0016](../../docs/adr/0016-serve-rest-with-cpp-httplib-one-call-at-a-time.md)).
 
 Within `batch` mode, the first steps of the batch sequence exist, plus the
@@ -181,9 +184,10 @@ the former and leaves the latter alone.
 
 ### 3.2 The batch-mode render request
 
-`--request` names one YAML file, required in batch mode. A server `/render`
-call carries one entry of it as JSON, `{"frame": 1, "labels": ["strings"]}`,
-checked by the same rules:
+`--request` names one YAML file, required in batch mode. A server rendering
+call carries one entry of it, the frame in its path and the labels as JSON,
+`POST /v1/frames/1/renderings` with `{"labels": ["strings"]}`, checked by the
+same rules:
 
 ```yaml
 frames:
@@ -217,7 +221,7 @@ frames:
 **The source version is not in the file.** §3 says a request names a frame, a
 label set and a source version. In batch mode the version is implicit: it is
 whatever `--state` loaded, and there is no other to name. A server is in the
-same position: the version is whichever score the last `/load` loaded. When requests arrive
+same position: the version is whichever score the last `PUT /v1/score` loaded. When requests arrive
 over `message-bus` the version has to travel with them, and this format may
 gain a key for it then.
 

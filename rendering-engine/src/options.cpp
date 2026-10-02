@@ -190,7 +190,7 @@ ParseResult parseCommandLine(int argc, const char* const* argv) {
 
     const CLI::Option* inputRoot =
         app.add_option("--input-root", options.inputRoot,
-               "Directory every /load must read from (server mode, required)")
+               "Directory every score load must read from (server mode, required)")
             ->check(CLI::ExistingDirectory);
 
     app.add_flag("-v,--verbose", options.verbose, "Report every statement, not just failures");
@@ -234,11 +234,13 @@ ParseResult parseCommandLine(int argc, const char* const* argv) {
     if (options.mode == Mode::Server) {
         if (!requireOption(host, "server", "<address>", "the interface to listen on") ||
             !requireOption(port, "server", "<port>", "the TCP port to listen on") ||
-            !requireOption(inputRoot, "server", "<dir>", "where /load may read from") ||
-            !requireOption(outDir, "server", "<dir>", "where /render writes") ||
-            !refuseOption(state, "server", "a score arrives by POST /load") ||
-            !refuseOption(request, "server", "frames are asked for by POST /render") ||
-            !refuseOption(dbPath, "server", "engine-db is in memory, replaced by every /load")) {
+            !requireOption(inputRoot, "server", "<dir>", "where PUT /v1/score may read from") ||
+            !requireOption(outDir, "server", "<dir>", "where rendered frames are written") ||
+            !refuseOption(state, "server", "a score arrives by PUT /v1/score") ||
+            !refuseOption(
+                request, "server", "frames are asked for by POST /v1/frames/{frame}/renderings") ||
+            !refuseOption(
+                dbPath, "server", "engine-db is in memory, replaced by every PUT /v1/score")) {
             return ParseResult{.options = std::nullopt, .exitCode = 1};
         }
     }

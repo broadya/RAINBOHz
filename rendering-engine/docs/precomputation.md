@@ -776,7 +776,7 @@ worth stating:
   propagates out of `precomputeAll`.
 
 **Wiring.** `loadScore()` (`score_pipeline.cpp`), which batch mode and every
-server `/load` call, runs precomputation once the transform has succeeded,
+server `PUT /v1/score` call, runs precomputation once the transform has succeeded,
 and before any frame is listed. It always runs; there
 is no flag to skip it. The census that follows then shows the new rows, which
 makes an empty result visible.

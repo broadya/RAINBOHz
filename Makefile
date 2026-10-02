@@ -254,7 +254,7 @@ run-rendering-engine: rendering-engine
 	    --schema $(RE_SCHEMA) --state $(RE_STATE) \
 	    --request $(RE_REQUEST) --out-dir $(RE_OUT_DIR) $(RE_ARGS)
 
-## run-rendering-engine-server: serve REST on $(RE_HOST):$(RE_PORT) until POST /shutdown (rendering-engine/docs/server.md)
+## run-rendering-engine-server: serve REST on $(RE_HOST):$(RE_PORT) until POST /v1/shutdown (rendering-engine/docs/server.md)
 run-rendering-engine-server: rendering-engine
 	$(RE_BUILD)/bin/rendering-engine --mode server --schema $(RE_SCHEMA) \
 	    --host $(RE_HOST) --port $(RE_PORT) \

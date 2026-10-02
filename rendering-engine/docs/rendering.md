@@ -972,7 +972,7 @@ Three decisions worth stating:
   `Partial.name` and id.
 
 **Wiring.** `renderRequestedFrames()` (`score_pipeline.cpp`), which batch
-mode and every server `/render` call, renders after the label check, which is
+mode and every server rendering call (`POST /v1/frames/{frame}/renderings`), renders after the label check, which is
 the last step today. The closing line changes from "rendering is not
 implemented" to the totals. `--out-dir` is created if absent, as
 `options.hpp` already promises, and `--per-set-wav` is added, off by

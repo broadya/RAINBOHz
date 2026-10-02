@@ -149,7 +149,7 @@ const std::array<RangeRule, 20>& rangeRules() {
             .column = "channelMode",
             .nullable = false,
             .min = Bound{.value = 0.0, .inclusive = true},
-            .max = Bound{.value = 2.0, .inclusive = true}},
+            .max = Bound{.value = 4.0, .inclusive = true}},
         {.table = "FrequencyPhysicalTimelinePoint",
             .column = "time",
             .nullable = false,

@@ -77,7 +77,7 @@ the schema documents a range for it.
 | `FrequencyPhysicalTimelinePoint.frequency` | no | any finite value | schema: unbounded in both directions |
 | `FrequencyPhysicalTimelinePoint.frequency_curve_type` | no | 0 to 4 | schema's enumeration |
 | `FrequencyPhysicalTimelinePoint.frequency_curve_amount` | no | 0 to 1 | schema: 0 linear, 1 curve |
-| `EngineConfig.channelMode` | no | 0 to 2 | schema's enumeration |
+| `EngineConfig.channelMode` | no | 0 to 4 | schema's enumeration |
 | `AmplitudePhysicalTimelinePoint.time` | no | ≥ 0 | as for frequency points |
 | `AmplitudePhysicalTimelinePoint.amplitude` | no | ≤ 0 | schema; an amplitude above 0 dB is an **error** (decided 2026-09-23): the schema's "values above 0dB will be clipped" is the renderer's defence against bad data, not permission to store it |
 | `AmplitudePhysicalTimelinePoint.amplitude_curve_type` | no | 0 to 4 | schema's enumeration |

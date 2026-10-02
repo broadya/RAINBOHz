@@ -57,7 +57,7 @@ so that the mode axis exists in the code rather than being retrofitted later.
 | Mode | Lifetime | Input | Output | Status |
 | --- | --- | --- | --- | --- |
 | `batch` | runs once, then exits | a Cypher state file and a YAML render request | WAV files in a local directory | implemented for the first versions of the transform, precomputation and rendering |
-| `server` | long-running, holds one score in memory | REST calls: `/load` a Cypher file, `/render` a frame, `/shutdown` | WAV files in a local directory, returned as `file://` URIs | implemented; see [docs/server.md](docs/server.md) |
+| `server` | long-running, holds one score in memory | REST calls under `/v1` ([api/openapi.yaml](api/openapi.yaml)): `PUT /score` a Cypher file, render a frame, read tempo maps and engine parameters, `POST /shutdown` | WAV files in a local directory, returned as `file://` URIs | implemented; see [docs/server.md](docs/server.md) |
 | `distributed` | long-running | requests over `message-bus` | object storage | not implemented |
 
 `batch` is the harness [docs/design.md](docs/design.md) §3 describes, and it is
@@ -76,7 +76,7 @@ rendering-engine --mode server --host <address> --port <port>
   -r, --request <file.yaml>                 Frames and labels to render (batch: required)
       --host <address>                      Interface to listen on (server: required)
       --port <port>                         TCP port, 0 for a free one (server: required)
-      --input-root <dir>                    Directory /load may read from (server: required)
+      --input-root <dir>                    Directory a score load may read from (server: required)
       --schema <file.cypher>                Schema DDL to apply
                                             [../engine-db/schema/engine-schema.cypher]
   -o, --out-dir <dir>                       Rendered WAV files, one per frame, created
