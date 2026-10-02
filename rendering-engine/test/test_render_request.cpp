@@ -1,4 +1,4 @@
-// Tests for the test-mode render request.
+// Tests for the batch-mode render request.
 //
 // The properties that matter: a well-formed request yields exactly the frames
 // and label sets it says; "no labels" in either spelling means every partial;

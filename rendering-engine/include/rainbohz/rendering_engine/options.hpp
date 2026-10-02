@@ -2,21 +2,22 @@
 
 // The rendering-engine command line.
 //
-// Three run modes are anticipated by the architecture; only `test` is
-// implemented. The other two are recognised here so that the mode axis exists
+// Three run modes are anticipated by the architecture; `batch` and `server`
+// are implemented. The third is recognised here so that the mode axis exists
 // in the code from the start rather than being retrofitted around a binary
 // that only ever did one thing.
 //
-//   test         Batch. Empty database, schema applied from one Cypher file,
+//   batch        Empty database, schema applied from one Cypher file,
 //                initial state loaded from a second Cypher file, every
 //                partial precomputed, the frames named by a YAML render
 //                request written to a directory as WAV files, terminate.
-//                This is the harness docs/design.md section 3 describes, and
-//                until the orchestration subsystem is more than a sketch it is
-//                the only path that can actually be run.
-//   distributed  Long-running server, request-driven, writing to
+//                This is the harness docs/design.md section 3 describes.
+//   server       Long-running, driven over REST (docs/server.md). Holds one
+//                score in memory between calls: /load replaces it, /render
+//                writes one frame to a directory, /shutdown exits. Files are
+//                read only from beneath --input-root.
+//   distributed  Long-running, request-driven over message-bus, writing to
 //                object-storage. Not implemented.
-//   standalone   As distributed, but writing to a directory. Not implemented.
 //
 // The parser is CLI11, and it is deliberately confined to the implementation:
 // no third-party type appears in this header, the same rule Ladybug is held
@@ -26,10 +27,11 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace rainbohz::rendering_engine {
 
-enum class Mode : std::uint8_t { Test, Distributed, Standalone };
+enum class Mode : std::uint8_t { Batch, Server, Distributed };
 
 /// Returns the name used for a mode on the command line and in diagnostics.
 ///
@@ -37,14 +39,15 @@ enum class Mode : std::uint8_t { Test, Distributed, Standalone };
 /// `--mode`, so a name printed in a diagnostic can be typed back in.
 ///
 /// @param mode  Mode to name.
-/// @return The lower-case command-line name (`test`, `distributed` or
-///         `standalone`). A value outside the enumerators, which only a cast
+/// @return The lower-case command-line name (`batch`, `server` or
+///         `distributed`). A value outside the enumerators, which only a cast
 ///         can produce, gives `unknown`. The view refers to a string literal,
 ///         so it stays valid for the whole program.
 std::string_view modeName(Mode mode) noexcept;
 
 struct Options {
-    Mode mode = Mode::Test;
+    /// The run mode. `batch` when --mode is not given.
+    Mode mode = Mode::Batch;
 
     /// Cypher file of schema DDL, applied to the empty database before
     /// anything else. Defaults to the in-repo
@@ -53,21 +56,38 @@ struct Options {
     std::filesystem::path schemaFile;
 
     /// Cypher file holding the initial database state, applied on top of the
-    /// schema. Required in test mode; there is no default, because a run must
-    /// not silently load a score nobody asked for.
+    /// schema. Required in batch mode, refused in server mode (a score arrives
+    /// by /load); there is no default, because a run must not silently load a
+    /// score nobody asked for.
     std::filesystem::path stateFile;
 
     /// YAML render request: which frames to render, and which labels select
-    /// the partials for each. Required in test mode. See render_request.hpp.
+    /// the partials for each. Required in batch mode, refused in server mode.
+    /// See render_request.hpp.
     std::filesystem::path requestFile;
 
-    /// Where rendered WAV files are written, one per frame. Defaults to the
-    /// current directory, and is created if absent.
+    /// Where rendered WAV files are written, one per frame, and created if
+    /// absent. Defaults to the current directory in batch mode; required in
+    /// server mode.
     std::filesystem::path outputDir = ".";
+
+    /// Server mode: the address of the interface to listen on, such as
+    /// `127.0.0.1` or `0.0.0.0`. Required; there is no default, so that which
+    /// interfaces the server is exposed on is always a deliberate choice.
+    std::string host;
+
+    /// Server mode: the TCP port to listen on. Required. 0 asks the operating
+    /// system for a free port, which the server reports once it is listening.
+    std::uint16_t port = 0;
+
+    /// Server mode: the directory every /load must read from. A URI that
+    /// resolves outside it is refused. Required, and must exist.
+    std::filesystem::path inputRoot;
 
     /// Where engine-db lives. Empty means in memory, which is the deployed
     /// configuration; a path is a debugging affordance, so that a run can be
-    /// opened afterwards in the `lbug` shell.
+    /// opened afterwards in the `lbug` shell. Batch mode only: a server
+    /// replaces its database on every /load.
     std::string dbPath;
 
     /// Report every statement, not just the failures.
@@ -98,11 +118,14 @@ struct ParseResult {
 /// Parses and validates the rendering-engine command line.
 ///
 /// CLI11 does the parsing and the per-option checks (`--schema`, `--state`
-/// and `--request` must name existing files). This function then applies the
+/// and `--request` must name existing files, `--input-root` an existing
+/// directory, and `--port` a number from 0 to 65535). This function then applies the
 /// checks CLI11 is not asked to make, so that each is reported in the engine's
-/// own words: the mode name is known (matched case-insensitively), test mode
-/// has both `--state` and `--request`, `--out-dir` is not an existing
-/// non-directory, and a schema file is known, from `--schema` or the
+/// own words: the mode name is known (matched case-insensitively); batch mode
+/// has both `--state` and `--request` and none of the server options; server
+/// mode has `--host`, `--port`, `--input-root` and `--out-dir`, and none of
+/// `--state`, `--request` or `--db-path`; `--out-dir` is not an existing
+/// non-directory; and a schema file is known, from `--schema` or the
 /// configure-time default. It checks the command line only: it does not
 /// open the database, read any of the files, or create the output directory.
 ///

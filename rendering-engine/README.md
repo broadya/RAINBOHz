@@ -45,45 +45,60 @@ shipping specifications exceeded the compute it offloaded. See overview.md §11.
 See [docs/design.md](docs/design.md) for the component design and its open
 questions, [docs/transform.md](docs/transform.md) for the transform step,
 [docs/precomputation.md](docs/precomputation.md) for the precomputation step
-that follows it, and [docs/rendering.md](docs/rendering.md) for rendering.
+that follows it, [docs/rendering.md](docs/rendering.md) for rendering, and
+[docs/server.md](docs/server.md) for server mode's REST interface.
 
 ## Run modes
 
-Three modes are anticipated by the architecture. **Only `test` is
-implemented**; the other two are recognised on the command line and rejected,
+Three modes are anticipated by the architecture. **`batch` and `server` are
+implemented**; `distributed` is recognised on the command line and rejected,
 so that the mode axis exists in the code rather than being retrofitted later.
 
 | Mode | Lifetime | Input | Output | Status |
 | --- | --- | --- | --- | --- |
-| `test` | batch, then exits | a Cypher state file and a YAML render request | WAV files in a local directory | implemented for the first versions of the transform, precomputation and rendering |
-| `distributed` | long-running server | requests over a mechanism not yet chosen | object storage | not implemented |
-| `standalone` | long-running server | as `distributed` | a local directory | not implemented |
+| `batch` | runs once, then exits | a Cypher state file and a YAML render request | WAV files in a local directory | implemented for the first versions of the transform, precomputation and rendering |
+| `server` | long-running, holds one score in memory | REST calls: `/load` a Cypher file, `/render` a frame, `/shutdown` | WAV files in a local directory, returned as `file://` URIs | implemented; see [docs/server.md](docs/server.md) |
+| `distributed` | long-running | requests over `message-bus` | object storage | not implemented |
 
-`test` is the harness [docs/design.md](docs/design.md) §3 describes, and it is
-not a lesser path: until the orchestration subsystem is more than a sketch, it
-is the only one that can actually be run.
+`batch` is the harness [docs/design.md](docs/design.md) §3 describes, and it is
+not a lesser path: it is what the oracle tests run. `server` runs exactly the
+same steps, per call, through the same code (`score_pipeline.hpp`).
 
 ## Usage
 
 ```
-rendering-engine --mode test --state <file.cypher> --request <file.yaml> [options]
+rendering-engine [--mode batch] --state <file.cypher> --request <file.yaml> [options]
+rendering-engine --mode server --host <address> --port <port>
+                 --input-root <dir> --out-dir <dir> [options]
 
-  -m, --mode  test|distributed|standalone   Run mode [test]
-  -s, --state <file.cypher>                 Initial database state (required in test mode)
-  -r, --request <file.yaml>                 Frames and labels to render (required in test mode)
+  -m, --mode  batch|server|distributed      Run mode [batch]
+  -s, --state <file.cypher>                 Initial database state (batch: required)
+  -r, --request <file.yaml>                 Frames and labels to render (batch: required)
+      --host <address>                      Interface to listen on (server: required)
+      --port <port>                         TCP port, 0 for a free one (server: required)
+      --input-root <dir>                    Directory /load may read from (server: required)
       --schema <file.cypher>                Schema DDL to apply
                                             [../engine-db/schema/engine-schema.cypher]
-  -o, --out-dir <dir>                       Rendered WAV files, one per frame
-                                            [current directory], created if absent
+  -o, --out-dir <dir>                       Rendered WAV files, one per frame, created
+                                            if absent [batch: current directory;
+                                            server: required]
       --per-set-wav                         Also write each partial set's contribution
                                             to a frame as its own file
       --db-path <path>                      Put engine-db on disk instead of in memory
+                                            (batch only)
       --validate-db                         Check engine-db's integrity after loading;
                                             stop before precomputation if it fails
   -v, --verbose                             Report every statement, not just failures
 ```
 
-What `test` mode does today:
+Each mode refuses the other's options rather than ignoring them: `--state`,
+`--request` and `--db-path` are batch-only, and `--host`, `--port` and
+`--input-root` server-only. The server's options have no defaults, so that
+which interface it listens on and which files it may read are always said
+outright. Server mode is described in [docs/server.md](docs/server.md); the
+rest of this section is about batch mode.
+
+What `batch` mode does today:
 
 1. Reads `--request` and checks its shape. A malformed request stops the run
    here, before anything is loaded.
@@ -189,7 +204,8 @@ rendering-engine/
 ├── .clang-format           formatting (close to Ladybug's own)
 ├── .clang-tidy             C++ Core Guidelines analysis
 ├── cmake/
-│   ├── Dependencies.cmake  Ladybug, CLI11 and yaml-cpp acquisition, pinned
+│   ├── Dependencies.cmake  Ladybug, CLI11, yaml-cpp, dr_wav, cpp-httplib and
+│   │                       nlohmann/json acquisition, pinned
 │   ├── ProjectWarnings.cmake
 │   └── toolchains/         cross-compile configurations
 ├── examples/
@@ -201,15 +217,19 @@ rendering-engine/
 │   ├── amplitude_maths.hpp  amplitude ramp, dB conversion, roll-off
 │   ├── cypher_script.hpp   statement splitting, with line attribution
 │   ├── engine_db.hpp       in-process engine-db wrapper
+│   ├── file_uri.hpp        file:// URIs to and from local paths
 │   ├── frame_plan.hpp      render segments, chunk cuts, per-set driver
 │   ├── integrity.hpp       engine-db integrity checks (--validate-db)
 │   ├── options.hpp         command line and run modes
 │   ├── precomputation.hpp  segments, start phases, frame scope and entries
 │   ├── render_kernel.hpp   the hot loop over Structure-of-Arrays state
-│   ├── render_request.hpp  the test-mode YAML render request
+│   ├── render_request.hpp  the batch-mode YAML render request
 │   ├── rendering.hpp       per-frame gather, validation, loop and report
+│   ├── report.hpp          the reports, written as text to a stream
 │   ├── sample_value.hpp    the audio sample type
+│   ├── score_pipeline.hpp  the load and render operations, step by step
 │   ├── script_loader.hpp   applying Cypher files to engine-db
+│   ├── server.hpp          server mode: the REST handlers and the server
 │   ├── segment_maths.hpp   a segment's frequency and phase
 │   ├── units.hpp           unit types for physical quantities
 │   ├── wav_writer.hpp      32-bit float WAV output (dr_wav)
@@ -219,9 +239,10 @@ rendering-engine/
 │       ├── squash.hpp         placing colliding points in physical time
 │       └── transform.hpp      knots, envelopes, the run and its report
 ├── src/
-│   ├── main.cpp            entry point and test-mode driver
+│   ├── main.cpp            entry point, batch-mode driver, mode dispatch
 │   ├── cypher_script.cpp
 │   ├── engine_db.cpp
+│   ├── file_uri.cpp
 │   ├── frame_plan.cpp
 │   ├── integrity.cpp
 │   ├── options.cpp
@@ -229,7 +250,10 @@ rendering-engine/
 │   ├── render_kernel.cpp
 │   ├── render_request.cpp
 │   ├── rendering.cpp
+│   ├── report.cpp
+│   ├── score_pipeline.cpp
 │   ├── script_loader.cpp
+│   ├── server.cpp           the only file that includes cpp-httplib
 │   ├── wav_writer.cpp
 │   └── transform/
 │       ├── squash.cpp
@@ -239,18 +263,23 @@ rendering-engine/
     ├── oracle/
     │   ├── render_oracle.py      independent NumPy check of one frame
     │   └── run_oracle_check.py   CTest driver: engine, then oracle per frame
+    ├── server/
+    │   └── run_server_check.py   CTest driver: server over HTTP, then oracle per file
     ├── test_support.hpp          a hand-written WAV reader for the tests
     ├── test_amplitude_maths.cpp
     ├── test_cypher_script.cpp
     ├── test_engine_db.cpp
+    ├── test_file_uri.cpp
     ├── test_frame_plan.cpp
     ├── test_integrity.cpp
+    ├── test_options.cpp
     ├── test_precomputation.cpp
     ├── test_render_kernel.cpp
     ├── test_render_request.cpp
     ├── test_rendering.cpp
     ├── test_script_loader.cpp
     ├── test_segment_maths.cpp
+    ├── test_server.cpp
     ├── test_units.cpp
     ├── test_wav_writer.cpp
     └── transform/
@@ -268,6 +297,7 @@ From the repository root:
 make rendering-engine        # configure + build
 make test-rendering-engine   # + run tests
 make run-rendering-engine    # + run the smoke test binary
+make run-rendering-engine-server  # + serve REST on 127.0.0.1:8080
 ```
 
 Or with CMake directly, from this directory:
@@ -336,14 +366,24 @@ Two caveats worth stating plainly:
 | [CLI11](https://github.com/CLIUtils/CLI11) | pinned, see `cmake/Dependencies.cmake` | CMake FetchContent |
 | [yaml-cpp](https://github.com/jbeder/yaml-cpp) | pinned, see `cmake/Dependencies.cmake` | CMake FetchContent |
 | [dr_wav](https://github.com/mackron/dr_libs) | pinned by commit, see `cmake/Dependencies.cmake` | CMake FetchContent |
+| [cpp-httplib](https://github.com/yhirose/cpp-httplib) | pinned, see `cmake/Dependencies.cmake` | CMake FetchContent (fetched only; its CMake is not run) |
+| [nlohmann/json](https://github.com/nlohmann/json) | pinned, see `cmake/Dependencies.cmake` | CMake FetchContent |
 | GoogleTest | pinned, see `test/CMakeLists.txt` | CMake FetchContent |
 | Python 3 with NumPy | whatever is first on `PATH` | for the oracle tests only; skipped if absent |
 
 CLI11 is header-only and is used by `src/options.cpp` alone; yaml-cpp is built
 static and used by `src/render_request.cpp` alone; dr_wav is one header,
-carried by `src/wav_writer.cpp` alone ([ADR 0009](../docs/adr/0009-write-wav-files-with-dr-wav.md)).
-All three are linked PRIVATE and appear in no public header, so callers of
+carried by `src/wav_writer.cpp` alone ([ADR 0009](../docs/adr/0009-write-wav-files-with-dr-wav.md));
+cpp-httplib and nlohmann/json are headers carried by `src/server.cpp` alone
+([ADR 0016](../docs/adr/0016-serve-rest-with-cpp-httplib-one-call-at-a-time.md)).
+All five are linked PRIVATE and appear in no public header, so callers of
 this component do not acquire them — the same rule Ladybug is held to.
+
+**cpp-httplib is included under a different namespace.** Ladybug compiles its
+own, older copy into its extension installer, in namespace `httplib`, so two
+versions of the same inline classes end up in one binary. That is an ODR
+violation, and it crashed the first server build. `src/server.cpp` includes
+ours as `rainbohz_httplib` to keep them apart; see ADR 0016.
 
 Ladybug is built trimmed to the core library: no shell, no language bindings,
 no extensions, no single-file header.

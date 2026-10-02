@@ -39,7 +39,7 @@ question:
 ## 2. Running the checks
 
 ```
-rendering-engine --mode test --state score.cypher --request request.yaml --validate-db
+rendering-engine --mode batch --state score.cypher --request request.yaml --validate-db
 make run-rendering-engine RE_ARGS=--validate-db
 ```
 

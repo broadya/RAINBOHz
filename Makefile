@@ -75,6 +75,16 @@ RE_OUT_DIR ?= $(RE_BUILD)/frames
 # Extra engine options, e.g. RE_ARGS="--validate-db --verbose".
 RE_ARGS    ?=
 
+# What `make run-rendering-engine-server` serves on and from. The engine has no
+# defaults for these -- a server's interface and readable files are always
+# said outright -- so these are development conveniences: loopback only, the
+# repository as the input root (so the examples can be loaded), and the same
+# frames directory as a batch run.
+#   make run-rendering-engine-server RE_PORT=9000 RE_ARGS=--verbose
+RE_HOST       ?= 127.0.0.1
+RE_PORT       ?= 8080
+RE_INPUT_ROOT ?= .
+
 # Apple's clang ships no clang-tidy, and its clang-format lags. Prefer a
 # Homebrew LLVM if one is installed (it is keg-only, so not on PATH).
 BREW_LLVM_BIN := /opt/homebrew/opt/llvm/bin
@@ -105,7 +115,8 @@ RE_DOC_SOURCES  := $(filter-out $(RE_DIR)/test/%,$(RE_SOURCES)) \
         init-engine-db init-canonical-db \
         reset-engine-db reset-canonical-db \
         rendering-engine configure-rendering-engine test-rendering-engine \
-        run-rendering-engine format-rendering-engine tidy-rendering-engine \
+        run-rendering-engine run-rendering-engine-server \
+        format-rendering-engine tidy-rendering-engine \
         clean-rendering-engine \
         hzl-compiler hzl-compile test-hzl-compiler test-hzl-oracle run-hzl-score \
         clean-hzl-compiler build test clean help
@@ -237,11 +248,17 @@ rendering-engine: $(RE_BUILD)/CMakeCache.txt
 test-rendering-engine: rendering-engine
 	cd $(RE_DIR) && ctest --preset $(RE_PRESET)
 
-## run-rendering-engine: run the engine in test mode against $(RE_STATE) and $(RE_REQUEST)
+## run-rendering-engine: run the engine in batch mode against $(RE_STATE) and $(RE_REQUEST)
 run-rendering-engine: rendering-engine
-	$(RE_BUILD)/bin/rendering-engine --mode test \
+	$(RE_BUILD)/bin/rendering-engine --mode batch \
 	    --schema $(RE_SCHEMA) --state $(RE_STATE) \
 	    --request $(RE_REQUEST) --out-dir $(RE_OUT_DIR) $(RE_ARGS)
+
+## run-rendering-engine-server: serve REST on $(RE_HOST):$(RE_PORT) until POST /shutdown (rendering-engine/docs/server.md)
+run-rendering-engine-server: rendering-engine
+	$(RE_BUILD)/bin/rendering-engine --mode server --schema $(RE_SCHEMA) \
+	    --host $(RE_HOST) --port $(RE_PORT) \
+	    --input-root $(RE_INPUT_ROOT) --out-dir $(RE_OUT_DIR) $(RE_ARGS)
 
 ## format-rendering-engine: apply .clang-format in place
 format-rendering-engine:
@@ -313,7 +330,7 @@ test-hzl-oracle: hzl-compiler rendering-engine
 
 ## run-hzl-score: compile $(HZL_SCORE), then render it with $(RE_REQUEST) into $(RE_OUT_DIR)
 run-hzl-score: hzl-compile rendering-engine
-	$(RE_BUILD)/bin/rendering-engine --mode test \
+	$(RE_BUILD)/bin/rendering-engine --mode batch \
 	    --schema $(RE_SCHEMA) --state $(HZL_OUT) \
 	    --request $(RE_REQUEST) --out-dir $(RE_OUT_DIR) $(RE_ARGS)
 

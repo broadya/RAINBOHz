@@ -75,28 +75,41 @@ are contiguous sequential integers covering roughly one second of audio each;
 frame numbering is predictable and crosses component boundaries, so it is part
 of the contract rather than an internal detail.
 
-Two ingresses, one of which is for testing:
+Three ingresses, one per run mode:
 
-- **`message-bus`** in production — a Kafka topic. This is the real path.
-- **A YAML file** in the test harness, so the engine can be exercised without
-  standing up a broker. It carries the same fields.
+- **`message-bus`** in production (`distributed` mode) — a Kafka topic. This
+  is the real path, and it is not implemented.
+- **REST calls** in `server` mode: `POST /load` names a score, `POST /render`
+  names one frame and a label set. The engine stays up between calls and keeps
+  the loaded score in memory. See [server.md](server.md).
+- **A YAML file** in `batch` mode, the test harness, so the engine can be
+  exercised without standing up anything. It carries the same fields.
 
 Correspondingly, two egresses: `object-storage` in production, and a local file
-in the test harness.
+in `batch` and `server` modes. The server returns each file as a `file://` URI,
+so that its callers do not change when the URI later names an object instead.
 
-The test harness is not a lesser path. Until the orchestration subsystem is more
-than a sketch (overview.md §5.4), it is the only path that can actually be run,
-and it should be the one the tests use.
+The batch harness is not a lesser path. Until the orchestration subsystem is
+more than a sketch (overview.md §5.4), it and the server are the only paths
+that can actually be run, and it is the one the oracle tests use. The two run
+the same steps through the same code (`score_pipeline.hpp`), and the server's
+end-to-end tests check its frames with the same oracle.
 
 ### 3.1 What is implemented
 
-The engine takes a `--mode` of `test`, `distributed` or `standalone`. Only
-`test` runs; the other two are recognised and rejected, so that the mode axis
-exists in the code rather than arriving later as a retrofit. `standalone` is a
-third mode this section did not previously anticipate: the distributed server,
-writing to a local directory instead of to `object-storage`.
+The engine takes a `--mode` of `batch`, `server` or `distributed`. `batch` and
+`server` run; `distributed` is recognised and rejected, so that the mode axis
+exists in the code rather than arriving later as a retrofit. (`batch` was
+called `test` until server mode arrived, and a fourth mode, `standalone`, a
+server writing to a local directory, was reserved; `server` is what it became.)
 
-Within `test` mode, the first steps of the batch sequence exist, plus the
+`server` mode is specified in [server.md](server.md). Each `/load` runs the
+loading steps below, up to precomputation, into a fresh in-memory `engine-db`
+that replaces the one before; each `/render` runs the label check and renders
+one frame. Calls are served one at a time
+([ADR 0016](../../docs/adr/0016-serve-rest-with-cpp-httplib-one-call-at-a-time.md)).
+
+Within `batch` mode, the first steps of the batch sequence exist, plus the
 reporting that says whether they worked:
 
 - a render request is read from the YAML file named by `--request`, and its
@@ -166,9 +179,11 @@ A state file may be written in the canonical model (musical time, as
 model (physical time, as the first two examples are); the transform converts
 the former and leaves the latter alone.
 
-### 3.2 The test-mode render request
+### 3.2 The batch-mode render request
 
-`--request` names one YAML file, required in test mode:
+`--request` names one YAML file, required in batch mode. A server `/render`
+call carries one entry of it as JSON, `{"frame": 1, "labels": ["strings"]}`,
+checked by the same rules:
 
 ```yaml
 frames:
@@ -200,8 +215,9 @@ frames:
   does.
 
 **The source version is not in the file.** §3 says a request names a frame, a
-label set and a source version. In test mode the version is implicit: it is
-whatever `--state` loaded, and there is no other to name. When requests arrive
+label set and a source version. In batch mode the version is implicit: it is
+whatever `--state` loaded, and there is no other to name. A server is in the
+same position: the version is whichever score the last `/load` loaded. When requests arrive
 over `message-bus` the version has to travel with them, and this format may
 gain a key for it then.
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """CTest driver: render a score with the engine, then check every frame with the oracle.
 
-Runs rendering-engine in test mode on one score and one request, with
+Runs rendering-engine in batch mode on one score and one request, with
 --per-set-wav, then runs render_oracle.py on every frame the request names,
 both the whole frame and each partial set's file where one was written.
 
@@ -68,7 +68,7 @@ def main() -> int:
     os.makedirs(args.out_dir)
     engine = subprocess.run(
         [
-            args.engine, "--mode", "test", "--schema", args.schema, "--state", args.state,
+            args.engine, "--mode", "batch", "--schema", args.schema, "--state", args.state,
             "--request", args.request, "--out-dir", args.out_dir, "--per-set-wav",
         ],
         capture_output=True, text=True, check=False,

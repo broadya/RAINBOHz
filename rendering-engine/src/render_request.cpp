@@ -22,7 +22,7 @@
 #include <vector>
 
 /// @file
-/// @brief Parses and checks the test-mode YAML render request.
+/// @brief Parses and checks the batch-mode YAML render request.
 ///
 /// Implements parseRenderRequest(), loadRenderRequest(), findUnknownLabels()
 /// and describeProblem(). yaml-cpp is confined to this file.

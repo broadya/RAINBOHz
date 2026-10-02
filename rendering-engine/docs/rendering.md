@@ -971,7 +971,8 @@ Three decisions worth stating:
   under its frame's. A partial is named as precomputation names it, by
   `Partial.name` and id.
 
-**Wiring.** In test mode `main.cpp` renders after the label check, which is
+**Wiring.** `renderRequestedFrames()` (`score_pipeline.cpp`), which batch
+mode and every server `/render` call, renders after the label check, which is
 the last step today. The closing line changes from "rendering is not
 implemented" to the totals. `--out-dir` is created if absent, as
 `options.hpp` already promises, and `--per-set-wav` is added, off by
@@ -1180,7 +1181,7 @@ In roughly the order expected. Each names the place in this design it goes.
 | SIMD | §7.5: the body of `render_kernel`. |
 | Recurrence for the multiplier | §8.4, inside `render_kernel`, checked against the direct form. |
 | INT64 exact accumulation | The per-set buffer of §6.4 step 4. |
-| Distributed and standalone modes | The egress: `object-storage` in place of `--out-dir`; the report becomes a message. |
+| Distributed mode | The egress: `object-storage` in place of `--out-dir`; the report becomes a message. |
 
 ## 14. Open questions
 

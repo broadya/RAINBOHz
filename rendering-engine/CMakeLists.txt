@@ -9,14 +9,16 @@ cmake_minimum_required(VERSION 3.28)
 # every operation that needs it: loading, transformation from the canonical
 # model to the rendering model, precomputation, and rendering.
 #
-# Partly implemented. `test` mode stands up engine-db with the schema applied
+# Partly implemented. `batch` mode stands up engine-db with the schema applied
 # from one Cypher file, loads an initial database state from a second, reads
 # and checks a YAML render request, precomputes every partial's integrable
 # segments and frame entries (docs/precomputation.md), and renders the
 # requested frames to WAV files (docs/rendering.md). Before precomputation it
 # transforms every partial set with a musical timeline into per-partial
-# physical timelines through the score's tempo map (docs/transform.md). The
-# `distributed` and `standalone` modes are recognised but not implemented.
+# physical timelines through the score's tempo map (docs/transform.md).
+# `server` mode runs the same steps as a long-running REST service, holding
+# the score in memory between calls (docs/server.md). The `distributed` mode
+# is recognised but not implemented.
 
 project(rendering_engine
     VERSION 0.1.0
@@ -85,6 +87,7 @@ include(Dependencies)
 add_library(rendering_engine_lib STATIC
     src/cypher_script.cpp
     src/engine_db.cpp
+    src/file_uri.cpp
     src/frame_plan.cpp
     src/integrity.cpp
     src/options.cpp
@@ -92,7 +95,10 @@ add_library(rendering_engine_lib STATIC
     src/render_kernel.cpp
     src/render_request.cpp
     src/rendering.cpp
+    src/report.cpp
+    src/score_pipeline.cpp
     src/script_loader.cpp
+    src/server.cpp
     src/transform/squash.cpp
     src/transform/tempo_map.cpp
     src/transform/transform.cpp
@@ -108,10 +114,12 @@ target_include_directories(rendering_engine_lib
 
 target_link_libraries(rendering_engine_lib
     PUBLIC  rainbohz::ladybug
-    # CLI11 (src/options.cpp), yaml-cpp (src/render_request.cpp) and dr_wav
-    # (src/wav_writer.cpp) appear in no public header, so they stay out of the
+    # CLI11 (src/options.cpp), yaml-cpp (src/render_request.cpp), dr_wav
+    # (src/wav_writer.cpp), and cpp-httplib and nlohmann/json
+    # (src/server.cpp) appear in no public header, so they stay out of the
     # interface -- the same rule Ladybug's own types are held to.
-    PRIVATE rainbohz::cli11 rainbohz::yaml_cpp rainbohz::dr_wav rainbohz::project_warnings
+    PRIVATE rainbohz::cli11 rainbohz::yaml_cpp rainbohz::dr_wav rainbohz::httplib
+            rainbohz::json rainbohz::project_warnings
 )
 
 # The schema the engine applies to an empty database when no --schema is given.

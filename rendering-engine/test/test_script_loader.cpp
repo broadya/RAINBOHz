@@ -224,7 +224,7 @@ TEST(ScriptLoader, RealEngineSchemaLoadsInProcess) {
     EXPECT_FALSE(db.tables().empty());
 }
 
-// The two files test mode applies, named once so that the tests below and the
+// The two files batch mode applies, named once so that the tests below and the
 // build's own defaults cannot drift apart.
 std::filesystem::path realSchemaFile() {
     return std::filesystem::path{RE_TEST_SCHEMA_FILE};
@@ -281,8 +281,8 @@ TEST(ScriptLoader, RealSchemaDeclaresEverythingTheExampleScoreNeeds) {
     }
 }
 
-// The end-to-end shape of test mode: schema file, then state file, into one
-// database. This is exactly what `rendering-engine --mode test` does with its
+// The end-to-end shape of batch mode: schema file, then state file, into one
+// database. This is exactly what `rendering-engine --mode batch` does with its
 // defaults, and exactly what `make run-rendering-engine` runs.
 TEST(ScriptLoader, ExampleScoreLoadsOnTopOfTheRealSchema) {
     EngineDb db;

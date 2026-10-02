@@ -10,6 +10,7 @@
 #include <iostream>
 #include <map>
 #include <string>
+#include <string_view>
 #include <system_error>
 
 /// @file
@@ -17,9 +18,9 @@
 ///
 /// Implements parseCommandLine() and modeName() with CLI11, which is confined
 /// to this file so that no third-party type reaches options.hpp. Mode names
-/// match case-insensitively. `distributed` and `standalone` are recognised but
-/// not implemented. Test mode's required inputs are enforced here, so that
-/// main() receives a complete Options or an exit code. The default schema file
+/// match case-insensitively. `distributed` is recognised but not implemented.
+/// Each mode's required options, and the options it refuses, are enforced
+/// here, so that main() receives a complete Options or an exit code. The default schema file
 /// is the in-repo engine-db schema, whose path CMake injects as
 /// RE_DEFAULT_SCHEMA_FILE.
 ///
@@ -49,7 +50,7 @@ constexpr std::string_view kDefaultSchemaFile = RE_DEFAULT_SCHEMA_FILE;
 ///         program.
 const std::map<std::string, Mode>& modesByName() {
     static const std::map<std::string, Mode> kModes{
-        {"test", Mode::Test}, {"distributed", Mode::Distributed}, {"standalone", Mode::Standalone}};
+        {"batch", Mode::Batch}, {"server", Mode::Server}, {"distributed", Mode::Distributed}};
     return kModes;
 }
 
@@ -83,16 +84,53 @@ std::string knownModes() {
     return names;
 }
 
+/// Checks that a mode's required option was given, and reports it if not.
+///
+/// @param option  The option, as CLI11 registered it.
+/// @param mode    The mode's name, for the message.
+/// @param value   What the option takes, e.g. `<file.cypher>`.
+/// @param why     What the option is for, in a few words.
+/// @return True when the option was given.
+/// @note Side effect: writes the diagnostic to stderr when it returns false.
+bool requireOption(const CLI::Option* option, std::string_view mode, std::string_view value,
+    std::string_view why) {
+    if (option->count() > 0) {
+        return true;
+    }
+    std::cerr << "rendering-engine: " << mode << " mode needs " << option->get_name() << ' '
+              << value << "\n"
+              << "                  (" << why << ")\n";
+    return false;
+}
+
+/// Checks that an option a mode does not use was not given, and reports it if
+/// it was. An option that is accepted and then ignored misleads whoever
+/// passed it.
+///
+/// @param option  The option, as CLI11 registered it.
+/// @param mode    The mode's name, for the message.
+/// @param why     Why the mode does not use it, in a few words.
+/// @return True when the option was not given.
+/// @note Side effect: writes the diagnostic to stderr when it returns false.
+bool refuseOption(const CLI::Option* option, std::string_view mode, std::string_view why) {
+    if (option->count() == 0) {
+        return true;
+    }
+    std::cerr << "rendering-engine: " << option->get_name() << " is not used in " << mode
+              << " mode (" << why << ").\n";
+    return false;
+}
+
 } // namespace
 
 std::string_view modeName(Mode mode) noexcept {
     switch (mode) {
-    case Mode::Test:
-        return "test";
+    case Mode::Batch:
+        return "batch";
+    case Mode::Server:
+        return "server";
     case Mode::Distributed:
         return "distributed";
-    case Mode::Standalone:
-        return "standalone";
     }
     return "unknown";
 }
@@ -112,8 +150,8 @@ ParseResult parseCommandLine(int argc, const char* const* argv) {
     // accepts those same integers deliberately. Neither should be a command
     // line anyone can write, and both would outlive a renumbering of the enum.
     std::string modeName;
-    app.add_option("-m,--mode", modeName, "Run mode [test]")
-        ->option_text("test|distributed|standalone");
+    app.add_option("-m,--mode", modeName, "Run mode [batch]")
+        ->option_text("batch|server|distributed");
 
     // Schema and state are one file each, named separately. The engine does
     // not read a directory: which files a run applies, and in what order, is
@@ -123,20 +161,37 @@ ParseResult parseCommandLine(int argc, const char* const* argv) {
         ->capture_default_str()
         ->check(CLI::ExistingFile);
 
-    app.add_option("-s,--state", options.stateFile,
-           "Cypher file holding the initial database state (test mode)")
-        ->check(CLI::ExistingFile);
+    const CLI::Option* state = app.add_option("-s,--state", options.stateFile,
+                                      "Cypher file holding the initial database state (batch mode)")
+                                   ->check(CLI::ExistingFile);
 
-    app.add_option("-r,--request", options.requestFile,
-           "YAML file of frames and labels to render (test mode)")
-        ->check(CLI::ExistingFile);
+    const CLI::Option* request = app.add_option("-r,--request", options.requestFile,
+                                        "YAML file of frames and labels to render (batch mode)")
+                                     ->check(CLI::ExistingFile);
 
-    app.add_option("-o,--out-dir", options.outputDir,
-        "Directory for rendered WAV files, created if absent [current directory]");
+    const CLI::Option* outDir = app.add_option("-o,--out-dir", options.outputDir,
+        "Directory for rendered WAV files, created if absent "
+        "[batch: current directory; server: required]");
 
-    app.add_option("--db-path", options.dbPath,
-        "Open engine-db on disk at this path instead of in memory. "
+    const CLI::Option* dbPath = app.add_option("--db-path", options.dbPath,
+        "Open engine-db on disk at this path instead of in memory (batch mode). "
         "A debugging affordance, not the deployed configuration.");
+
+    // The server's options have no defaults, deliberately: which interface a
+    // server is exposed on, and which part of the filesystem it may read, are
+    // always said outright.
+    const CLI::Option* host = app.add_option(
+        "--host", options.host, "Address of the interface to listen on (server mode, required)");
+
+    const CLI::Option* port =
+        app.add_option("--port", options.port,
+               "TCP port to listen on; 0 picks a free one (server mode, required)")
+            ->check(CLI::Range(0, 65535));
+
+    const CLI::Option* inputRoot =
+        app.add_option("--input-root", options.inputRoot,
+               "Directory every /load must read from (server mode, required)")
+            ->check(CLI::ExistingDirectory);
 
     app.add_flag("-v,--verbose", options.verbose, "Report every statement, not just failures");
 
@@ -166,16 +221,26 @@ ParseResult parseCommandLine(int argc, const char* const* argv) {
 
     // Mode-specific requirements. CLI11 can express these as needs/excludes,
     // but stating them here keeps the message in the engine's own words.
-    if (options.mode == Mode::Test && options.stateFile.empty()) {
-        std::cerr << "rendering-engine: test mode needs --state <file.cypher>\n"
-                  << "                  (the initial database state to load)\n";
-        return ParseResult{.options = std::nullopt, .exitCode = 1};
+    if (options.mode == Mode::Batch) {
+        if (!requireOption(state, "batch", "<file.cypher>", "the initial database state to load") ||
+            !requireOption(request, "batch", "<file.yaml>", "the frames and labels to render") ||
+            !refuseOption(host, "batch", "it is for server mode") ||
+            !refuseOption(port, "batch", "it is for server mode") ||
+            !refuseOption(inputRoot, "batch", "it is for server mode")) {
+            return ParseResult{.options = std::nullopt, .exitCode = 1};
+        }
     }
 
-    if (options.mode == Mode::Test && options.requestFile.empty()) {
-        std::cerr << "rendering-engine: test mode needs --request <file.yaml>\n"
-                  << "                  (the frames and labels to render)\n";
-        return ParseResult{.options = std::nullopt, .exitCode = 1};
+    if (options.mode == Mode::Server) {
+        if (!requireOption(host, "server", "<address>", "the interface to listen on") ||
+            !requireOption(port, "server", "<port>", "the TCP port to listen on") ||
+            !requireOption(inputRoot, "server", "<dir>", "where /load may read from") ||
+            !requireOption(outDir, "server", "<dir>", "where /render writes") ||
+            !refuseOption(state, "server", "a score arrives by POST /load") ||
+            !refuseOption(request, "server", "frames are asked for by POST /render") ||
+            !refuseOption(dbPath, "server", "engine-db is in memory, replaced by every /load")) {
+            return ParseResult{.options = std::nullopt, .exitCode = 1};
+        }
     }
 
     // An existing file where the output directory should be is caught now,

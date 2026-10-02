@@ -534,7 +534,7 @@ version computes `t*_k` in source time, which is the zero-delay rule.
 
 Input is checked before anything is written. Validation is also expected
 before the database is loaded (by the compiler) and during rendering; this
-layer is defensive, and it is the only one that exists while test-mode scores
+layer is defensive, and it is the only one that exists while batch-mode scores
 are hand-written Cypher. If it proves costly it may later sit behind a flag.
 
 Every failed check names the partial, the point where one is involved, and the
@@ -628,7 +628,7 @@ hour at 48 kHz, φ is of the order of 10⁸–10⁹ radians, where the spacing o
 ## 9. Transactions, rebuild and idempotency
 
 **Rebuild every run.** Precomputation deletes and recreates each partial's
-output unconditionally. This is intended for test mode; dirty flags will
+output unconditionally. This is intended for batch mode; dirty flags will
 replace it (§13).
 
 **Idempotent.** Running precomputation twice on the same graph produces the
@@ -775,8 +775,9 @@ worth stating:
   `precomputeAll`, and recorded in the report. A configuration failure
   propagates out of `precomputeAll`.
 
-**Wiring.** In test mode, `main.cpp` runs precomputation after `--state` has
-loaded and before the frames of the request are listed. It always runs; there
+**Wiring.** `loadScore()` (`score_pipeline.cpp`), which batch mode and every
+server `/load` call, runs precomputation once the transform has succeeded,
+and before any frame is listed. It always runs; there
 is no flag to skip it. The census that follows then shows the new rows, which
 makes an empty result visible.
 

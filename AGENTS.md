@@ -212,7 +212,7 @@ Four subsystems: compilation, rendering, playback, and orchestration.
    - **Build System** — Ninja-based, with a Python generator for `.ninja` files.
    - **`canonical-form`** — the loadable, durable representation of a score, in musical time and composer-facing units. What it actually consists of is undecided.
 2. **Rendering** — one component, doing all of it.
-   - **`rendering-engine`** — C++. Hosts `engine-db` in process; loads `canonical-form` into it; transforms the canonical model into the rendering model in place; determines the calculation delta from dirty flags; precomputes phase integration; performs phase compensation; renders frames to multi-channel WAV objects. Implemented in [`rendering-engine/`](rendering-engine/); see `architecture/overview.md` §5.2 and §9, where C++ is recorded as Settled. The transform (`rendering-engine/docs/transform.md`), precomputation (`rendering-engine/docs/precomputation.md`) and rendering (`rendering-engine/docs/rendering.md`) are designed and implemented in their first versions; label selection is not. The transform is the only code that reads musical time: it lives in the namespace `rainbohz::rendering_engine::transform` and the `transform/` directories, and nothing outside them includes its musical unit types or tempo map.
+   - **`rendering-engine`** — C++. Hosts `engine-db` in process; loads `canonical-form` into it; transforms the canonical model into the rendering model in place; determines the calculation delta from dirty flags; precomputes phase integration; performs phase compensation; renders frames to multi-channel WAV objects. Implemented in [`rendering-engine/`](rendering-engine/); see `architecture/overview.md` §5.2 and §9, where C++ is recorded as Settled. The transform (`rendering-engine/docs/transform.md`), precomputation (`rendering-engine/docs/precomputation.md`) and rendering (`rendering-engine/docs/rendering.md`) are designed and implemented in their first versions; label selection is not. It runs in two modes: `batch` (load, render a request file, exit) and `server`, a long-running REST service that holds one score in memory between calls (`rendering-engine/docs/server.md`, ADR 0016). The transform is the only code that reads musical time: it lives in the namespace `rainbohz::rendering_engine::transform` and the `transform/` directories, and nothing outside them includes its musical unit types or tempo map.
    - **`engine-db`** — LadybugDB (embedded), the one physical database in the system, sharded by partial set.
    - **Object storage** — WAV objects addressed by URL.
 3. **Playback** — merging the shards on demand and serving them.
@@ -236,7 +236,7 @@ disagree, that one wins.
 | `hzl-compiler/` | `hzl-compiler` | Python 3.12 | First version: score, tempo map, sound entity/source, envelope with `Update`, state sets, scale, harmonic series, flattened cartesian product; frequency and amplitude; emits Cypher |
 | `engine-db/` | `engine-db` — **the implementation** | Cypher DDL | Under construction; rendering concepts, plus the canonical tempo map and partial-set timelines the transform reads |
 | `canonical-db/` | Canonical model — **design artefact** | Cypher DDL | Loads cleanly; not the implementation |
-| `rendering-engine/` | `rendering-engine` | C++20 | Hosts and loads `engine-db`; transforms musical time to physical time (first version: one tempo map, frequency and amplitude); precomputes; renders frames to WAV files (first version: mono, linear curves, labels ignored) |
+| `rendering-engine/` | `rendering-engine` | C++20 | Hosts and loads `engine-db`; transforms musical time to physical time (first version: one tempo map, frequency and amplitude); precomputes; renders frames to WAV files (first version: mono, linear curves, labels ignored); `batch` and `server` (REST) modes |
 | `playback/` | `playback-client` / `playback-plugin` | C++ | Docs only |
 
 Component directory names match the canonical component identifiers from
@@ -389,7 +389,7 @@ Databases (built from the schema DDL, which is the source of truth):
   That includes the rendering oracle (`rendering-engine/docs/rendering.md`
   §11.1), an independent NumPy check of the engine's output, which is
   skipped with a notice when the `python3` first on `PATH` has no NumPy.
-- `make run-rendering-engine` — run the engine in test mode, loading two
+- `make run-rendering-engine` — run the engine in batch mode, loading two
   Cypher files into an in-memory database: `RE_SCHEMA` (default
   `engine-db/schema/engine-schema.cypher`) and then `RE_STATE` (default
   `engine-db/examples/minimum-score.cypher`), precomputing every partial and
@@ -402,6 +402,13 @@ Databases (built from the schema DDL, which is the source of truth):
   `RE_ARGS=--validate-db` to run the `engine-db` integrity checks
   (`rendering-engine/docs/integrity.md`), or `RE_ARGS=--per-set-wav` for a
   file per partial set as well as per frame.
+- `make run-rendering-engine-server` — run the engine in server mode on
+  `RE_HOST`:`RE_PORT` (default `127.0.0.1:8080`), reading scores from beneath
+  `RE_INPUT_ROOT` (default the repository root) and writing frames to
+  `RE_OUT_DIR`, until `POST /shutdown`. The engine itself has no defaults for
+  these; the Makefile supplies them. See `rendering-engine/docs/server.md`.
+  The server includes its own cpp-httplib under a renamed namespace because
+  Ladybug links an older copy; see ADR 0016 before bumping either.
 - `make format-rendering-engine` — apply `.clang-format` in place.
 - `make tidy-rendering-engine` — run `clang-tidy`.
 - `make clean-rendering-engine` — remove the build tree.

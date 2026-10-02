@@ -41,6 +41,7 @@ Non-obvious design choices are recorded here, per AGENTS.md, using the
 | [0013](0013-tempo-ramps-are-linear-in-musical-position.md) | Tempo ramps are linear in musical position, and a tempo map's validity rules | Accepted |
 | [0014](0014-resolve-time-collisions-by-semantic-order.md) | Resolve physical-time collisions by semantic order: the later state wins, and only the tail yields | Accepted |
 | [0015](0015-the-lowest-hzl-level-is-the-canonical-model-as-tables.md) | The lowest HzL level is the canonical model as tables, emitted as Cypher | Accepted |
+| [0016](0016-serve-rest-with-cpp-httplib-one-call-at-a-time.md) | Serve REST with cpp-httplib, one call at a time, holding one score | Accepted |
 
 ## A note on the renames
 

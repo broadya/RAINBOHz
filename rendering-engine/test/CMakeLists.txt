@@ -28,14 +28,17 @@ add_executable(rendering_engine_tests
     test_amplitude_maths.cpp
     test_cypher_script.cpp
     test_engine_db.cpp
+    test_file_uri.cpp
     test_frame_plan.cpp
     test_integrity.cpp
+    test_options.cpp
     test_precomputation.cpp
     test_render_kernel.cpp
     test_render_request.cpp
     test_rendering.cpp
     test_script_loader.cpp
     test_segment_maths.cpp
+    test_server.cpp
     test_units.cpp
     test_wav_writer.cpp
     transform/test_musical_units.cpp
@@ -47,10 +50,12 @@ add_executable(rendering_engine_tests
 # dr_wav is linked so that test_wav_writer can read a written file back with
 # the same library. The implementation lives in the engine library
 # (src/wav_writer.cpp); the test includes the header for its declarations only.
+# nlohmann/json is linked so that test_server can read the server's responses.
 target_link_libraries(rendering_engine_tests
     PRIVATE
         rainbohz::rendering_engine_lib
         rainbohz::dr_wav
+        rainbohz::json
         rainbohz::project_warnings
         GTest::gtest_main
 )
@@ -111,6 +116,26 @@ if(Python3_Interpreter_FOUND)
     re_add_oracle_test(two-partial-sets two-partial-sets two-partial-sets-request.yaml)
     re_add_oracle_test(tempo-map-score tempo-map-score tempo-map-request.yaml)
     re_add_oracle_test(offset-collision-score offset-collision-score offset-collision-request.yaml)
+
+    # Server mode, end to end over HTTP (docs/server.md): the same score and
+    # request as an oracle test, served instead of run as a batch, and the
+    # files the server names checked by the same oracle. One score in musical
+    # time and one in physical time, so both paths through the transform are
+    # served. Skipped like the oracle when NumPy is missing.
+    function(re_add_server_test name score request)
+        add_test(NAME "server.${name}"
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/server/run_server_check.py"
+                --engine "$<TARGET_FILE:rendering-engine>"
+                --schema "${RE_DEFAULT_SCHEMA_FILE}"
+                --state "${RE_EXAMPLES_DIR}/${score}.cypher"
+                --request "${RE_REQUESTS_DIR}/${request}"
+                --score "${RE_EXAMPLES_DIR}/${score}.json"
+                --out-dir "${CMAKE_CURRENT_BINARY_DIR}/server/${name}")
+        set_tests_properties("server.${name}" PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+    endfunction()
+
+    re_add_server_test(tempo-map-score tempo-map-score tempo-map-request.yaml)
+    re_add_server_test(two-partial-sets two-partial-sets two-partial-sets-request.yaml)
 else()
-    message(STATUS "rendering-engine: no Python 3 interpreter; the oracle tests are not registered")
+    message(STATUS "rendering-engine: no Python 3 interpreter; the oracle and server tests are not registered")
 endif()

@@ -8,8 +8,11 @@
 # Exposes:
 #   rainbohz::ladybug   -- the embedded Ladybug graph database (static)
 #   rainbohz::cli11     -- command line parsing (header-only)
-#   rainbohz::yaml_cpp  -- YAML parsing, for the test-mode render request (static)
+#   rainbohz::yaml_cpp  -- YAML parsing, for the batch-mode render request (static)
 #   rainbohz::dr_wav    -- WAV file writing (header-only)
+#   rainbohz::httplib   -- HTTP server for server mode (header-only)
+#   rainbohz::json      -- JSON for server mode's request and response bodies
+#                          (header-only)
 
 include(FetchContent)
 
@@ -232,7 +235,7 @@ add_library(rainbohz::cli11 ALIAS CLI11)
 # yaml-cpp
 # ---------------------------------------------------------------------------
 #
-# Reads the render request that test mode takes with --request (docs/design.md
+# Reads the render request that batch mode takes with --request (docs/design.md
 # section 3.2). Chosen over rapidyaml because it is what the proof of concept's
 # renderer used, and because every node carries its source line, which is what
 # lets a bad request be reported against the line that is wrong.
@@ -319,3 +322,102 @@ endif()
 add_library(dr_wav INTERFACE)
 target_include_directories(dr_wav SYSTEM INTERFACE "${dr_libs_SOURCE_DIR}")
 add_library(rainbohz::dr_wav ALIAS dr_wav)
+
+# ---------------------------------------------------------------------------
+# cpp-httplib
+# ---------------------------------------------------------------------------
+#
+# The HTTP server of server mode (docs/server.md). One header, MIT; chosen over
+# Boost.Beast and the full web frameworks in ADR 0016, because the server is
+# three endpoints served one call at a time and needs nothing more.
+#
+# Pinned from source like everything else (ADR 0001). Check for newer
+# releases with:
+#
+#   git ls-remote --tags --refs https://github.com/yhirose/cpp-httplib
+#
+# Upstream's CMakeLists is deliberately not run: by default it turns on HTTPS
+# whenever it finds OpenSSL -- which Ladybug guarantees it will (see above) --
+# and zlib, brotli and zstd compression likewise. The server speaks plain HTTP
+# behind a gateway and wants none of them. SOURCE_SUBDIR names a directory
+# with no CMakeLists.txt, so FetchContent only fetches, and the header is
+# exposed as an INTERFACE target with none of CPPHTTPLIB_*_SUPPORT defined.
+# It is linked PRIVATE by src/server.cpp's library alone; no httplib type
+# appears in a public header.
+
+set(RE_HTTPLIB_GIT_REPOSITORY "https://github.com/yhirose/cpp-httplib"
+    CACHE STRING "cpp-httplib source repository")
+set(RE_HTTPLIB_GIT_TAG "v0.58.0" CACHE STRING "cpp-httplib version to build against")
+
+message(STATUS "rendering-engine: fetching cpp-httplib ${RE_HTTPLIB_GIT_TAG}")
+FetchContent_Declare(httplib
+    GIT_REPOSITORY "${RE_HTTPLIB_GIT_REPOSITORY}"
+    GIT_TAG        "${RE_HTTPLIB_GIT_TAG}"
+    GIT_SHALLOW    TRUE
+    GIT_PROGRESS   TRUE
+    SOURCE_SUBDIR  do-not-configure
+    EXCLUDE_FROM_ALL
+)
+FetchContent_MakeAvailable(httplib)
+
+if(NOT EXISTS "${httplib_SOURCE_DIR}/httplib.h")
+    message(FATAL_ERROR
+        "cpp-httplib was fetched but ${httplib_SOURCE_DIR}/httplib.h does not "
+        "exist. The upstream layout may have changed.")
+endif()
+
+# httplib uses std::thread for its default task queue, which server mode
+# replaces but still compiles, and sockets, which on Windows are Winsock.
+find_package(Threads REQUIRED)
+add_library(httplib INTERFACE)
+target_include_directories(httplib SYSTEM INTERFACE "${httplib_SOURCE_DIR}")
+target_link_libraries(httplib INTERFACE
+    Threads::Threads
+    $<$<PLATFORM_ID:Windows>:ws2_32>
+)
+add_library(rainbohz::httplib ALIAS httplib)
+
+# ---------------------------------------------------------------------------
+# nlohmann/json
+# ---------------------------------------------------------------------------
+#
+# Reads and writes the JSON bodies of server mode. Header-only, MIT, and the
+# library a C++ reader is most likely to know already.
+#
+# Pinned from source like everything else (ADR 0001). Check for newer
+# releases with:
+#
+#   git ls-remote --tags --refs https://github.com/nlohmann/json
+#
+# Upstream's CMakeLists is well behaved as a subproject (its tests are off
+# unless it is the top-level project), so it is used as it is.
+
+set(RE_JSON_GIT_REPOSITORY "https://github.com/nlohmann/json"
+    CACHE STRING "nlohmann/json source repository")
+set(RE_JSON_GIT_TAG "v3.12.0" CACHE STRING "nlohmann/json version to build against")
+
+set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+set(JSON_Install    OFF CACHE BOOL "" FORCE)
+
+message(STATUS "rendering-engine: fetching nlohmann/json ${RE_JSON_GIT_TAG}")
+FetchContent_Declare(nlohmann_json
+    GIT_REPOSITORY "${RE_JSON_GIT_REPOSITORY}"
+    GIT_TAG        "${RE_JSON_GIT_TAG}"
+    GIT_SHALLOW    TRUE
+    GIT_PROGRESS   TRUE
+    EXCLUDE_FROM_ALL
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
+if(NOT TARGET nlohmann_json::nlohmann_json)
+    message(FATAL_ERROR
+        "nlohmann/json was configured but the 'nlohmann_json::nlohmann_json' "
+        "target does not exist. The upstream target layout may have changed.")
+endif()
+
+# As for the others: our warning set is for code we own.
+get_target_property(RE_JSON_INCLUDES nlohmann_json INTERFACE_INCLUDE_DIRECTORIES)
+set_target_properties(nlohmann_json PROPERTIES
+    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${RE_JSON_INCLUDES}")
+
+add_library(rainbohz::json ALIAS nlohmann_json)

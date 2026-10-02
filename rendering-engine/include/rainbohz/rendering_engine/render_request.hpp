@@ -1,10 +1,10 @@
 #pragma once
 
-// The test-mode render request: which frames to render, and for each, which
+// The batch-mode render request: which frames to render, and for each, which
 // labels select the partials to render.
 //
 // docs/design.md section 3 says a request names a frame, a label set and a
-// source version. In test mode the source version is implicit -- it is
+// source version. In batch mode the source version is implicit -- it is
 // whatever the --state file loaded -- so the file carries the other two:
 //
 //   frames:

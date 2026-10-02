@@ -1,4 +1,4 @@
-# Render request for rendering-engine in test mode.
+# Render request for rendering-engine in batch mode.
 #
 # `make run-rendering-engine` passes this as --request, beside
 # engine-db/examples/minimum-score.cypher as --state. That score holds no
