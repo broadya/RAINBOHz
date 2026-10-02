@@ -1,0 +1,16 @@
+# Beat 8: both end, faded to silence; B has glided down to 330 Hz.
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: chord_end
+  namespace: state_sets
+  layer: "0: base"
+  partial_states:
+    - partial_state:
+        identifier: A
+        frequency: 220.0
+        amplitude: -144.0
+    - partial_state:
+        identifier: B
+        frequency: 330.0
+        amplitude: -144.0

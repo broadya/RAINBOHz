@@ -1,0 +1,13 @@
+# Every note of the scale with every harmonic: 8 x 4 = 32 partials, each
+# labelled with its note and its harmonic.
+virtual_partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: virtual_partial_state_set
+  name: bell
+  namespace: virtual
+  layer: "0: base"
+  labels: [bell]
+  transformation: {namespace: transformations, name: product}
+  partial_state_sets:
+    - partial_state_set: {namespace: scales, name: c_major}
+    - partial_state_set: {namespace: harmonic_series, name: four_rolloff}

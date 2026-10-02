@@ -1,0 +1,26 @@
+# Equal-tempered C major, C4 to C5. Frequencies only: the harmonic series
+# it is multiplied with supplies the amplitudes.
+scale:
+  hzl_version: "0.1.0"
+  hzl_type: scale
+  name: c_major
+  namespace: scales
+  layer: "0: base"
+  labels: [major]
+  notes:
+    - note: C4
+      frequency: 261.63
+    - note: D4
+      frequency: 293.66
+    - note: E4
+      frequency: 329.63
+    - note: F4
+      frequency: 349.23
+    - note: G4
+      frequency: 392.00
+    - note: A4
+      frequency: 440.00
+    - note: B4
+      frequency: 493.88
+    - note: C5
+      frequency: 523.25

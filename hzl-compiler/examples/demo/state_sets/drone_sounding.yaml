@@ -1,0 +1,13 @@
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: drone_sounding
+  namespace: state_sets
+  layer: "0: base"
+  partial_states:
+    - partial_state:
+        identifier: low
+        amplitude: -18.0
+    - partial_state:
+        identifier: high
+        amplitude: -24.0

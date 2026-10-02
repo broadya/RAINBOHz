@@ -133,8 +133,9 @@ source, producing an artefact.
 The HzL source code authored by the composer. The only human-edited artefact in the system.
 
 #### `hzl-compiler`
-Compiles `hzl-source` into `canonical-form`. Likely to be a Python application, though this is not
-settled.
+Compiles `hzl-source` into `canonical-form`. Python, in its first version (`hzl-compiler/`,
+2026-10-02), which lowers the proof of concept's constructs, moved to musical time, to the canonical
+model as tables and emits them as Cypher (ADR 0015).
 
 HzL is a multi-level language with several levels of abstraction. The compiler's job is to lower
 higher-level constructs toward lower-level ones. The design of HzL itself is at a very early stage.
@@ -308,7 +309,7 @@ stores.
 | Cypher as the database interface | lowest HzL level, engine queries | Settled |
 | One physical database, sharded by partial set | `engine-db` | Current intention |
 | In-process, hosted by `rendering-engine` | `engine-db` | Current intention |
-| Python | `hzl-compiler` | Likely, not certain |
+| Python | `hzl-compiler` | In use for the first version; not settled at scale |
 | C++ | `rendering-engine` | Settled |
 | Kafka | `message-bus` | Current intention, early |
 | Multi-channel WAV objects in object storage | `rendering-engine`, `playback-server` | Current intention |
@@ -347,9 +348,12 @@ of writing.
 
 - The design of HzL itself is at an early stage. The number of abstraction levels, and the constructs
   at each level, are undefined.
-- The implementation language for `hzl-compiler` is not certain.
+- The implementation language for `hzl-compiler` is Python in the first version; whether that holds
+  at scale is not settled.
 - What `canonical-form` actually is, and how `rendering-engine` loads it, is the significant
-  undecided question in the compilation half of the system.
+  undecided question in the compilation half of the system. The first version's answer is a Cypher
+  script of one statement, loaded by `--state` (ADR 0015); it is known not to be the answer at
+  target scale.
 
 **Rendering**
 

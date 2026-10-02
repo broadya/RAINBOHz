@@ -1,0 +1,25 @@
+# The upper harmonics decay to silence over the first four beats; the
+# fundamentals are left alone there and so fade only over the whole
+# eight beats, to the second stage's silence.
+envelope:
+  hzl_version: "0.1.0"
+  hzl_type: envelope
+  name: bell
+  namespace: envelopes
+  layer: "0: base"
+  labels: [bell]
+  initial_partial_state_set: {namespace: virtual, name: bell}
+  envelope_stages:
+    - envelope_stage:
+        duration: "4:0"
+        envelope_transforms:
+          - envelope_transform:
+              filter: "^harmonic [2-4]$"
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: virtual, name: bell_silent}
+    - envelope_stage:
+        duration: "4:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: virtual, name: bell_silent}

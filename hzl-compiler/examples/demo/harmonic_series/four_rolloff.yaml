@@ -1,0 +1,13 @@
+# Four harmonics of a unit fundamental, each 6 dB quieter than the last.
+# base_frequency is 1, so the frequencies are the harmonic numbers; the
+# product with a scale puts them in Hz.
+harmonic_series:
+  hzl_version: "0.1.0"
+  hzl_type: harmonic_series
+  name: four_rolloff
+  namespace: harmonic_series
+  layer: "0: base"
+  labels: [harmonic]
+  number_of_harmonics: 4
+  frequency_expression: "harmonic_index"
+  amplitude_expression: "-12 - 6*(harmonic_index - 1)"

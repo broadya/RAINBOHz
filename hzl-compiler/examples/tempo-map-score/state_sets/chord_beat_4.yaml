@@ -1,0 +1,16 @@
+# Beat 4: A drops an octave; B's amplitude falls, its frequency is left
+# out, so B's frequency continues towards its next knot.
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: chord_beat_4
+  namespace: state_sets
+  layer: "0: base"
+  partial_states:
+    - partial_state:
+        identifier: A
+        frequency: 220.0
+        amplitude: -12.0
+    - partial_state:
+        identifier: B
+        amplitude: -24.0

@@ -1,0 +1,83 @@
+import pytest
+
+from conftest import BASE, hzl
+from hzl_compiler.errors import HzlError
+from hzl_compiler.lower.score import EngineOptions, lower_score
+from hzl_compiler.ref import Ref
+
+ENV = hzl(
+    "envelope",
+    "envelopes/env",
+    """
+    initial_partial_state_set: {namespace: state_sets, name: start}
+    envelope_stages:
+      - envelope_stage:
+          duration: "2:0"
+          envelope_transforms:
+            - envelope_transform:
+                transformation: {namespace: transformations, name: update}
+                source_partial_state_set: {namespace: state_sets, name: end}
+    """,
+)
+
+
+def compile_(tree, files=None, options=EngineOptions()):
+    return lower_score(tree({**BASE, "envelopes/env": ENV, **(files or {})}), Ref("scores", "score"), options)
+
+
+def test_placements_add_up_in_ticks_and_rows_are_linked(tree):
+    model = compile_(tree, options=EngineOptions(44100, 1))
+    assert model.rows["EngineConfig"][0].properties() == {"sampleRate": 44100, "channelMode": 1}
+    assert model.rows["Score"][0].name == "scores/score"
+    assert model.rows["TempoMap"][0].name == "tempo_maps/main"
+    assert [p.name for p in model.rows["Partial"]] == ["state_sets#a", "state_sets#b"]
+    # entity at 1:0, source +0:480, envelope +1:0 -> 2400 ticks; a stage of 2:0 -> 4320
+    point_at = [e for e in model.edges if e.rel == "POINT_AT"]
+    assert [e.properties["sync_point"] for e in point_at] == [2400, 4320]
+    assert all(e.properties["offset_seconds"] == 0.0 for e in point_at)
+    assert model.count("PartialStateSet") == 2 and model.count("PartialState") == 4
+    assert model.rows["PartialState"][2].properties() == {"frequency": 220.0, "amplitude": -144.0}
+
+
+def test_labels_are_shared_rows_linked_from_partials_and_score(tree):
+    model = compile_(tree)
+    assert sorted(label.name for label in model.rows["Label"]) == ["demo", "lead", "pad", "x"]
+    has_label = {(e.src.table, e.src.index, model.rows["Label"][e.dst.index].name) for e in model.edges if e.rel == "HAS_LABEL"}
+    assert {("Score", 0, "demo"), ("Partial", 0, "lead"), ("Partial", 0, "x"), ("Partial", 1, "pad")} == has_label
+
+
+def test_an_envelope_is_placed_once(tree):
+    twice = BASE["sources/source"] + '    - envelope: {namespace: envelopes, name: env}\n      offset: "4:0"\n'
+    with pytest.raises(HzlError, match=r"envelopes\[1\]: envelope envelopes/env is already placed at .*envelopes\[0\]"):
+        compile_(tree, {"sources/source": twice})
+
+
+def test_tempo_map_rules_are_reported_in_hzl_terms(tree):
+    main = BASE["tempo_maps/main"]
+    with pytest.raises(HzlError, match="the last point must hold"):
+        compile_(tree, {"tempo_maps/main": main.replace("hold: true", "hold: false")})
+    with pytest.raises(HzlError, match="first point must be at position 0:0"):
+        compile_(tree, {"tempo_maps/main": main.replace('position: "0:0"', 'position: "1:0"')})
+    with pytest.raises(HzlError, match=r"tempo is BPM in \[1, 1000\]"):
+        compile_(tree, {"tempo_maps/main": main.replace("tempo: 120.0", "tempo: 2000.0")})
+    two = main.replace('{position: "0:0", tempo: 120.0, hold: true}', '{position: "0:0", tempo: 120.0, hold: false}\n    - tempo_map_point: {position: "0:0", tempo: 60.0, hold: true}')
+    with pytest.raises(HzlError, match="positions must strictly increase"):
+        compile_(tree, {"tempo_maps/main": two})
+
+
+def test_ticks_beyond_the_beat_are_refused_where_written(tree):
+    bad = BASE["entities/entity"].replace('offset: "0:480"', 'offset: "0:960"')
+    with pytest.raises(HzlError, match=r"sound_sources\[0\].offset: 0:960 has 960 ticks"):
+        compile_(tree, {"entities/entity": bad})
+
+
+def test_spatial_position_on_a_source_is_not_in_this_version(tree):
+    with pytest.raises(HzlError, match="spatial position is not in this version"):
+        compile_(tree, {"sources/source": BASE["sources/source"] + "  position: {azimuth: 0.0}\n"})
+
+
+def test_engine_options_are_checked():
+    with pytest.raises(ValueError):
+        EngineOptions(sample_rate=0)
+    with pytest.raises(ValueError):
+        EngineOptions(channel_mode=7)

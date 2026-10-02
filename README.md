@@ -56,9 +56,10 @@ This project is currently moving from its proof-of-concept phase towards a scala
 | Directory | Contents |
 | --- | --- |
 | `architecture/` | Target architecture: overview and diagrams |
+| `hzl-compiler/` | HzL compiler, Python — first version: HzL to Cypher for `engine-db` |
 | `engine-db/` | Schema of `engine-db`, the engine's database and the only one — under construction |
 | `canonical-db/` | Canonical (composer-facing) model — design artefact, not the implementation |
-| `rendering-engine/` | Rendering engine, C++ — scaffolding only |
+| `rendering-engine/` | Rendering engine, C++ — loads, transforms, precomputes and renders; first version |
 | `playback/` | Playback component and plug-in — documentation only |
 | `docs/adr/` | Architecture Decision Records |
 | `scripts/` | Schema loading and shared DDL machinery |
@@ -78,6 +79,9 @@ make validate-schemas           # check the schemas load into a real Ladybug
 make init-engine-db             # build a database from the engine schema
 make rendering-engine        # build the rendering engine
 make test-rendering-engine   # and run its tests
+make hzl-compile             # compile an HzL score to Cypher (hzl-compiler/)
+make run-hzl-score           # ...and render it with the engine
+make test-hzl-compiler       # the compiler's tests
 ```
 
 The C++ components are built with CMake behind those targets, and using CMake

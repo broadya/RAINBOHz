@@ -1,7 +1,8 @@
 # RAINBOHz build entry point.
 #
 # Conventional Makefile, run from the repository root. This is the
-# software-engineering build: documentation, and compilation of the components.
+# software-engineering build: documentation, and compilation of the components
+# (the C++ rendering engine, and the Python HzL compiler and its tests).
 # It is distinct from the DSL/content compilation pipeline described in
 # AGENTS.md, which is Ninja-based and not yet implemented.
 #
@@ -105,7 +106,9 @@ RE_DOC_SOURCES  := $(filter-out $(RE_DIR)/test/%,$(RE_SOURCES)) \
         reset-engine-db reset-canonical-db \
         rendering-engine configure-rendering-engine test-rendering-engine \
         run-rendering-engine format-rendering-engine tidy-rendering-engine \
-        clean-rendering-engine build test clean help
+        clean-rendering-engine \
+        hzl-compiler hzl-compile test-hzl-compiler test-hzl-oracle run-hzl-score \
+        clean-hzl-compiler build test clean help
 
 ## all: documentation only (diagrams and API docs) -- compiling a component is an explicit request
 all: docs
@@ -255,17 +258,81 @@ clean-rendering-engine:
 	rm -rf $(RE_DIR)/build
 
 # ---------------------------------------------------------------------------
+# hzl-compiler (Python)
+# ---------------------------------------------------------------------------
+#
+# The compiler lives in its own virtualenv under hzl-compiler/.venv, created
+# from $(PYTHON) on first use and installed editable, so that editing the
+# sources needs no reinstall. The venv and build/ are gitignored.
+
+HZL_DIR   := hzl-compiler
+HZL_VENV  := $(HZL_DIR)/.venv
+HZL_PY    := $(HZL_VENV)/bin/python
+
+# What `make hzl-compile` compiles, and where the Cypher goes. Override to
+# compile your own score:
+#   make hzl-compile HZL_SCORE=/path/to/scores/mine.yaml
+HZL_SCORE ?= $(HZL_DIR)/examples/tempo-map-score/scores/tempo_map_score.yaml
+HZL_OUT   ?= $(HZL_DIR)/build/$(notdir $(basename $(HZL_SCORE))).cypher
+# Extra compiler options, e.g. HZL_ARGS="--sample-rate 44100 --dump-canonical out.json".
+HZL_ARGS  ?=
+
+## hzl-compiler: create the compiler's virtualenv and install it with its dependencies
+hzl-compiler: $(HZL_VENV)/.installed
+
+$(HZL_VENV)/.installed: $(HZL_DIR)/pyproject.toml
+	$(PYTHON) -m venv $(HZL_VENV)
+	$(HZL_PY) -m pip install --quiet --upgrade pip
+	$(HZL_PY) -m pip install --quiet -e "$(HZL_DIR)[dev]"
+	@touch $@
+
+## hzl-compile: compile $(HZL_SCORE) to $(HZL_OUT)
+hzl-compile: hzl-compiler
+	$(HZL_PY) -m hzl_compiler compile $(HZL_SCORE) -o $(HZL_OUT) $(HZL_ARGS)
+
+## test-hzl-compiler: run the compiler's tests
+test-hzl-compiler: hzl-compiler
+	cd $(HZL_DIR) && .venv/bin/python -m pytest
+
+# The compiled twin must give the engine a database it transforms into the
+# same physical values as the hand-written score, which is what the oracle's
+# JSON mirror holds. The oracle runner takes --state and --score separately,
+# so it checks the compiled route against the hand-written one unchanged.
+
+## test-hzl-oracle: compile the tempo-map twin, render it, and check it against the hand-written score's oracle
+test-hzl-oracle: hzl-compiler rendering-engine
+	$(HZL_PY) -m hzl_compiler compile -q \
+	    $(HZL_DIR)/examples/tempo-map-score/scores/tempo_map_score.yaml \
+	    -o $(HZL_DIR)/build/oracle/tempo-map-score.cypher
+	$(PYTHON) $(RE_DIR)/test/oracle/run_oracle_check.py \
+	    --engine $(RE_BUILD)/bin/rendering-engine --schema $(ENGINE_SCHEMA) \
+	    --state $(HZL_DIR)/build/oracle/tempo-map-score.cypher \
+	    --request $(RE_DIR)/examples/tempo-map-request.yaml \
+	    --score engine-db/examples/tempo-map-score.json \
+	    --out-dir $(HZL_DIR)/build/oracle/frames
+
+## run-hzl-score: compile $(HZL_SCORE), then render it with $(RE_REQUEST) into $(RE_OUT_DIR)
+run-hzl-score: hzl-compile rendering-engine
+	$(RE_BUILD)/bin/rendering-engine --mode test \
+	    --schema $(RE_SCHEMA) --state $(HZL_OUT) \
+	    --request $(RE_REQUEST) --out-dir $(RE_OUT_DIR) $(RE_ARGS)
+
+## clean-hzl-compiler: remove the compiler's build output and virtualenv
+clean-hzl-compiler:
+	rm -rf $(HZL_DIR)/build $(HZL_VENV)
+
+# ---------------------------------------------------------------------------
 # Aggregates
 # ---------------------------------------------------------------------------
 
 ## build: build every compiled component
-build: rendering-engine
+build: rendering-engine hzl-compiler
 
 # Schema validation first: it is seconds rather than minutes, needs no
 # compiler, and a schema that does not load makes the rest moot.
 
 ## test: run every component's tests
-test: validate-schemas test-rendering-engine
+test: validate-schemas test-hzl-compiler test-rendering-engine test-hzl-oracle
 
 ## clean: remove all generated artefacts
-clean: clean-docs clean-rendering-engine
+clean: clean-docs clean-rendering-engine clean-hzl-compiler

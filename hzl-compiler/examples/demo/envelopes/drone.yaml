@@ -1,0 +1,31 @@
+# A quarter-second attack in physical time, the same at any tempo: the
+# first stage lasts no musical time and its point is offset 0.25 s. Then
+# the drone holds for four beats and fades over two.
+envelope:
+  hzl_version: "0.1.0"
+  hzl_type: envelope
+  name: drone
+  namespace: envelopes
+  layer: "0: base"
+  labels: [drone]
+  initial_partial_state_set: {namespace: state_sets, name: drone_silent}
+  envelope_stages:
+    - envelope_stage:
+        duration: "0:0"
+        offset_seconds: 0.25
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: state_sets, name: drone_sounding}
+    - envelope_stage:
+        duration: "4:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: state_sets, name: drone_sounding}
+    - envelope_stage:
+        duration: "2:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: state_sets, name: drone_silent}

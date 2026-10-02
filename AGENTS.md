@@ -208,7 +208,7 @@ Four subsystems: compilation, rendering, playback, and orchestration.
 
 1. **Compilation** — runs as CI/CD, triggered by a change to source.
    - **HzL (Hertz Language)** — A declarative, domain-specific language for macro-scale additive synthesis.
-   - **HzL Compiler** — Python. Transforms HzL (YAML) through intermediate representations into `canonical-form`.
+   - **HzL Compiler** — Python. Transforms HzL (YAML) through intermediate representations into `canonical-form`. Implemented in its first version in [`hzl-compiler/`](hzl-compiler/): it lowers the proof of concept's constructs, moved to musical time, to the canonical model as tables and emits them as Cypher that `rendering-engine --state` loads unchanged (ADR 0015). See `hzl-compiler/docs/design.md` and `hzl-compiler/docs/hzl-reference.md`.
    - **Build System** — Ninja-based, with a Python generator for `.ninja` files.
    - **`canonical-form`** — the loadable, durable representation of a score, in musical time and composer-facing units. What it actually consists of is undecided.
 2. **Rendering** — one component, doing all of it.
@@ -233,6 +233,7 @@ disagree, that one wins.
 
 | Directory | Contents | Language | Status |
 | --- | --- | --- | --- |
+| `hzl-compiler/` | `hzl-compiler` | Python 3.12 | First version: score, tempo map, sound entity/source, envelope with `Update`, state sets, scale, harmonic series, flattened cartesian product; frequency and amplitude; emits Cypher |
 | `engine-db/` | `engine-db` — **the implementation** | Cypher DDL | Under construction; rendering concepts, plus the canonical tempo map and partial-set timelines the transform reads |
 | `canonical-db/` | Canonical model — **design artefact** | Cypher DDL | Loads cleanly; not the implementation |
 | `rendering-engine/` | `rendering-engine` | C++20 | Hosts and loads `engine-db`; transforms musical time to physical time (first version: one tempo map, frequency and amplitude); precomputes; renders frames to WAV files (first version: mono, linear curves, labels ignored) |
@@ -265,6 +266,17 @@ model separately, and it was retired on 2026-09-22 once `engine-db` had absorbed
 its concepts. Keeping a second schema that nothing loaded, and that duplicated
 what `engine-db` already held, cost more than it explained. Older ADRs and
 commits refer to it; that is history, not a directory to restore. See ADR 0006.
+
+**`hzl-compiler/` is the compiler, and `engine-db/examples/` is the test route.**
+The hand-written scores in `engine-db/examples/` are still what the engine's
+own tests load. `hzl-compiler/examples/tempo-map-score/` is the HzL twin of
+one of them, and `make test-hzl-oracle` proves the compiled route gives the
+same audio by the existing oracle. The compiler never edits the schema and
+emits only what the schema declares; a concept HzL needs that the schema lacks
+(labels on sound entities, provenance columns) is the author's schema edit
+first. The compiler refuses, with a "not in this version" error, every
+proof-of-concept property it does not yet carry (phase, spatial position)
+rather than dropping it silently.
 
 **`canonical-db/` is not a component, and is not loaded by anything.** It holds
 the composer-facing model as a design artefact: useful for understanding the
@@ -394,7 +406,24 @@ Databases (built from the schema DDL, which is the source of truth):
 - `make tidy-rendering-engine` — run `clang-tidy`.
 - `make clean-rendering-engine` — remove the build tree.
 
-Aggregates: `make build`, `make test`, `make clean`.
+`hzl-compiler` (Python):
+
+- `make hzl-compiler` — create `hzl-compiler/.venv` from `PYTHON` (3.12) and
+  install the package into it, editable, with its test dependencies. Once.
+- `make hzl-compile` — compile `HZL_SCORE` (default the tempo-map twin) to
+  `HZL_OUT` (default `hzl-compiler/build/<score>.cypher`). Extra `hzlc`
+  options go in `HZL_ARGS`.
+- `make run-hzl-score` — compile, then render with `RE_REQUEST` into
+  `RE_OUT_DIR`, exactly as `run-rendering-engine` would from a hand-written
+  state file.
+- `make test-hzl-compiler` — pytest.
+- `make test-hzl-oracle` — compile the twin, render it, and check every frame
+  against `engine-db/examples/tempo-map-score.json` with the rendering
+  oracle. Needs the engine built and NumPy on `python3`.
+- `make clean-hzl-compiler` — remove `hzl-compiler/build` and the venv.
+
+Aggregates: `make build`, `make test`, `make clean`. `make test` runs the
+compiler's tests before the engine's, and the oracle check after.
 
 The build configuration is selected with `RE_PRESET`, which defaults to
 `macos-debug` on Darwin and `linux-debug` elsewhere:

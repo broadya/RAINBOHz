@@ -1,0 +1,13 @@
+# The same four harmonics at silence. Its product with the scale has the
+# same identifiers as four_rolloff's, so an envelope stage can update the
+# bell's partials from it.
+harmonic_series:
+  hzl_version: "0.1.0"
+  hzl_type: harmonic_series
+  name: four_silent
+  namespace: harmonic_series
+  layer: "0: base"
+  labels: [harmonic]
+  number_of_harmonics: 4
+  frequency_expression: "harmonic_index"
+  amplitude: -144.0

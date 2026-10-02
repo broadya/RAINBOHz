@@ -1,0 +1,18 @@
+# Two partials an octave apart, silent. Used for the drone's start and end.
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: drone_silent
+  namespace: state_sets
+  layer: "0: base"
+  partial_states:
+    - partial_state:
+        identifier: low
+        labels: [drone]
+        frequency: 55.0
+        amplitude: -144.0
+    - partial_state:
+        identifier: high
+        labels: [drone]
+        frequency: 110.0
+        amplitude: -144.0

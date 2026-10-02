@@ -1,0 +1,9 @@
+sound_entity:
+  hzl_version: "0.1.0"
+  hzl_type: sound_entity
+  name: drone
+  namespace: entities
+  layer: "0: base"
+  labels: [drone]
+  sound_sources:
+    - sound_source: {namespace: sources, name: drone}

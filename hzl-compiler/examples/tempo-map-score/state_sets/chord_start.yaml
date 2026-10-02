@@ -1,0 +1,16 @@
+# Beat 0: A at 440 Hz, B at 660 Hz, both at -6 dB.
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: chord_start
+  namespace: state_sets
+  layer: "0: base"
+  partial_states:
+    - partial_state:
+        identifier: A
+        frequency: 440.0
+        amplitude: -6.0
+    - partial_state:
+        identifier: B
+        frequency: 660.0
+        amplitude: -6.0

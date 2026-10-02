@@ -1,0 +1,25 @@
+# A small score using every construct of this version of HzL.
+#
+# Two sound entities on one tempo map. "bell" is a C major scale with
+# four harmonics on every note, made by the flattened cartesian product
+# of a scale and a harmonic series, and shaped by an envelope whose
+# stages update the partials from another generated set. "drone" is two
+# hand-written partials with a physical-time attack, placed two beats
+# later.
+#
+#   hzlc compile scores/demo.yaml -o build/demo.cypher
+#   make run-hzl-score HZL_SCORE=hzl-compiler/examples/demo/scores/demo.yaml \
+#       RE_REQUEST=hzl-compiler/examples/demo/render-request.yaml
+score:
+  hzl_version: "0.1.0"
+  hzl_type: score
+  name: demo
+  namespace: scores
+  layer: "0: base"
+  labels: [demo]
+  tempo_map: {namespace: tempo_maps, name: andante}
+  sound_entities:
+    - sound_entity: {namespace: entities, name: bell}
+      position: "0:0"
+    - sound_entity: {namespace: entities, name: drone}
+      position: "2:0"

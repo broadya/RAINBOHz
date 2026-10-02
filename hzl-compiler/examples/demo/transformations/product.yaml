@@ -1,0 +1,8 @@
+partial_state_set_transformation:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set_transformation
+  name: product
+  namespace: transformations
+  layer: "0: base"
+  transformation:
+    transformation_type: "Flattened Cartesian Product"

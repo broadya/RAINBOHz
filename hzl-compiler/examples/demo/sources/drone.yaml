@@ -1,0 +1,8 @@
+sound_source:
+  hzl_version: "0.1.0"
+  hzl_type: sound_source
+  name: drone
+  namespace: sources
+  layer: "0: base"
+  envelopes:
+    - envelope: {namespace: envelopes, name: drone}

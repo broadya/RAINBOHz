@@ -1,0 +1,30 @@
+# One partial set, "Chord", with two partials and a timeline of four
+# points at beats 0, 2, 4 and 8. Each stage updates the partials from a
+# state set, matched by identifier; a partial a set leaves out gets no
+# state at that point and continues to its next.
+envelope:
+  hzl_version: "0.1.0"
+  hzl_type: envelope
+  name: chord
+  namespace: envelopes
+  layer: "0: base"
+  initial_partial_state_set: {namespace: state_sets, name: chord_start}
+  envelope_stages:
+    - envelope_stage:
+        duration: "2:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: state_sets, name: chord_beat_2}
+    - envelope_stage:
+        duration: "2:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: state_sets, name: chord_beat_4}
+    - envelope_stage:
+        duration: "4:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: state_sets, name: chord_end}

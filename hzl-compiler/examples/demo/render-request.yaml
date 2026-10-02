@@ -1,0 +1,14 @@
+# Render request for scores/demo.yaml, compiled.
+#
+# At 90 BPM a beat is 0.6667 s. The bell runs from 0 to beat 8 (5.33 s);
+# the drone from beat 2 (1.33 s) to beat 8. Frames 0 to 5 cover the
+# score; frame 6 is silence.
+
+frames:
+  - frame: 0
+  - frame: 1
+  - frame: 2
+  - frame: 3
+  - frame: 4
+  - frame: 5
+  - frame: 6

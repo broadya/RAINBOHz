@@ -1,0 +1,18 @@
+# HzL twin of engine-db/examples/tempo-map-score.cypher.
+#
+# Compiled, this must give a database the engine transforms into exactly
+# the physical values in engine-db/examples/tempo-map-score.json; that is
+# the golden test of the compiled route against the hand-written one.
+#
+#   hzlc compile scores/tempo_map_score.yaml -o build/tempo-map-score.cypher
+score:
+  hzl_version: "0.1.0"
+  hzl_type: score
+  name: tempo_map_score
+  namespace: scores
+  layer: "0: base"
+  labels: []
+  tempo_map: {namespace: tempo_maps, name: main}
+  sound_entities:
+    - sound_entity: {namespace: entities, name: chord}
+      position: "0:0"
