@@ -180,9 +180,9 @@ TEST(FindListDefects, AMergeIntoAListNoTimelineReaches) {
 TEST_F(IntegrityDb, ASoundScorePasses) {
     const IntegrityReport report = checkIntegrity(db);
     EXPECT_TRUE(report.ok()) << failures(report);
-    // One EngineConfig check, twenty range rules, set membership, lifeline
+    // One EngineConfig check, 21 range rules, set membership, lifeline
     // equality, five musical-time checks, and two per NEXT_POINT list type.
-    EXPECT_EQ(report.checks.size(), 1U + 20U + 2U + 5U + (2U * 14U));
+    EXPECT_EQ(report.checks.size(), 1U + 21U + 2U + 5U + (2U * 14U));
 }
 
 TEST(Integrity, TheExampleScorePasses) {
@@ -592,6 +592,16 @@ TEST_F(MusicalIntegrityDb, PartialStateValuesMayBeNullButMustBeInRange) {
     const IntegrityReport report = checkIntegrity(db);
     EXPECT_EQ(find(report, "PartialState.amplitude ").violationCount, 1U);
     EXPECT_EQ(find(report, "PartialState.frequency ").violationCount, 2U);
+}
+
+TEST_F(MusicalIntegrityDb, PartialStatePhaseMayBeNullButMustBeInDegrees) {
+    // Every phase in the example is NULL, which is allowed. One state is set
+    // to the edge of the range and one beyond it.
+    db.execute("MATCH (:Partial {name: 'A'})<-[:STATE_OF]-(st:PartialState) "
+               "WHERE st.frequency < 400.0 SET st.phase = -180.0;");
+    db.execute("MATCH (:Partial {name: 'B'})<-[:STATE_OF]-(st:PartialState) "
+               "WHERE st.amplitude < -20.0 AND st.amplitude > -30.0 SET st.phase = 180.5;");
+    EXPECT_EQ(find(checkIntegrity(db), "PartialState.phase ").violationCount, 1U);
 }
 
 } // namespace

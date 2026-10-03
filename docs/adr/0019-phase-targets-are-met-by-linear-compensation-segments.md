@@ -94,9 +94,11 @@ checks it. Rendered frames reach the compensation list through the same
 * Bad, because a long span between two targets can still need a large
   frequency change if the natural phase is far from the target. Nothing
   bounds it; the smallest adjustment keeps it under half a cycle per span.
-* Neutral, because the canonical model's `phase_lock`,
-  `phase_curve_type` and `phase_curve_amount` have no physical counterpart
-  yet. Mapping them is the transform's step, still to come.
+* Neutral, because phase transitions are always linear. The canonical
+  model had `phase_curve_type`, `phase_curve_amount` and `phase_lock` (a
+  lock akin to oscillator sync); the author removed all three on
+  2026-10-03. Curves would be easy to add but have little musical value,
+  and phase lock may return as a feature of its own.
 
 ### Confirmation
 
@@ -105,7 +107,8 @@ the back-worked initial phase, the half-cycle tie and unwrapped totals.
 `test_frame_plan.cpp` and `test_rendering.cpp` check the rendered phase against
 the closed form. The oracle (`oracle.phase-target-score`) recomputes the
 compensation from its definition in Python and compares every sample of every
-frame.
+frame. `oracle.phase-musical-score` does the same for targets that arrive
+from the canonical model through the transform.
 
 ## Pros and Cons of the Options
 
@@ -142,6 +145,7 @@ code is `buildCompensation`, `initialPhaseOf` and `naturalPhaseAt` in
 `precomputation.cpp`, `compensationAt` in `segment_maths.hpp`, and
 `wrapHalfOpen` in `units.hpp`.
 
-To be revisited when the transform maps `PartialState.phase` and `phase_lock`
-from the canonical model, and when frequency modulators make N(t) richer:
-they change how N is computed, not this rule.
+The transform maps `PartialState.phase` (degrees, NULL a free-running point)
+to the phase timeline (transform.md §6.6, 2026-10-03). To be revisited when
+frequency modulators make N(t) richer: they change how N is computed, not
+this rule.

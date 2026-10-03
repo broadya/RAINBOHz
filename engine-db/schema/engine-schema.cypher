@@ -754,16 +754,12 @@ CREATE NODE TABLE PartialSetMusicalTimeline (
 // 1 step
 // 2 accelerate     implemented as sin(3π/2) to sin(2π)
 // 3 decelerate     implemented as sin(0) to sin(π/2)
-// 4 s-curve        implemented assin(-π/2) to sin(π/2)
+// 4 s-curve        implemented as sin(-π/2) to sin(π/2)
 //
 // Curve amount, FLOAT (has no effect if type is linear)
 // 0 linear
 // 0.5 50/50 mix linear/curve
 // 1 curve
-//
-// phase_lock determines whether, when phase adjustment takes place, 
-// the phase at the start of this point will be included in the
-// adjustment.
 //
 // @canonical
 // ============================================================
@@ -773,9 +769,6 @@ CREATE NODE TABLE PartialSetMusicalTimelinePoint (
     amplitude_curve_amount  FLOAT DEFAULT 0.0,
     frequency_curve_type    INT8 DEFAULT 0,
     frequency_curve_amount  FLOAT DEFAULT 0.0,
-    phase_curve_type        INT8 DEFAULT 0,
-    phase_curve_amount      FLOAT DEFAULT 0.0,
-    phase_lock              BOOLEAN,
     PRIMARY KEY (id)
 );
 

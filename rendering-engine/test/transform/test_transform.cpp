@@ -35,15 +35,21 @@ using rainbohz::rendering_engine::EngineDb;
 using rainbohz::rendering_engine::loadCypherFile;
 using rainbohz::rendering_engine::optionalDouble;
 using rainbohz::rendering_engine::optionalInt64;
+using rainbohz::rendering_engine::Phase;
 using rainbohz::rendering_engine::requireInt64;
 using rainbohz::rendering_engine::SampleTime;
+using rainbohz::rendering_engine::transform::collapseFreeRuns;
 using rainbohz::rendering_engine::transform::fitToLifeline;
 using rainbohz::rendering_engine::transform::Knot;
 using rainbohz::rendering_engine::transform::PartialSetTransformOutcome;
 using rainbohz::rendering_engine::transform::PartialTransformError;
 using rainbohz::rendering_engine::transform::PartialTransformOutcome;
+using rainbohz::rendering_engine::transform::PhaseKnot;
+using rainbohz::rendering_engine::transform::PhasePoint;
 using rainbohz::rendering_engine::transform::PhysicalPoint;
 using rainbohz::rendering_engine::transform::placeKnots;
+using rainbohz::rendering_engine::transform::placePhaseKnots;
+using rainbohz::rendering_engine::transform::requirePhaseWithinLifeline;
 using rainbohz::rendering_engine::transform::requireSharedEndPoints;
 using rainbohz::rendering_engine::transform::transformAll;
 using rainbohz::rendering_engine::transform::TransformError;
@@ -63,6 +69,15 @@ Knot knot(std::size_t point, double value, std::int64_t curve = 0) {
     return Knot{.point = point, .value = value, .curveType = curve, .curveAmount = 0.0};
 }
 
+/// A phase point for the pure-stage tests.
+///
+/// @param point    Index of the set point.
+/// @param degrees  Target phase; nullopt for a NULL point.
+/// @return The phase knot.
+PhaseKnot pk(std::size_t point, std::optional<double> degrees) {
+    return PhaseKnot{.point = point, .degrees = degrees};
+}
+
 /// A physical point for an expectation.
 ///
 /// @param time   Samples.
@@ -72,6 +87,16 @@ Knot knot(std::size_t point, double value, std::int64_t curve = 0) {
 PhysicalPoint pp(double time, double value, std::int64_t curve = 0) {
     return PhysicalPoint{
         .time = SampleTime{time}, .value = value, .curveType = curve, .curveAmount = 0.0};
+}
+
+/// A phase point for an expectation.
+///
+/// @param time     Samples.
+/// @param radians  Target phase; nullopt for a NULL point.
+/// @return The point.
+PhasePoint php(double time, std::optional<double> radians) {
+    return PhasePoint{.time = SampleTime{time},
+        .phase = radians.has_value() ? std::optional<Phase>{Phase{*radians}} : std::nullopt};
 }
 
 /// Formats a double as a Cypher literal that reads back exactly.
@@ -85,6 +110,21 @@ std::string literal(double value) {
     return out.str();
 }
 
+/// One partial's state at a point, for MusicalPoint::states.
+struct StateSpec {
+    /// Partial.name.
+    std::string partial;
+
+    /// Hz; nullopt for NULL.
+    std::optional<double> frequency;
+
+    /// dB; nullopt for NULL.
+    std::optional<double> amplitude;
+
+    /// Degrees; nullopt for NULL.
+    std::optional<double> phase;
+};
+
 /// One point of a musical timeline built by addMusicalSet().
 struct MusicalPoint {
     /// POINT_AT.sync_point, ticks.
@@ -93,10 +133,9 @@ struct MusicalPoint {
     /// POINT_AT.offset_seconds; nullopt leaves the property NULL.
     std::optional<double> offset = 0.0;
 
-    /// Each partial's (frequency, amplitude) at this point, by partial name;
-    /// nullopt for NULL. A partial absent from the list has no state here.
-    std::vector<std::pair<std::string, std::pair<std::optional<double>, std::optional<double>>>>
-        states;
+    /// Each partial's state at this point. A partial absent from the list
+    /// has no state here.
+    std::vector<StateSpec> states;
 };
 
 /// One partial's state at a point, for MusicalPoint::states.
@@ -104,10 +143,11 @@ struct MusicalPoint {
 /// @param name       Partial.name.
 /// @param frequency  Hz; nullopt for NULL.
 /// @param amplitude  dB; nullopt for NULL.
+/// @param phase      Degrees; nullopt (the default) for NULL.
 /// @return The entry.
-std::pair<std::string, std::pair<std::optional<double>, std::optional<double>>> state(
-    const std::string& name, std::optional<double> frequency, std::optional<double> amplitude) {
-    return {name, {frequency, amplitude}};
+StateSpec state(const std::string& name, std::optional<double> frequency,
+    std::optional<double> amplitude, std::optional<double> phase = std::nullopt) {
+    return {.partial = name, .frequency = frequency, .amplitude = amplitude, .phase = phase};
 }
 
 /// Adds a Score with a one-point TempoMap at `tempo` BPM and 960 ticks per
@@ -123,6 +163,25 @@ void addScore(EngineDb& db, double tempo = 120.0, bool lastHolds = true) {
                literal(tempo) + ", hold: " + (lastHolds ? "true" : "false") +
                "}) CREATE (s)-[:HAS_SOUNDENTITY]->(:SoundEntity {name: 'E'})"
                "-[:HAS_SOUNDSOURCE]->(:SoundSource {name: 'SS'});");
+}
+
+/// The property map of a PartialState, with NULL values left out.
+///
+/// @param frequency  Hz; nullopt for NULL.
+/// @param amplitude  dB; nullopt for NULL.
+/// @param phase      Degrees; nullopt for NULL.
+/// @return e.g. "frequency: 440.000, phase: 90.0000", without braces.
+std::string stateProperties(const std::optional<double>& frequency,
+    const std::optional<double>& amplitude, const std::optional<double>& phase) {
+    std::string props;
+    for (const auto& [name, value] : {std::pair{"frequency", frequency},
+             std::pair{"amplitude", amplitude}, std::pair{"phase", phase}}) {
+        if (value.has_value()) {
+            props += props.empty() ? "" : ", ";
+            props += std::string{name} + ": " + literal(*value);
+        }
+    }
+    return props;
 }
 
 /// Adds a PartialSet under the SoundSource, with partials and a musical
@@ -172,7 +231,7 @@ void addMusicalSet(EngineDb& db, const std::string& setName,
             create += "MATCH (ps)-[:HAS_MUSICAL_TIMELINE]->(prev:PartialSetMusicalTimeline) ";
         }
         create += "MATCH (m:TempoMap {name: 'M'}) CREATE (prev)-[:NEXT_POINT]->"
-                  "(q:PartialSetMusicalTimelinePoint {phase_lock: false})-[:POINT_AT {sync_point: ";
+                  "(q:PartialSetMusicalTimelinePoint)-[:POINT_AT {sync_point: ";
         create += std::to_string(point.sync);
         if (point.offset.has_value()) {
             create += ", offset_seconds: " + literal(*point.offset);
@@ -180,15 +239,8 @@ void addMusicalSet(EngineDb& db, const std::string& setName,
         create += "}]->(m) CREATE (q)-[:POINT_STATE]->(:PartialStateSet);";
         db.execute(create);
 
-        for (const auto& [partial, values] : point.states) {
-            std::string props;
-            if (values.first.has_value()) {
-                props += "frequency: " + literal(*values.first);
-            }
-            if (values.second.has_value()) {
-                props += props.empty() ? "" : ", ";
-                props += "amplitude: " + literal(*values.second);
-            }
+        for (const auto& [partial, frequency, amplitude, phase] : point.states) {
+            const std::string props = stateProperties(frequency, amplitude, phase);
             std::string state = pointAtDepth(i + 1, "p");
             state += "MATCH (p)-[:POINT_STATE]->(ss:PartialStateSet) ";
             state += "MATCH (partial:Partial {name: '" + partial + "'}) ";
@@ -220,6 +272,26 @@ std::vector<std::tuple<double, double, std::int64_t>> physicalPoints(EngineDb& d
     for (const DbRow& row : rows) {
         points.emplace_back(optionalDouble(row.at(0)).value(), optionalDouble(row.at(1)).value(),
             optionalInt64(row.at(2)).value());
+    }
+    return points;
+}
+
+/// The points of a partial's PhasePhysicalTimeline, in list order.
+///
+/// @param db       Database to query.
+/// @param partial  Partial.name.
+/// @return (time, phase or nullopt) per point, ordered by time.
+std::vector<std::pair<double, std::optional<double>>> phasePoints(
+    EngineDb& db, const std::string& partial) {
+    const std::vector<DbRow> rows =
+        db.query("MATCH (:Partial {name: $name})-[:HAS_PHYSICAL_TIMELINE]->"
+                 "(:PhasePhysicalTimeline)-[:NEXT_POINT*1..30]->(x:PhasePhysicalTimelinePoint) "
+                 "RETURN x.time, x.phase ORDER BY x.time;",
+            {{"name", partial}});
+    std::vector<std::pair<double, std::optional<double>>> points;
+    points.reserve(rows.size());
+    for (const DbRow& row : rows) {
+        points.emplace_back(optionalDouble(row.at(0)).value(), optionalDouble(row.at(1)));
     }
     return points;
 }
@@ -318,6 +390,71 @@ TEST(FitToLifeline, DropsPointsAtOrAfterTheEnd) {
         pp(0.0, -6.0), pp(100.0, -12.0), pp(120.0, -24.0), pp(150.0, -90.0)};
     fitToLifeline(amplitude, SampleTime{100.0});
     EXPECT_EQ(amplitude, (std::vector{pp(0.0, -6.0), pp(100.0, -90.0)}));
+}
+
+TEST(RequirePhaseWithinLifeline, AcceptsStatesOnAndBetweenTheEnds) {
+    const std::vector<Knot> frequency{knot(1, 440.0), knot(3, 440.0)};
+    const std::vector<PhaseKnot> phase{pk(1, std::nullopt), pk(2, 90.0), pk(3, std::nullopt)};
+    EXPECT_NO_THROW(requirePhaseWithinLifeline(frequency, phase));
+}
+
+TEST(RequirePhaseWithinLifeline, RefusesAStateBeforeOrAfterTheLifeline) {
+    const std::vector<Knot> frequency{knot(1, 440.0), knot(3, 440.0)};
+    const std::vector<PhaseKnot> before{pk(0, std::nullopt), pk(1, 0.0), pk(3, 0.0)};
+    const std::vector<PhaseKnot> after{pk(1, 0.0), pk(3, 0.0), pk(4, 0.0)};
+    EXPECT_THROW(requirePhaseWithinLifeline(frequency, before), PartialTransformError);
+    EXPECT_THROW(requirePhaseWithinLifeline(frequency, after), PartialTransformError);
+}
+
+TEST(PlacePhaseKnots, ConvertsDegreesAndKeepsNulls) {
+    const std::vector<SampleTime> times{SampleTime{0.0}, SampleTime{100.0}, SampleTime{200.0}};
+    const std::vector<PhaseKnot> knots{pk(0, std::nullopt), pk(1, 90.0), pk(2, -180.0)};
+    EXPECT_EQ(placePhaseKnots(knots, times),
+        (std::vector{php(0.0, std::nullopt), php(100.0, std::numbers::pi / 2.0),
+            php(200.0, -std::numbers::pi)}));
+}
+
+TEST(PlacePhaseKnots, HalfACycleIsExactlyPi) {
+    const std::vector<SampleTime> times{SampleTime{0.0}, SampleTime{100.0}};
+    const std::vector<PhaseKnot> knots{pk(0, 180.0), pk(1, -180.0)};
+    EXPECT_EQ(placePhaseKnots(knots, times),
+        (std::vector{php(0.0, std::numbers::pi), php(100.0, -std::numbers::pi)}));
+}
+
+TEST(PlacePhaseKnots, ALaterNullWinsACollision) {
+    const std::vector<SampleTime> times{SampleTime{0.0}, SampleTime{100.0}, SampleTime{50.0}};
+    const std::vector<PhaseKnot> knots{pk(0, 0.0), pk(1, 90.0), pk(2, std::nullopt)};
+    EXPECT_EQ(
+        placePhaseKnots(knots, times), (std::vector{php(0.0, 0.0), php(100.0, std::nullopt)}));
+}
+
+TEST(FitToLifeline, FitsPhasePointsAsItFitsAmplitude) {
+    std::vector<PhasePoint> phase{php(0.0, 0.0), php(100.0, 1.0), php(150.0, std::nullopt)};
+    fitToLifeline(phase, SampleTime{100.0});
+    EXPECT_EQ(phase, (std::vector{php(0.0, 0.0), php(100.0, std::nullopt)}));
+}
+
+TEST(CollapseFreeRuns, KeepsOnlyTheEndsOfARunOfNulls) {
+    std::vector<PhasePoint> phase{php(0.0, 1.0), php(10.0, std::nullopt), php(20.0, std::nullopt),
+        php(30.0, std::nullopt), php(40.0, std::nullopt), php(50.0, 2.0)};
+    collapseFreeRuns(phase);
+    EXPECT_EQ(phase, (std::vector{php(0.0, 1.0), php(10.0, std::nullopt), php(40.0, std::nullopt),
+                         php(50.0, 2.0)}));
+}
+
+TEST(CollapseFreeRuns, KeepsTheFirstAndLastPoints) {
+    std::vector<PhasePoint> phase{
+        php(0.0, std::nullopt), php(10.0, std::nullopt), php(20.0, std::nullopt)};
+    collapseFreeRuns(phase);
+    EXPECT_EQ(phase, (std::vector{php(0.0, std::nullopt), php(20.0, std::nullopt)}));
+}
+
+TEST(CollapseFreeRuns, LeavesRunsOfTwoAndSeparateRunsAlone) {
+    std::vector<PhasePoint> phase{php(0.0, std::nullopt), php(10.0, std::nullopt), php(20.0, 1.0),
+        php(30.0, std::nullopt), php(40.0, 2.0)};
+    const std::vector<PhasePoint> before = phase;
+    collapseFreeRuns(phase);
+    EXPECT_EQ(phase, before);
 }
 
 // ---------------------------------------------------------------------------
@@ -656,6 +793,121 @@ TEST_F(TransformDb, ACollapsedLifelineFailsThePartial) {
         });
     const TransformReport report = transformAll(db);
     EXPECT_NE(outcomeOf(report, "A").error.value_or("").find("collapsed"), std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
+// Phase (§6.6)
+// ---------------------------------------------------------------------------
+
+TEST_F(TransformDb, WritesPhaseTargetsInRadians) {
+    addScore(db);
+    addMusicalSet(db, "P", {"A"},
+        {
+            MusicalPoint{.sync = 0, .states = {state("A", 440.0, -6.0, 0.0)}},
+            MusicalPoint{.sync = 960, .states = {state("A", std::nullopt, -6.0, -90.0)}},
+            MusicalPoint{.sync = 1920, .states = {state("A", 440.0, -12.0, 180.0)}},
+        });
+    const TransformReport report = transformAll(db);
+    ASSERT_TRUE(report.ok());
+    EXPECT_EQ(outcomeOf(report, "A").phasePoints, 3U);
+    EXPECT_EQ(phasePoints(db, "A"),
+        (std::vector<std::pair<double, std::optional<double>>>{
+            {0.0, 0.0}, {24000.0, -std::numbers::pi / 2.0}, {48000.0, std::numbers::pi}}));
+}
+
+TEST_F(TransformDb, ANullPhaseIsAFreeRunningPoint) {
+    addScore(db);
+    // Every state is a phase point, NULL or not; B has no state at the
+    // middle point, so no phase point there.
+    addMusicalSet(db, "P", {"A", "B"},
+        {
+            MusicalPoint{.sync = 0, .states = {state("A", 440.0, -6.0), state("B", 440.0, -6.0)}},
+            MusicalPoint{.sync = 960, .states = {state("A", 440.0, -6.0)}},
+            MusicalPoint{.sync = 1920,
+                .states = {state("A", 440.0, -12.0, 45.0), state("B", 440.0, -12.0, 45.0)}},
+        });
+    ASSERT_TRUE(transformAll(db).ok());
+    const double target = std::numbers::pi / 4.0;
+    EXPECT_EQ(phasePoints(db, "A"),
+        (std::vector<std::pair<double, std::optional<double>>>{
+            {0.0, std::nullopt}, {24000.0, std::nullopt}, {48000.0, target}}));
+    EXPECT_EQ(phasePoints(db, "B"), (std::vector<std::pair<double, std::optional<double>>>{
+                                        {0.0, std::nullopt}, {48000.0, target}}));
+}
+
+TEST_F(TransformDb, RunsOfNullPhasesAreCollapsed) {
+    addScore(db);
+    addMusicalSet(db, "P", {"A"},
+        {
+            MusicalPoint{.sync = 0, .states = {state("A", 440.0, -6.0)}},
+            MusicalPoint{.sync = 480, .states = {state("A", 440.0, -6.0)}},
+            MusicalPoint{.sync = 960, .states = {state("A", 440.0, -6.0)}},
+            MusicalPoint{.sync = 1440, .states = {state("A", 440.0, -6.0)}},
+            MusicalPoint{.sync = 1920, .states = {state("A", 440.0, -12.0)}},
+        });
+    const TransformReport report = transformAll(db);
+    ASSERT_TRUE(report.ok());
+    EXPECT_EQ(outcomeOf(report, "A").frequencyPoints, 5U);
+    EXPECT_EQ(outcomeOf(report, "A").phasePoints, 2U);
+    EXPECT_EQ(phasePoints(db, "A"), (std::vector<std::pair<double, std::optional<double>>>{
+                                        {0.0, std::nullopt}, {48000.0, std::nullopt}}));
+}
+
+TEST_F(TransformDb, PhasePointsAreSquashedAndFittedToTheLifeline) {
+    addScore(db);
+    // As TheFrequencyEnvelopeDefinesTheLifeline: the last frequency point is
+    // pulled back onto the tail at 0.5 s. In the phase points, the last
+    // state collides with the 90 degree target at 0.625 s and replaces it;
+    // the fit then moves it to the lifeline's end, dropping the NULL there.
+    addMusicalSet(db, "P", {"A"},
+        {
+            MusicalPoint{.sync = 0, .offset = 0.0, .states = {state("A", 440.0, -6.0, 0.0)}},
+            MusicalPoint{.sync = 960, .offset = 0.0, .states = {state("A", 441.0, -6.0)}},
+            MusicalPoint{
+                .sync = 1920, .offset = -0.375, .states = {state("A", std::nullopt, -12.0, 90.0)}},
+            MusicalPoint{
+                .sync = 1920, .offset = -0.75, .states = {state("A", 442.0, -144.0, -90.0)}},
+        });
+    const TransformReport report = transformAll(db);
+    ASSERT_TRUE(report.ok()) << report.sets[0].partials[0].error.value_or("");
+    EXPECT_EQ(phasePoints(db, "A"), (std::vector<std::pair<double, std::optional<double>>>{
+                                        {0.0, 0.0}, {24000.0, -std::numbers::pi / 2.0}}));
+}
+
+TEST_F(TransformDb, RerunningReplacesThePhaseTimeline) {
+    addScore(db);
+    addMusicalSet(db, "P", {"A"},
+        {
+            MusicalPoint{.sync = 0, .states = {state("A", 440.0, -6.0, 10.0)}},
+            MusicalPoint{.sync = 1920, .states = {state("A", 440.0, -12.0, 20.0)}},
+        });
+    ASSERT_TRUE(transformAll(db).ok());
+    const auto before = phasePoints(db, "A");
+    ASSERT_TRUE(transformAll(db).ok());
+    EXPECT_EQ(phasePoints(db, "A"), before);
+    EXPECT_EQ(count(db, "MATCH (:PhasePhysicalTimeline) RETURN count(*);"), 1);
+    EXPECT_EQ(count(db, "MATCH (:PhasePhysicalTimelinePoint) RETURN count(*);"), 2);
+}
+
+TEST_F(TransformDb, PhaseFaultsFailOnlyThatPartial) {
+    addScore(db);
+    addMusicalSet(db, "P", {"A", "B", "C"},
+        {
+            // C: a state before its lifeline begins.
+            MusicalPoint{.sync = 0,
+                .states = {state("A", 440.0, -6.0), state("B", 440.0, -6.0, 181.0),
+                    state("C", std::nullopt, std::nullopt)}},
+            MusicalPoint{.sync = 960, .states = {state("C", 440.0, -6.0)}},
+            MusicalPoint{.sync = 1920,
+                .states = {state("A", 440.0, -12.0), state("B", 440.0, -12.0),
+                    state("C", 440.0, -12.0)}},
+        });
+    const TransformReport report = transformAll(db);
+    EXPECT_TRUE(outcomeOf(report, "A").ok());
+    // B: phase outside [-180, 180].
+    EXPECT_NE(outcomeOf(report, "B").error.value_or("").find("[-180, 180]"), std::string::npos);
+    EXPECT_NE(outcomeOf(report, "C").error.value_or("").find("lifeline"), std::string::npos);
+    EXPECT_EQ(report.failureCount(), 2U);
 }
 
 } // namespace

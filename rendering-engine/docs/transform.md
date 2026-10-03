@@ -1,7 +1,7 @@
 # rendering-engine — transform design
 
 **Status:** implemented, for the first version (§2), designed and built on
-2026-10-02. The code is
+2026-10-02; phase (§6.6) added on 2026-10-03. The code is
 [transform/musical_units.hpp](../include/rainbohz/rendering_engine/transform/musical_units.hpp),
 [transform/tempo_map.hpp](../include/rainbohz/rendering_engine/transform/tempo_map.hpp),
 [transform/squash.hpp](../include/rainbohz/rendering_engine/transform/squash.hpp),
@@ -46,8 +46,8 @@ Two things make the step more than a change of units:
 | --- | --- |
 | One `TempoMap` per `Score`, reached by `Score → NEXT_POINT → TempoMap` | Several tempo maps and `TEMPO_MAP_SYNCHRONIZATION_POINT`; any such edge is refused |
 | Held tempi and ramps linear in musical position ([ADR 0013](../../docs/adr/0013-tempo-ramps-are-linear-in-musical-position.md)) | Other ramp shapes |
-| `PartialSetMusicalTimeline` → one `FrequencyPhysicalTimeline` and one `AmplitudePhysicalTimeline` per partial | Phase (`PartialState.phase`, `phase_lock`): read for nothing |
-| An interim `PhasePhysicalTimeline` per partial: one point, phase 0 at the start of the lifeline | Mapping the canonical model's phase to the `PhasePhysicalTimeline` |
+| `PartialSetMusicalTimeline` → one `FrequencyPhysicalTimeline`, one `AmplitudePhysicalTimeline` and one `PhasePhysicalTimeline` per partial | |
+| `PartialState.phase` in degrees, NULL a free-running point (§6.6) | |
 | `POINT_AT.sync_point` and `offset_seconds`, with the squash rule | Overlapping or cross-fading colliding states (§14) |
 | Curve type and amount copied through per property | Interpreting curves; precomputation accepts linear only |
 | Rebuild on every run | Dirty flags and incremental transformation |
@@ -55,17 +55,8 @@ Two things make the step more than a change of units:
 
 Everything in the right-hand column is anticipated by the structure in §6,
 but none of it is implemented, and none of it is validated against: a score
-that contains, for example, a `PartialState.phase` is transformed as though
-it were NULL.
-
-**Interim phase timeline.** Precomputation requires every partial to have a
-`PhasePhysicalTimeline` with a point at the start of its lifeline
-(precomputation.md §6.8). Until the transform maps the canonical model's
-phase, it writes that minimum: one point, phase 0, at the first frequency
-point's time. This is the free-running partial starting at phase 0, which is
-what precomputation did before phase control existed. Like the other
-timelines it replaces, any existing phase timeline is deleted and rewritten
-on every run. It goes when the real mapping arrives.
+that contains, for example, a spatial timeline is transformed as though it
+had none.
 
 ## 3. Units and types
 
@@ -136,11 +127,11 @@ Per `PartialSet` that has a `PartialSetMusicalTimeline` by
   `offset_seconds`;
 - each point's states, by
   `POINT_STATE → PartialStateSet ← MEMBER_OF_SET_MANY_ONE ← PartialState → STATE_OF → Partial`:
-  the partial, `frequency` and `amplitude`.
+  the partial, `frequency`, `amplitude` and `phase`.
 
-And, for every partial of such a set, any `FrequencyPhysicalTimeline` and
-`AmplitudePhysicalTimeline` it already has, with their points, to be
-replaced.
+And, for every partial of such a set, any `FrequencyPhysicalTimeline`,
+`AmplitudePhysicalTimeline` and `PhasePhysicalTimeline` it already has, with
+their points, to be replaced.
 
 Everything is read in bulk, with a fixed handful of queries, before anything
 is written.
@@ -153,9 +144,11 @@ For each partial of each transformed set:
   a chain of `FrequencyPhysicalTimelinePoint`s linked by `NEXT_POINT`: `time`
   in samples, `frequency` in radians per sample, `frequency_curve_type` and
   `frequency_curve_amount` copied from the set point the knot came from;
-- one `AmplitudePhysicalTimeline` likewise, with `amplitude` in dB.
+- one `AmplitudePhysicalTimeline` likewise, with `amplitude` in dB;
+- one `PhasePhysicalTimeline` likewise, with `phase` in radians or NULL, and
+  no curve fields (§6.6).
 
-The two chains start at the same time and end at the same time, exactly, as
+The three chains start at the same time and end at the same time, exactly, as
 precomputation requires (precomputation.md §7). Partial sets with no musical
 timeline, and their partials, are not touched: a score may be written in
 physical time directly, as the first two examples are.
@@ -372,7 +365,50 @@ Frequency knots are converted from Hz to radians per sample with
 are copied, not interpreted: a curve type other than linear is valid data
 here and precomputation's business to refuse (precomputation.md §7).
 
-### 6.6 The run
+### 6.6 Phase
+
+Decided with the author on 2026-10-03. `PartialState.phase` is a target in
+degrees, [−180, 180], or NULL, and becomes the partial's
+`PhasePhysicalTimeline`, from which precomputation derives the initial phase
+and the compensation segments (precomputation.md §6.8,
+[ADR 0019](../../docs/adr/0019-phase-targets-are-met-by-linear-compensation-segments.md)).
+Phase transitions are always linear; the canonical model has no curve and no
+phase lock for them (both removed by the author, 2026-10-03).
+
+**Every state is a phase point.** Unlike frequency and amplitude, NULL is a
+value here, not an absence: a `PartialState` whose phase is NULL is a
+free-running point, which ends the span before it and starts the next. A
+point where the partial has no `PartialState` at all gives no phase point.
+So a partial's phase points are one per state it has, in point order.
+
+**Within the lifeline.** The partial's first and last frequency knots are on
+points where it has a state, so it always has a phase point at each end. A
+state before the first or after the last is outside the lifeline and fails
+the partial. This is what guarantees precomputation's point at `b₀`: it is
+NULL when the first state gives no phase, and precomputation then works the
+initial phase backwards to meet the first target.
+
+**Placement.** The phase points are squashed on their own, by the rule of
+§6.3: a later state wins a collision, including a later NULL over an earlier
+target. They are then fitted to the lifeline exactly as amplitude is (§6.4):
+the last point moves to the frequency envelope's end, and any other at or
+after it is dropped.
+
+**Units.** Degrees become radians, `θ·π/180`, clamped to [−π, π] so that
+±180° gives exactly ±π, which precomputation accepts (`toPhase` in
+`units.hpp`).
+
+**Redundant NULLs are removed** (author, 2026-10-03). Because every state is
+a point, a score that is silent about phase writes a NULL at every state. In
+a run of three or more consecutive NULL points only the first and last mean
+anything; the spans between them are flat either way. So the middle ones are
+dropped, in one pass that looks at the two points kept before
+(`collapseFreeRuns`). Precomputation gives the same compensation, with fewer
+segments. A score with no phase anywhere becomes two NULL points, at `b₀` and
+`b_last`: the initial phase is 0 and there is no compensation, which is what
+precomputation did before phase control existed.
+
+### 6.7 The run
 
 1. Read `EngineConfig.sampleRate`. Not exactly one config, or an unusable
    rate, is fatal.
@@ -384,8 +420,8 @@ here and precomputation's business to refuse (precomputation.md §7).
    the set (§8), compute τ per point, build each member's knots. A set that
    fails is recorded, with none of its partials attempted.
 5. For each member, in `Partial.id` order: validate the knots (§8), squash
-   each envelope, fit amplitude to the lifeline, convert units, and write
-   (§7). A partial that fails is recorded and the run continues.
+   each envelope and the phase points, fit amplitude and phase to the
+   lifeline, convert units, collapse NULL runs, and write (§7). A partial that fails is recorded and the run continues.
 6. Return the report: the tempo maps found, and per set and per partial what
    happened.
 
@@ -397,8 +433,8 @@ would otherwise report the same partials again, for want of their timelines.
 ## 7. Transactions, rebuild and idempotency
 
 **Rebuild every run.** A transformed partial's existing
-`FrequencyPhysicalTimeline` and `AmplitudePhysicalTimeline`, with their
-points, are deleted and recreated. `DETACH DELETE` on a point also removes
+`FrequencyPhysicalTimeline`, `AmplitudePhysicalTimeline` and
+`PhasePhysicalTimeline`, with their points, are deleted and recreated. `DETACH DELETE` on a point also removes
 any `FRAME_ENTRY_PHYSICAL_TIMELINE` edge an earlier precomputation left on it;
 precomputation rebuilds its entries in any case. Dirty flags will replace this
 (§13).
@@ -407,8 +443,8 @@ precomputation rebuilds its entries in any case. Dirty flags will replace this
 points with the same values. Only the `SERIAL` ids differ, so nothing may hold
 such an id across a run. This keeps the invariant of design.md §2.
 
-**One transaction per partial.** A partial's two timelines are either both
-replaced or both as they were. A set-level failure writes nothing for any of
+**One transaction per partial.** A partial's three timelines are either all
+replaced or all as they were. A set-level failure writes nothing for any of
 its partials, since it is detected before any partial is attempted.
 
 ## 8. Validation
@@ -425,6 +461,8 @@ its partials, since it is detected before any partial is attempted.
 | Every `PartialState` reached from a point is the state of a partial of this set, and no two states at one point are of the same partial | set | set fails |
 | Frequency and amplitude each have at least two knots, and share the first and last point (§6.2) | partial | partial fails |
 | Every frequency knot is finite; every amplitude knot is finite and in [−144, 0] dB | partial | partial fails |
+| Every phase is NULL, or finite and in [−180, 180] degrees | partial | partial fails |
+| No state of the partial lies before its first frequency knot or after its last (§6.6) | partial | partial fails |
 | After squashing, the frequency envelope has at least two points | partial | partial fails: the lifeline collapsed |
 
 A set-level message names the point by its position in the list and its id;
@@ -438,8 +476,8 @@ rules for the columns the transform reads, and the shapes it relies on:
 
 - range rules for `TempoMap.ticks_per_beat`, `TempoMapPoint.position` and
   `start_tempo`, the four curve fields of `PartialSetMusicalTimelinePoint`,
-  and `PartialState.frequency` and `amplitude`, both of which may be NULL by
-  design;
+  and `PartialState.frequency`, `amplitude` and `phase`, all of which may be
+  NULL by design;
 - `TempoMap` and `PartialSetMusicalTimeline` added to the list checks
   (cycles and merges), with the `FrequencyModulatorPhysicalTimeline` pair that
   the table had been missing;
@@ -464,10 +502,11 @@ alongside `units`, `EngineDb` and the existing modules:
 2. **`tempo_map`** — `TempoMapPointRecord` (as read), `TempoMapPoint`,
    `secondsThrough()` and the `TempoMap` class. No database dependency.
 3. **`squash`** — `Placement` and `squash()`. No dependencies but `units`.
-4. **`transform`** — `Knot`, `PhysicalPoint`, the pure stages
-   `requireSharedEndPoints()`, `placeKnots()` and `fitToLifeline()`, the
-   report types, and `transformAll(EngineDb&)`, the only function that reads
-   or writes the database.
+4. **`transform`** — `Knot`, `PhysicalPoint`, `PhaseKnot`, `PhasePoint`,
+   the pure stages `requireSharedEndPoints()`, `placeKnots()`,
+   `fitToLifeline()`, `requirePhaseWithinLifeline()`, `placePhaseKnots()`
+   and `collapseFreeRuns()`, the report types, and `transformAll(EngineDb&)`,
+   the only function that reads or writes the database.
 
 ```mermaid
 classDiagram
@@ -541,7 +580,7 @@ report.
 
 ## 11. Worked examples
 
-Both are example scores with JSON mirrors for the oracle
+All three are example scores with JSON mirrors for the oracle
 (rendering.md §11.1), whose values were computed by an independent Python
 implementation of this document, not by the engine.
 
@@ -563,6 +602,15 @@ the next starts 0.125 s later. Computed times in samples, in list order:
 15250, 21000. Seven points of nine survive, and the hits are heard in order,
 each cut by the next.
 
+**`phase-musical-score.cypher`.** The tempo map of the first example, and
+seven points: beats 0 to 4, beat 4 again with an offset of −0.25 s, and beat
+8. Partial A is silent about phase at beats 0 to 3, then targets 90° at beat
+4 and −180° at beat 8: its six phase points become four (NULL at 0 and at
+beat 3, 90240.70 samples, then π/2 and −π), and precomputation works its
+initial phase backwards to meet π/2. Partial B targets 0°, then 45° at beat
+4; the next point computes 12000 samples earlier, collides, and its −60°
+replaces the 45° at 133084.26; it ends at 120°.
+
 ## 12. Numerical precision
 
 Times are `double` samples, as everywhere in the rendering model
@@ -575,10 +623,6 @@ score is written, not here.
 
 ## 13. Future extensions
 
-- **Phase.** `PartialState.phase` (degrees, nullable: "free") and
-  `phase_lock` become a `PhasePhysicalTimeline` in radians, replacing the
-  interim one-point timeline (§2). Precomputation's phase support exists
-  (precomputation.md §6.8); this is the next step.
 - **Spatial position and modulators**, each a musical timeline to convert the
   same way.
 - **Several tempo maps**, synchronised by `TEMPO_MAP_SYNCHRONIZATION_POINT`:

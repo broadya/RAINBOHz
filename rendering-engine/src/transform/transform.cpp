@@ -100,7 +100,7 @@ constexpr std::string_view kReadMusicalLinks =
 constexpr std::string_view kReadStates =
     "MATCH (p:PartialSetMusicalTimelinePoint)-[:POINT_STATE]->(:PartialStateSet)"
     "<-[:MEMBER_OF_SET_MANY_ONE]-(st:PartialState)-[:STATE_OF]->(partial:Partial) "
-    "RETURN p.id, st.id, partial.id, st.frequency, st.amplitude;";
+    "RETURN p.id, st.id, partial.id, st.frequency, st.amplitude, st.phase;";
 
 // Output from an earlier run, or physical-time input, which is replaced.
 constexpr std::string_view kReadExistingFrequency =
@@ -150,15 +150,6 @@ constexpr std::string_view kDeletePhasePoints =
 constexpr std::string_view kDeletePhaseTimeline =
     "MATCH (t:PhasePhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;";
 
-// Interim, until the transform maps PartialState.phase (transform.md §2):
-// every partial gets the phase timeline precomputation requires, with the one
-// point it must have -- phase 0 at the start of the lifeline, which is what
-// precomputation did before phase control existed.
-constexpr std::string_view kCreateDefaultPhaseTimeline =
-    "MATCH (p:Partial) WHERE p.id = $partial "
-    "CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(:PhasePhysicalTimeline)"
-    "-[:NEXT_POINT]->(:PhasePhysicalTimelinePoint {time: $time, phase: 0.0}) RETURN p.id;";
-
 constexpr std::string_view kCreateFrequencyTimeline =
     "MATCH (p:Partial) WHERE p.id = $partial "
     "CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:FrequencyPhysicalTimeline) RETURN t.id;";
@@ -166,6 +157,10 @@ constexpr std::string_view kCreateFrequencyTimeline =
 constexpr std::string_view kCreateAmplitudeTimeline =
     "MATCH (p:Partial) WHERE p.id = $partial "
     "CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:AmplitudePhysicalTimeline) RETURN t.id;";
+
+constexpr std::string_view kCreatePhaseTimeline =
+    "MATCH (p:Partial) WHERE p.id = $partial "
+    "CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:PhasePhysicalTimeline) RETURN t.id;";
 
 // One point, linked from the node before it: the timeline for the first
 // point, the previous point after that. Two fixed variants per property, so
@@ -196,6 +191,27 @@ constexpr std::string_view kCreateNextAmplitudePoint =
     "amplitude: CAST($value AS FLOAT), amplitude_curve_type: CAST($curveType AS INT8), "
     "amplitude_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN a.id;";
 
+// Phase points have no curve, and their phase may be NULL. A parameter cannot
+// be NULL, so a NULL point has its own statements, which leave the property
+// unset.
+constexpr std::string_view kCreateFirstPhasePoint =
+    "MATCH (prev:PhasePhysicalTimeline) WHERE prev.id = $previous "
+    "CREATE (prev)-[:NEXT_POINT]->(f:PhasePhysicalTimelinePoint {time: $time, phase: $phase}) "
+    "RETURN f.id;";
+
+constexpr std::string_view kCreateNextPhasePoint =
+    "MATCH (prev:PhasePhysicalTimelinePoint) WHERE prev.id = $previous "
+    "CREATE (prev)-[:NEXT_POINT]->(f:PhasePhysicalTimelinePoint {time: $time, phase: $phase}) "
+    "RETURN f.id;";
+
+constexpr std::string_view kCreateFirstFreePhasePoint =
+    "MATCH (prev:PhasePhysicalTimeline) WHERE prev.id = $previous "
+    "CREATE (prev)-[:NEXT_POINT]->(f:PhasePhysicalTimelinePoint {time: $time}) RETURN f.id;";
+
+constexpr std::string_view kCreateNextFreePhasePoint =
+    "MATCH (prev:PhasePhysicalTimelinePoint) WHERE prev.id = $previous "
+    "CREATE (prev)-[:NEXT_POINT]->(f:PhasePhysicalTimelinePoint {time: $time}) RETURN f.id;";
+
 // ---------------------------------------------------------------------------
 // Limits from the schema (engine-schema.cypher, "Units for specification of
 // a score", and the curve enumerations)
@@ -207,6 +223,8 @@ constexpr double kMinCurveAmount = 0.0;
 constexpr double kMaxCurveAmount = 1.0;
 constexpr double kMinAmplitude = -144.0;
 constexpr double kMaxAmplitude = 0.0;
+constexpr double kMinPhaseDegrees = -180.0;
+constexpr double kMaxPhaseDegrees = 180.0;
 
 // ---------------------------------------------------------------------------
 // Inputs, as read in bulk before anything is written
@@ -251,6 +269,9 @@ struct StateRecord {
     std::int64_t partialId = 0;
     std::optional<double> frequency;
     std::optional<double> amplitude;
+
+    /// Degrees; NULL is a free-running point, not an absence (§6.6).
+    std::optional<double> phase;
 };
 
 /// A partial's existing physical timeline of one kind, with its point ids in
@@ -382,6 +403,7 @@ Inputs readInputs(EngineDb& db) {
             .partialId = requireInt64(row.at(2)),
             .frequency = optionalDouble(row.at(3)),
             .amplitude = optionalDouble(row.at(4)),
+            .phase = optionalDouble(row.at(5)),
         });
     }
 
@@ -526,6 +548,9 @@ struct SetEnvelopes {
 
     /// Each member partial's knots: frequency, then amplitude.
     std::unordered_map<std::int64_t, std::pair<std::vector<Knot>, std::vector<Knot>>> knots;
+
+    /// Each member partial's phase points, one per state it has (§6.6).
+    std::unordered_map<std::int64_t, std::vector<PhaseKnot>> phase;
 };
 
 /// Checks a curve type and amount of a point, for one property.
@@ -613,13 +638,13 @@ SampleTime pointTime(std::size_t index, const MusicalPointRecord& point, std::in
 /// @param point          The point as read; its curve fields are valid.
 /// @param states         The PartialStates reached from it.
 /// @param members        The ids of the set's partials.
-/// @param[in,out] knots  Each partial's (frequency, amplitude) knots; this
-///                       point's are appended.
+/// @param[in,out] envelopes  Each partial's (frequency, amplitude) knots and
+///                       phase points; this point's are appended.
 /// @throws PartialSetTransformError  If a state belongs to a partial outside
 ///         the set, or two states belong to the same partial.
 void gatherStates(std::size_t index, const MusicalPointRecord& point,
     std::span<const StateRecord> states, const std::unordered_set<std::int64_t>& members,
-    std::unordered_map<std::int64_t, std::pair<std::vector<Knot>, std::vector<Knot>>>& knots) {
+    SetEnvelopes& envelopes) {
     std::unordered_set<std::int64_t> seenPartials;
     for (const StateRecord& state : states) {
         const std::string where = describePoint(index, point.id);
@@ -633,7 +658,7 @@ void gatherStates(std::size_t index, const MusicalPointRecord& point,
                 where + ": Partial " + std::to_string(state.partialId) +
                 " has more than one PartialState; at most one is allowed per point"};
         }
-        auto& [frequency, amplitude] = knots[state.partialId];
+        auto& [frequency, amplitude] = envelopes.knots[state.partialId];
         if (state.frequency.has_value()) {
             frequency.push_back(Knot{.point = index,
                 .value = *state.frequency,
@@ -646,6 +671,9 @@ void gatherStates(std::size_t index, const MusicalPointRecord& point,
                 .curveType = point.amplitudeCurveType.value_or(0),
                 .curveAmount = point.amplitudeCurveAmount.value_or(0.0)});
         }
+        // Every state is a phase point: NULL means free-running up to here.
+        envelopes.phase[state.partialId].push_back(
+            PhaseKnot{.point = index, .degrees = state.phase});
     }
 }
 
@@ -694,7 +722,7 @@ SetEnvelopes gatherSet(const Inputs& inputs, const MusicalSetRecord& set, const 
         envelopes.pointTimes.push_back(pointTime(i, point, mapId, map, rate, previousSync));
         const auto states = inputs.statesOfPoint.find(point.id);
         gatherStates(i, point, states == inputs.statesOfPoint.end() ? kNoStates : states->second,
-            members, envelopes.knots);
+            members, envelopes);
     }
     return envelopes;
 }
@@ -715,6 +743,7 @@ struct PartialOutput {
     /// The points to write, in physical units.
     std::vector<PhysicalPoint> frequency;
     std::vector<PhysicalPoint> amplitude;
+    std::vector<PhasePoint> phase;
 };
 
 /// Writes one chain of points, linked from a freshly created timeline.
@@ -755,8 +784,42 @@ void writeChain(EngineDb& db, std::string_view createTimeline, std::string_view 
     }
 }
 
-/// Replaces a partial's physical timelines in one transaction (§7): its two
-/// envelopes, and the interim default phase timeline.
+/// Writes a partial's phase points, linked from a fresh PhasePhysicalTimeline.
+///
+/// @param[in,out] db  Database to write, inside the caller's transaction.
+/// @param partialId   The partial.
+/// @param points      The points, in order; NULL ones are written with
+///                    `phase` unset.
+/// @throws EngineDbError  If a statement fails.
+/// @throws PartialTransformError  If the partial is no longer in the
+///         database.
+void writePhaseChain(EngineDb& db, std::int64_t partialId, std::span<const PhasePoint> points) {
+    const std::vector<DbRow> created = db.query(kCreatePhaseTimeline, {{"partial", partialId}});
+    if (created.size() != 1) {
+        throw PartialTransformError{"the partial disappeared while it was being transformed"};
+    }
+    std::int64_t previous = requireInt64(created.front().at(0));
+    bool first = true;
+    for (const PhasePoint& point : points) {
+        DbParameters parameters{{"previous", previous}, {"time", point.time.value()}};
+        std::string_view statement;
+        if (point.phase.has_value()) {
+            parameters.emplace_back("phase", point.phase->value());
+            statement = first ? kCreateFirstPhasePoint : kCreateNextPhasePoint;
+        } else {
+            statement = first ? kCreateFirstFreePhasePoint : kCreateNextFreePhasePoint;
+        }
+        const std::vector<DbRow> rows = db.query(statement, parameters);
+        if (rows.size() != 1) {
+            throw EngineDbError{
+                "creating a phase point returned " + std::to_string(rows.size()) + " rows, not 1"};
+        }
+        previous = requireInt64(rows.front().at(0));
+        first = false;
+    }
+}
+
+/// Replaces a partial's three physical timelines in one transaction (§7).
 ///
 /// @param[in,out] db  Database to write. Modified only if every statement
 ///                    succeeds; otherwise the transaction is rolled back.
@@ -790,8 +853,7 @@ void writePartial(EngineDb& db, const PartialOutput& output) {
         output.partialId, output.frequency);
     writeChain(db, kCreateAmplitudeTimeline, kCreateFirstAmplitudePoint, kCreateNextAmplitudePoint,
         output.partialId, output.amplitude);
-    db.query(kCreateDefaultPhaseTimeline,
-        {{"partial", output.partialId}, {"time", output.frequency.front().time.value()}});
+    writePhaseChain(db, output.partialId, output.phase);
 
     transaction.commit();
 }
@@ -800,9 +862,12 @@ void writePartial(EngineDb& db, const PartialOutput& output) {
 ///
 /// @param frequency  Frequency knots, Hz.
 /// @param amplitude  Amplitude knots, dB.
-/// @throws PartialTransformError  If a frequency is not finite, or an
-///         amplitude is not finite or outside [−144, 0].
-void requireValues(std::span<const Knot> frequency, std::span<const Knot> amplitude) {
+/// @param phase      Phase points, degrees or NULL.
+/// @throws PartialTransformError  If a frequency is not finite, an amplitude
+///         is not finite or outside [−144, 0], or a phase is neither NULL nor
+///         finite in [−180, 180].
+void requireValues(std::span<const Knot> frequency, std::span<const Knot> amplitude,
+    std::span<const PhaseKnot> phase) {
     for (const Knot& knot : frequency) {
         if (!std::isfinite(knot.value)) {
             throw PartialTransformError{"at point " + std::to_string(knot.point) +
@@ -819,9 +884,19 @@ void requireValues(std::span<const Knot> frequency, std::span<const Knot> amplit
                                         ", " + formatNumber(kMaxAmplitude) + "]"};
         }
     }
+    for (const PhaseKnot& knot : phase) {
+        if (knot.degrees.has_value() &&
+            (!std::isfinite(*knot.degrees) || *knot.degrees < kMinPhaseDegrees ||
+                *knot.degrees > kMaxPhaseDegrees)) {
+            throw PartialTransformError{
+                "at point " + std::to_string(knot.point) + " its phase is " +
+                formatNumber(*knot.degrees) + " degrees; it must be NULL or in [" +
+                formatNumber(kMinPhaseDegrees) + ", " + formatNumber(kMaxPhaseDegrees) + "]"};
+        }
+    }
 }
 
-/// Transforms and writes one partial (§6.2 to §6.5, §7).
+/// Transforms and writes one partial (§6.2 to §6.6, §7).
 ///
 /// @param[in,out] db    Database to write.
 /// @param inputs        Everything read for the run.
@@ -836,19 +911,25 @@ void requireValues(std::span<const Knot> frequency, std::span<const Knot> amplit
 void transformPartial(EngineDb& db, const Inputs& inputs, const SetEnvelopes& envelopes,
     std::int64_t partialId, SampleRate rate, PartialTransformOutcome& outcome) {
     static const std::pair<std::vector<Knot>, std::vector<Knot>> kNoKnots;
+    static const std::vector<PhaseKnot> kNoPhase;
     const auto found = envelopes.knots.find(partialId);
     const auto& [frequencyKnots, amplitudeKnots] =
         found == envelopes.knots.end() ? kNoKnots : found->second;
+    const auto foundPhase = envelopes.phase.find(partialId);
+    const std::vector<PhaseKnot>& phaseKnots =
+        foundPhase == envelopes.phase.end() ? kNoPhase : foundPhase->second;
 
     requireSharedEndPoints(frequencyKnots, amplitudeKnots);
-    requireValues(frequencyKnots, amplitudeKnots);
+    requirePhaseWithinLifeline(frequencyKnots, phaseKnots);
+    requireValues(frequencyKnots, amplitudeKnots, phaseKnots);
 
     PartialOutput output{.partialId = partialId,
         .staleFrequency = {},
         .staleAmplitude = {},
         .stalePhase = {},
         .frequency = placeKnots(frequencyKnots, envelopes.pointTimes),
-        .amplitude = placeKnots(amplitudeKnots, envelopes.pointTimes)};
+        .amplitude = placeKnots(amplitudeKnots, envelopes.pointTimes),
+        .phase = placePhaseKnots(phaseKnots, envelopes.pointTimes)};
     if (output.frequency.size() < 2) {
         throw PartialTransformError{
             "its lifeline collapsed to a single instant at " +
@@ -856,6 +937,14 @@ void transformPartial(EngineDb& db, const Inputs& inputs, const SetEnvelopes& en
             " samples: every later frequency point was pulled back onto the first by its offset"};
     }
     fitToLifeline(output.amplitude, output.frequency.back().time);
+    // The phase points include every frequency knot's point, so they cannot
+    // collapse further than the frequency envelope did; checked regardless,
+    // because the fit below needs two.
+    if (output.phase.size() < 2) {
+        throw PartialTransformError{"its phase points collapsed to a single instant"};
+    }
+    fitToLifeline(output.phase, output.frequency.back().time);
+    collapseFreeRuns(output.phase);
     for (PhysicalPoint& point : output.frequency) {
         point.value = toAngular(Hertz{point.value}, rate).value();
     }
@@ -881,6 +970,7 @@ void transformPartial(EngineDb& db, const Inputs& inputs, const SetEnvelopes& en
 
     outcome.frequencyPoints = output.frequency.size();
     outcome.amplitudePoints = output.amplitude.size();
+    outcome.phasePoints = output.phase.size();
 }
 
 /// Transforms one set: validates it, then its partials one by one.
@@ -922,7 +1012,8 @@ void transformSet(EngineDb& db, const Inputs& inputs, const MusicalSetRecord& se
             .partialName = partialName,
             .error = std::nullopt,
             .frequencyPoints = 0,
-            .amplitudePoints = 0};
+            .amplitudePoints = 0,
+            .phasePoints = 0};
         try {
             transformPartial(db, inputs, envelopes, partialId, rate, partial);
         } catch (const PartialTransformError& e) {
@@ -988,6 +1079,69 @@ void fitToLifeline(std::vector<PhysicalPoint>& amplitude, SampleTime end) {
     amplitude.pop_back();
     std::erase_if(amplitude, [end](const PhysicalPoint& point) { return point.time >= end; });
     amplitude.push_back(last);
+}
+
+void requirePhaseWithinLifeline(std::span<const Knot> frequency, std::span<const PhaseKnot> phase) {
+    // The caller has checked that frequency has at least two knots, and each
+    // sits on a point where the partial has a state, so phase is not empty.
+    if (phase.empty() || phase.front().point != frequency.front().point) {
+        throw PartialTransformError{
+            "it has a state at point " +
+            (phase.empty() ? std::string{"(none)"} : std::to_string(phase.front().point)) +
+            ", before its frequency is first defined at point " +
+            std::to_string(frequency.front().point) +
+            "; every state must lie within the lifeline the frequency defines"};
+    }
+    if (phase.back().point != frequency.back().point) {
+        throw PartialTransformError{
+            "it has a state at point " + std::to_string(phase.back().point) +
+            ", after its frequency is last defined at point " +
+            std::to_string(frequency.back().point) +
+            "; every state must lie within the lifeline the frequency defines"};
+    }
+}
+
+std::vector<PhasePoint> placePhaseKnots(
+    std::span<const PhaseKnot> knots, std::span<const SampleTime> pointTimes) {
+    std::vector<SampleTime> times;
+    times.reserve(knots.size());
+    for (const PhaseKnot& knot : knots) {
+        times.push_back(pointTimes[knot.point]);
+    }
+    std::vector<PhasePoint> points;
+    for (const Placement& placement : squash(times)) {
+        const PhaseKnot& knot = knots[placement.index];
+        points.push_back(PhasePoint{.time = placement.time,
+            .phase = knot.degrees.has_value()
+                         ? std::optional<Phase>{toPhase(Degrees{*knot.degrees})}
+                         : std::nullopt});
+    }
+    return points;
+}
+
+void fitToLifeline(std::vector<PhasePoint>& phase, SampleTime end) {
+    PhasePoint last = phase.back();
+    last.time = end;
+    phase.pop_back();
+    std::erase_if(phase, [end](const PhasePoint& point) { return point.time >= end; });
+    phase.push_back(last);
+}
+
+void collapseFreeRuns(std::vector<PhasePoint>& phase) {
+    std::vector<PhasePoint> kept;
+    kept.reserve(phase.size());
+    for (const PhasePoint& point : phase) {
+        // The last two kept are both NULL: the later one is the middle of a
+        // run, superseded by this point as the run's end.
+        const std::size_t n = kept.size();
+        if (!point.phase.has_value() && n >= 2 && !kept[n - 1].phase.has_value() &&
+            !kept[n - 2].phase.has_value()) {
+            kept.back() = point;
+        } else {
+            kept.push_back(point);
+        }
+    }
+    phase = std::move(kept);
 }
 
 // ---------------------------------------------------------------------------

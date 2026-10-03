@@ -20,6 +20,7 @@
 // sample; phase in radians, unwrapped. The amplitude and output types that
 // rendering adds are listed in docs/rendering.md section 3.
 
+#include <algorithm>
 #include <cmath>
 #include <compare>
 #include <cstdint>
@@ -654,6 +655,39 @@ public:
 private:
     double value_;
 };
+
+/// A phase in degrees: the canonical model's unit for PartialState.phase,
+/// in [−180, 180] (engine-schema.cypher). Read only by the transform, which
+/// converts it to Phase with toPhase().
+class Degrees {
+public:
+    /// A phase of `degrees` degrees.
+    ///
+    /// @param degrees  Any value.
+    constexpr explicit Degrees(double degrees) noexcept : value_{degrees} {}
+
+    /// The phase in degrees.
+    constexpr double value() const noexcept { return value_; }
+
+    /// Orders two values of this type by their representation.
+    friend constexpr auto operator<=>(Degrees, Degrees) noexcept = default;
+
+private:
+    double value_;
+};
+
+/// Converts a canonical phase target to the rendering model's unit.
+///
+/// The result is clamped to [−π, π], the range precomputation accepts for a
+/// phase point (precomputation.md §7), so that ±180° gives exactly ±π
+/// whatever the rounding of the product.
+///
+/// @param phase  Phase in degrees, in [−180, 180].
+/// @return The same phase in radians, in [−π, π].
+constexpr Phase toPhase(Degrees phase) noexcept {
+    return Phase{std::clamp(
+        phase.value() * (std::numbers::pi / 180.0), -std::numbers::pi, std::numbers::pi)};
+}
 
 // ---------------------------------------------------------------------------
 // Sample rate and frames

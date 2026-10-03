@@ -202,7 +202,7 @@ void reportTransform(std::ostream& out, const TransformReport& report, bool verb
             } else if (verbose) {
                 out << "    ok       " << describeTransformedPartial(partial) << ": "
                     << partial.frequencyPoints << " frequency point(s), " << partial.amplitudePoints
-                    << " amplitude point(s)\n";
+                    << " amplitude point(s), " << partial.phasePoints << " phase point(s)\n";
             }
         }
     }

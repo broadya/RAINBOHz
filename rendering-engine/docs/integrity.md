@@ -90,12 +90,14 @@ the schema documents a range for it.
 | `PartialSetMusicalTimelinePoint.frequency_curve_amount`, `amplitude_curve_amount` | no | 0 to 1 | schema |
 | `PartialState.frequency` | **allowed**: no knot here | any finite value | transform.md §6.2 (author, 2026-10-02) |
 | `PartialState.amplitude` | **allowed**: no knot here | −144 to 0 | schema's canonical range |
+| `PartialState.phase` | **allowed**: a free-running point | −180 to 180 degrees | schema's canonical range ([transform.md](transform.md) §6.6) |
 
 The `EngineConfig.channelMode` and `AmplitudePhysicalTimelinePoint` rows arrived
 with rendering ([rendering.md](rendering.md) §9, decided 2026-09-24,
 implemented 2026-09-25). The `TempoMap`, `TempoMapPoint`,
 `PartialSetMusicalTimelinePoint` and `PartialState` rows arrived with the
-transform ([transform.md](transform.md) §9, 2026-10-02).
+transform ([transform.md](transform.md) §9, 2026-10-02), and
+`PartialState.phase` with the transform's phase mapping (2026-10-03).
 
 Three further checks cover what no single column can:
 

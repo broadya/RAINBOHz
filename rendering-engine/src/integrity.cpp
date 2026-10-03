@@ -130,12 +130,13 @@ struct RangeRule {
 /// The canonical-model rows arrived with the transform (docs/transform.md
 /// section 9): tempo map resolution and points, the curve fields of musical
 /// timeline points, and PartialState values, which may be NULL by design (a
-/// NULL property is "no knot here").
+/// NULL frequency or amplitude is "no knot here"; a NULL phase is a
+/// free-running point).
 ///
 /// @return The rules, in the order their checks are reported. Valid for the
 ///         whole program.
-const std::array<RangeRule, 20>& rangeRules() {
-    static const std::array<RangeRule, 20> kRules{{
+const std::array<RangeRule, 21>& rangeRules() {
+    static const std::array<RangeRule, 21> kRules{{
         {.table = "EngineConfig",
             .column = "frameSize",
             .nullable = true,
@@ -236,6 +237,11 @@ const std::array<RangeRule, 20>& rangeRules() {
             .nullable = true,
             .min = Bound{.value = -144.0, .inclusive = true},
             .max = Bound{.value = 0.0, .inclusive = true}},
+        {.table = "PartialState",
+            .column = "phase",
+            .nullable = true,
+            .min = Bound{.value = -180.0, .inclusive = true},
+            .max = Bound{.value = 180.0, .inclusive = true}},
     }};
     return kRules;
 }

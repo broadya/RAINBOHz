@@ -6,9 +6,9 @@
 // This is responsibility 3 of docs/design.md section 1. The design is
 // docs/transform.md; section numbers below refer to it. This first version
 // converts each PartialSet's PartialSetMusicalTimeline into one
-// FrequencyPhysicalTimeline and one AmplitudePhysicalTimeline per partial,
-// through one TempoMap per Score. Phase, spatial position, modulators and
-// synchronised tempo maps are not yet converted (§2).
+// FrequencyPhysicalTimeline, one AmplitudePhysicalTimeline and one
+// PhasePhysicalTimeline per partial, through one TempoMap per Score. Spatial
+// position, modulators and synchronised tempo maps are not yet converted (§2).
 //
 // The stage is a module of the engine library, not a separate target: the
 // namespace rainbohz::rendering_engine::transform is the boundary between
@@ -98,6 +98,32 @@ struct PhysicalPoint {
     friend bool operator==(const PhysicalPoint&, const PhysicalPoint&) = default;
 };
 
+/// One phase point of one partial: the point of the set's timeline it sits
+/// on, and the phase there (§6.6).
+///
+/// Unlike a Knot, a NULL value is still a point: "free-running up to here"
+/// (precomputation.md §6.8). Every PartialState of the partial gives one; a
+/// point where the partial has no state gives none.
+struct PhaseKnot {
+    /// Index of the point in the set's timeline, from 0.
+    std::size_t point = 0;
+
+    /// The target phase in degrees, in [−180, 180]; nullopt for a NULL
+    /// (free-running) point.
+    std::optional<double> degrees;
+};
+
+/// A point of a PhasePhysicalTimeline as it will be written.
+struct PhasePoint {
+    /// When the phase must be reached.
+    SampleTime time;
+
+    /// The target phase, in [−π, π]; nullopt for a NULL (free-running) point.
+    std::optional<Phase> phase;
+
+    friend bool operator==(const PhasePoint&, const PhasePoint&) = default;
+};
+
 /// Checks that frequency and amplitude share the partial's first and last
 /// points (§6.2).
 ///
@@ -141,6 +167,62 @@ std::vector<PhysicalPoint> placeKnots(
 ///                           the first amplitude point.
 void fitToLifeline(std::vector<PhysicalPoint>& amplitude, SampleTime end);
 
+/// Checks that a partial's phase points lie within its lifeline (§6.6).
+///
+/// The partial's first and last frequency knots sit on points where it has a
+/// state, so it has a phase point on each. A phase point before the first or
+/// after the last is a state outside the lifeline, which has no frequency to
+/// sound at.
+///
+/// @param frequency  The partial's frequency knots, in point order. At least
+///                   two.
+/// @param phase      The partial's phase points, in point order.
+/// @throws PartialTransformError  If the first or last phase point is not on
+///         the point of the first or last frequency knot.
+void requirePhaseWithinLifeline(std::span<const Knot> frequency, std::span<const PhaseKnot> phase);
+
+/// Places a partial's phase points in physical time and converts them to
+/// radians (§6.3, §6.6).
+///
+/// The points are squashed on their own, exactly as an envelope's knots are:
+/// the user's order is kept and a later state wins a collision, including a
+/// later NULL over an earlier target.
+///
+/// @param knots       The phase points, in point order, each NULL or in
+///                    [−180, 180] degrees.
+/// @param pointTimes  The computed physical time of every point of the set's
+///                    timeline, by point index. Every value finite.
+/// @return One point per surviving knot, in order, with its phase in radians
+///         (toPhase()) or NULL.
+std::vector<PhasePoint> placePhaseKnots(
+    std::span<const PhaseKnot> knots, std::span<const SampleTime> pointTimes);
+
+/// Fits placed phase points to the partial's lifeline (§6.6), by the same
+/// rule as amplitude (§6.4).
+///
+/// The last point is moved to the lifeline's end, and any other point at or
+/// after that end is dropped.
+///
+/// @param[in,out] phase  Placed phase points, strictly increasing, at least
+///                       two. On return, strictly increasing, at least two,
+///                       ending exactly at `end`.
+/// @param end            The frequency envelope's last time. Later than the
+///                       first phase point.
+void fitToLifeline(std::vector<PhasePoint>& phase, SampleTime end);
+
+/// Removes the redundant middle of every run of NULL phase points (§6.6).
+///
+/// A NULL point ends the span before it and starts the next; the spans
+/// between consecutive NULL points are flat. In a run of three or more, only
+/// the first and the last mean anything, so the others are dropped (author,
+/// 2026-10-03). Precomputation gives the same compensation either way, with
+/// fewer segments.
+///
+/// @param[in,out] phase  Phase points in time order. On return, no NULL point
+///                       has a NULL point both before and after it. The first
+///                       and last points are never removed.
+void collapseFreeRuns(std::vector<PhasePoint>& phase);
+
 /// What happened to one partial.
 struct PartialTransformOutcome {
     /// Partial.id.
@@ -158,6 +240,9 @@ struct PartialTransformOutcome {
 
     /// Points written to its AmplitudePhysicalTimeline. Zero on failure.
     std::size_t amplitudePoints = 0;
+
+    /// Points written to its PhasePhysicalTimeline. Zero on failure.
+    std::size_t phasePoints = 0;
 
     /// True when the partial was transformed and written.
     bool ok() const noexcept { return !error.has_value(); }
@@ -236,8 +321,9 @@ struct TransformReport {
 /// timeline, points, POINT_AT edges and states; then transforms the sets one
 /// at a time in PartialSet.id order, and within a set the partials in
 /// Partial.id order, each partial in its own transaction. Any
-/// FrequencyPhysicalTimeline or AmplitudePhysicalTimeline a transformed
-/// partial already has is deleted and rebuilt. Partial sets with no musical
+/// FrequencyPhysicalTimeline, AmplitudePhysicalTimeline or
+/// PhasePhysicalTimeline a transformed partial already has is deleted and
+/// rebuilt. Partial sets with no musical
 /// timeline, and their partials, are left exactly as they are.
 ///
 /// A set or partial that fails is recorded in the report and the run carries
@@ -245,7 +331,7 @@ struct TransformReport {
 /// an earlier run are left as they were.
 ///
 /// @param[in,out] db  Database holding the score. Modified: every partial
-///                    that succeeds has its two physical timelines replaced.
+///                    that succeeds has its three physical timelines replaced.
 /// @return What was found and what happened to each set and partial.
 /// @throws TransformError  If there is not exactly one EngineConfig or its
 ///         sampleRate is unusable; if any TempoMap is invalid; or if any

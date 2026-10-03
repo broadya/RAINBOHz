@@ -1,0 +1,117 @@
+{
+  "_comment": "Mirror of phase-musical-score.cypher for rendering-engine/test/oracle/render_oracle.py: the physical values the transform must produce, computed independently from rendering-engine/docs/transform.md. Times in samples, frequencies in radians per sample, amplitudes in dB, phases in radians (null for a NULL point). Set and partial ids are the SERIAL ids the score gets when loaded alone. A's run of four NULL points is collapsed to its first and last; B's point at beat 4 less 0.25 s collides with beat 4 and wins.",
+  "sample_rate": 48000,
+  "partial_sets": [
+    {
+      "id": 0,
+      "partials": [
+        {
+          "id": 0,
+          "frequency": [
+            [
+              0.0,
+              0.05759586531581288
+            ],
+            [
+              133084.2586675095,
+              0.043196898986859654
+            ],
+            [
+              325084.25866750954,
+              0.043196898986859654
+            ]
+          ],
+          "amplitude": [
+            [
+              0.0,
+              -12.0
+            ],
+            [
+              25638.027383908346,
+              -12.0
+            ],
+            [
+              55234.957910741934,
+              -12.0
+            ],
+            [
+              90240.69681518123,
+              -12.0
+            ],
+            [
+              133084.2586675095,
+              -12.0
+            ],
+            [
+              325084.25866750954,
+              -144.0
+            ]
+          ],
+          "phase": [
+            [
+              0.0,
+              null
+            ],
+            [
+              90240.69681518123,
+              null
+            ],
+            [
+              133084.2586675095,
+              1.5707963267948966
+            ],
+            [
+              325084.25866750954,
+              -3.141592653589793
+            ]
+          ]
+        },
+        {
+          "id": 1,
+          "frequency": [
+            [
+              0.0,
+              0.0719948316447661
+            ],
+            [
+              133084.2586675095,
+              0.07853981633974483
+            ],
+            [
+              325084.25866750954,
+              0.07853981633974483
+            ]
+          ],
+          "amplitude": [
+            [
+              0.0,
+              -12.0
+            ],
+            [
+              133084.2586675095,
+              -12.0
+            ],
+            [
+              325084.25866750954,
+              -144.0
+            ]
+          ],
+          "phase": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              133084.2586675095,
+              -1.0471975511965976
+            ],
+            [
+              325084.25866750954,
+              2.0943951023931953
+            ]
+          ]
+        }
+      ]
+    }
+  ]
+}
