@@ -45,12 +45,15 @@ using rainbohz::rendering_engine::transform::PartialSetTransformOutcome;
 using rainbohz::rendering_engine::transform::PartialTransformError;
 using rainbohz::rendering_engine::transform::PartialTransformOutcome;
 using rainbohz::rendering_engine::transform::PhaseKnot;
+using rainbohz::rendering_engine::transform::phaseKnotsOf;
 using rainbohz::rendering_engine::transform::PhasePoint;
 using rainbohz::rendering_engine::transform::PhysicalPoint;
 using rainbohz::rendering_engine::transform::placeKnots;
 using rainbohz::rendering_engine::transform::placePhaseKnots;
-using rainbohz::rendering_engine::transform::requirePhaseWithinLifeline;
 using rainbohz::rendering_engine::transform::requireSharedEndPoints;
+using rainbohz::rendering_engine::transform::requireStatesWithinLifeline;
+using rainbohz::rendering_engine::transform::requireValidPhase;
+using rainbohz::rendering_engine::transform::StatePhase;
 using rainbohz::rendering_engine::transform::transformAll;
 using rainbohz::rendering_engine::transform::TransformError;
 using rainbohz::rendering_engine::transform::TransformReport;
@@ -76,6 +79,31 @@ Knot knot(std::size_t point, double value, std::int64_t curve = 0) {
 /// @return The phase knot.
 PhaseKnot pk(std::size_t point, std::optional<double> degrees) {
     return PhaseKnot{.point = point, .degrees = degrees};
+}
+
+/// A state's phase fields for the pure-stage tests.
+///
+/// @param point    Index of the set point.
+/// @param degrees  PartialState.phase; nullopt for NULL.
+/// @param freeRun  PartialState.phase_free_run; nullopt for NULL.
+/// @return The fields.
+StatePhase sp(std::size_t point, std::optional<double> degrees, std::optional<bool> freeRun) {
+    return StatePhase{.point = point, .degrees = degrees, .freeRun = freeRun};
+}
+
+/// A target state's phase fields: `degrees` with phase_free_run false.
+StatePhase target(std::size_t point, double degrees) {
+    return sp(point, degrees, false);
+}
+
+/// A free-running state's phase fields: NULL with phase_free_run true.
+StatePhase freeRun(std::size_t point) {
+    return sp(point, std::nullopt, true);
+}
+
+/// A default state's phase fields: both NULL.
+StatePhase byDefault(std::size_t point) {
+    return sp(point, std::nullopt, std::nullopt);
 }
 
 /// A physical point for an expectation.
@@ -123,6 +151,9 @@ struct StateSpec {
 
     /// Degrees; nullopt for NULL.
     std::optional<double> phase;
+
+    /// PartialState.phase_free_run; nullopt for NULL.
+    std::optional<bool> freeRun;
 };
 
 /// One point of a musical timeline built by addMusicalSet().
@@ -138,16 +169,54 @@ struct MusicalPoint {
     std::vector<StateSpec> states;
 };
 
-/// One partial's state at a point, for MusicalPoint::states.
+/// One partial's state at a point, for MusicalPoint::states, with valid
+/// phase fields (transform.md §6.6).
 ///
 /// @param name       Partial.name.
 /// @param frequency  Hz; nullopt for NULL.
 /// @param amplitude  dB; nullopt for NULL.
-/// @param phase      Degrees; nullopt (the default) for NULL.
+/// @param phase      A target, degrees, written with phase_free_run false;
+///                   nullopt (the default) for a default state, both NULL.
 /// @return The entry.
 StateSpec state(const std::string& name, std::optional<double> frequency,
     std::optional<double> amplitude, std::optional<double> phase = std::nullopt) {
-    return {.partial = name, .frequency = frequency, .amplitude = amplitude, .phase = phase};
+    return {.partial = name,
+        .frequency = frequency,
+        .amplitude = amplitude,
+        .phase = phase,
+        .freeRun = phase.has_value() ? std::optional<bool>{false} : std::nullopt};
+}
+
+/// A free-running state: phase NULL, phase_free_run true.
+///
+/// @param name       Partial.name.
+/// @param frequency  Hz; nullopt for NULL.
+/// @param amplitude  dB; nullopt for NULL.
+/// @return The entry.
+StateSpec freeState(
+    const std::string& name, std::optional<double> frequency, std::optional<double> amplitude) {
+    return {.partial = name,
+        .frequency = frequency,
+        .amplitude = amplitude,
+        .phase = std::nullopt,
+        .freeRun = true};
+}
+
+/// A state with the phase fields exactly as given, valid or not.
+///
+/// @param name       Partial.name.
+/// @param frequency  Hz; nullopt for NULL.
+/// @param amplitude  dB; nullopt for NULL.
+/// @param phase      Degrees; nullopt for NULL.
+/// @param freeRun    phase_free_run; nullopt for NULL.
+/// @return The entry.
+StateSpec rawState(const std::string& name, std::optional<double> frequency,
+    std::optional<double> amplitude, std::optional<double> phase, std::optional<bool> freeRun) {
+    return {.partial = name,
+        .frequency = frequency,
+        .amplitude = amplitude,
+        .phase = phase,
+        .freeRun = freeRun};
 }
 
 /// Adds a Score with a one-point TempoMap at `tempo` BPM and 960 ticks per
@@ -170,9 +239,12 @@ void addScore(EngineDb& db, double tempo = 120.0, bool lastHolds = true) {
 /// @param frequency  Hz; nullopt for NULL.
 /// @param amplitude  dB; nullopt for NULL.
 /// @param phase      Degrees; nullopt for NULL.
-/// @return e.g. "frequency: 440.000, phase: 90.0000", without braces.
+/// @param freeRun    phase_free_run; nullopt for NULL.
+/// @return e.g. "frequency: 440.000, phase: 90.0000, phase_free_run: false",
+///         without braces.
 std::string stateProperties(const std::optional<double>& frequency,
-    const std::optional<double>& amplitude, const std::optional<double>& phase) {
+    const std::optional<double>& amplitude, const std::optional<double>& phase,
+    const std::optional<bool>& freeRun) {
     std::string props;
     for (const auto& [name, value] : {std::pair{"frequency", frequency},
              std::pair{"amplitude", amplitude}, std::pair{"phase", phase}}) {
@@ -180,6 +252,10 @@ std::string stateProperties(const std::optional<double>& frequency,
             props += props.empty() ? "" : ", ";
             props += std::string{name} + ": " + literal(*value);
         }
+    }
+    if (freeRun.has_value()) {
+        props += props.empty() ? "" : ", ";
+        props += std::string{"phase_free_run: "} + (*freeRun ? "true" : "false");
     }
     return props;
 }
@@ -239,8 +315,8 @@ void addMusicalSet(EngineDb& db, const std::string& setName,
         create += "}]->(m) CREATE (q)-[:POINT_STATE]->(:PartialStateSet);";
         db.execute(create);
 
-        for (const auto& [partial, frequency, amplitude, phase] : point.states) {
-            const std::string props = stateProperties(frequency, amplitude, phase);
+        for (const auto& [partial, frequency, amplitude, phase, freeRun] : point.states) {
+            const std::string props = stateProperties(frequency, amplitude, phase, freeRun);
             std::string state = pointAtDepth(i + 1, "p");
             state += "MATCH (p)-[:POINT_STATE]->(ss:PartialStateSet) ";
             state += "MATCH (partial:Partial {name: '" + partial + "'}) ";
@@ -392,18 +468,66 @@ TEST(FitToLifeline, DropsPointsAtOrAfterTheEnd) {
     EXPECT_EQ(amplitude, (std::vector{pp(0.0, -6.0), pp(100.0, -90.0)}));
 }
 
-TEST(RequirePhaseWithinLifeline, AcceptsStatesOnAndBetweenTheEnds) {
+TEST(RequireStatesWithinLifeline, AcceptsStatesOnAndBetweenTheEnds) {
     const std::vector<Knot> frequency{knot(1, 440.0), knot(3, 440.0)};
-    const std::vector<PhaseKnot> phase{pk(1, std::nullopt), pk(2, 90.0), pk(3, std::nullopt)};
-    EXPECT_NO_THROW(requirePhaseWithinLifeline(frequency, phase));
+    const std::vector<StatePhase> states{byDefault(1), target(2, 90.0), freeRun(3)};
+    EXPECT_NO_THROW(requireStatesWithinLifeline(frequency, states));
 }
 
-TEST(RequirePhaseWithinLifeline, RefusesAStateBeforeOrAfterTheLifeline) {
+TEST(RequireStatesWithinLifeline, RefusesAStateBeforeOrAfterTheLifeline) {
     const std::vector<Knot> frequency{knot(1, 440.0), knot(3, 440.0)};
-    const std::vector<PhaseKnot> before{pk(0, std::nullopt), pk(1, 0.0), pk(3, 0.0)};
-    const std::vector<PhaseKnot> after{pk(1, 0.0), pk(3, 0.0), pk(4, 0.0)};
-    EXPECT_THROW(requirePhaseWithinLifeline(frequency, before), PartialTransformError);
-    EXPECT_THROW(requirePhaseWithinLifeline(frequency, after), PartialTransformError);
+    const std::vector<StatePhase> before{freeRun(0), target(1, 0.0), target(3, 0.0)};
+    const std::vector<StatePhase> after{target(1, 0.0), target(3, 0.0), target(4, 0.0)};
+    EXPECT_THROW(requireStatesWithinLifeline(frequency, before), PartialTransformError);
+    EXPECT_THROW(requireStatesWithinLifeline(frequency, after), PartialTransformError);
+}
+
+TEST(RequireStatesWithinLifeline, ADefaultStateOutsideTheLifelineIsRefusedToo) {
+    // It plays no role in phase, but it is still a state with no frequency.
+    const std::vector<Knot> frequency{knot(1, 440.0), knot(3, 440.0)};
+    const std::vector<StatePhase> states{byDefault(1), byDefault(3), byDefault(4)};
+    EXPECT_THROW(requireStatesWithinLifeline(frequency, states), PartialTransformError);
+}
+
+TEST(RequireValidPhase, AcceptsTheThreeValidCombinations) {
+    const std::vector<StatePhase> states{
+        target(0, -180.0), freeRun(1), byDefault(2), target(3, 180.0)};
+    EXPECT_NO_THROW(requireValidPhase(states));
+}
+
+TEST(RequireValidPhase, RefusesEveryOtherCombination) {
+    const std::vector<StatePhase> phaseWithFreeRun{target(0, 0.0), sp(1, 90.0, true)};
+    const std::vector<StatePhase> phaseWithNull{target(0, 0.0), sp(1, 90.0, std::nullopt)};
+    const std::vector<StatePhase> falseWithNoPhase{target(0, 0.0), sp(1, std::nullopt, false)};
+    EXPECT_THROW(requireValidPhase(phaseWithFreeRun), PartialTransformError);
+    EXPECT_THROW(requireValidPhase(phaseWithNull), PartialTransformError);
+    EXPECT_THROW(requireValidPhase(falseWithNoPhase), PartialTransformError);
+}
+
+TEST(RequireValidPhase, RefusesATargetOutOfRange) {
+    const std::vector<StatePhase> states{target(0, 181.0)};
+    try {
+        requireValidPhase(states);
+        FAIL() << "expected PartialTransformError";
+    } catch (const PartialTransformError& error) {
+        EXPECT_NE(std::string{error.what()}.find("[-180, 180]"), std::string::npos);
+    }
+}
+
+TEST(PhaseKnotsOf, TargetsAndFreeRunsArePointsDefaultsAreNot) {
+    const std::vector<StatePhase> states{
+        target(0, 10.0), byDefault(1), freeRun(2), byDefault(3), target(4, 20.0)};
+    EXPECT_EQ(phaseKnotsOf(states), (std::vector{pk(0, 10.0), pk(2, std::nullopt), pk(4, 20.0)}));
+}
+
+TEST(PhaseKnotsOf, ADefaultFirstStateRunsFreeToTheFirstTarget) {
+    const std::vector<StatePhase> states{byDefault(0), byDefault(1), target(2, 45.0), byDefault(3)};
+    EXPECT_EQ(phaseKnotsOf(states), (std::vector{pk(0, std::nullopt), pk(2, 45.0)}));
+}
+
+TEST(PhaseKnotsOf, NoPhaseAnywhereGivesOneFreePoint) {
+    const std::vector<StatePhase> states{byDefault(0), byDefault(1), byDefault(2)};
+    EXPECT_EQ(phaseKnotsOf(states), (std::vector{pk(0, std::nullopt)}));
 }
 
 TEST(PlacePhaseKnots, ConvertsDegreesAndKeepsNulls) {
@@ -428,10 +552,23 @@ TEST(PlacePhaseKnots, ALaterNullWinsACollision) {
         placePhaseKnots(knots, times), (std::vector{php(0.0, 0.0), php(100.0, std::nullopt)}));
 }
 
-TEST(FitToLifeline, FitsPhasePointsAsItFitsAmplitude) {
+TEST(FitToLifeline, MovesALatePhasePointBackToTheEnd) {
     std::vector<PhasePoint> phase{php(0.0, 0.0), php(100.0, 1.0), php(150.0, std::nullopt)};
     fitToLifeline(phase, SampleTime{100.0});
     EXPECT_EQ(phase, (std::vector{php(0.0, 0.0), php(100.0, std::nullopt)}));
+}
+
+TEST(FitToLifeline, LeavesAnEarlyLastPhasePointWhereItIs) {
+    std::vector<PhasePoint> phase{php(0.0, std::nullopt), php(60.0, 1.0)};
+    const std::vector<PhasePoint> before = phase;
+    fitToLifeline(phase, SampleTime{100.0});
+    EXPECT_EQ(phase, before);
+}
+
+TEST(FitToLifeline, KeepsASinglePhasePoint) {
+    std::vector<PhasePoint> phase{php(0.0, std::nullopt)};
+    fitToLifeline(phase, SampleTime{100.0});
+    EXPECT_EQ(phase, (std::vector{php(0.0, std::nullopt)}));
 }
 
 TEST(CollapseFreeRuns, KeepsOnlyTheEndsOfARunOfNulls) {
@@ -815,14 +952,16 @@ TEST_F(TransformDb, WritesPhaseTargetsInRadians) {
             {0.0, 0.0}, {24000.0, -std::numbers::pi / 2.0}, {48000.0, std::numbers::pi}}));
 }
 
-TEST_F(TransformDb, ANullPhaseIsAFreeRunningPoint) {
+TEST_F(TransformDb, AFreeRunningStateIsANullPoint) {
     addScore(db);
-    // Every state is a phase point, NULL or not; B has no state at the
-    // middle point, so no phase point there.
+    // A runs free to the middle point and then to its target. B's middle
+    // state is a default one, so B's target is met over the whole span.
     addMusicalSet(db, "P", {"A", "B"},
         {
-            MusicalPoint{.sync = 0, .states = {state("A", 440.0, -6.0), state("B", 440.0, -6.0)}},
-            MusicalPoint{.sync = 960, .states = {state("A", 440.0, -6.0)}},
+            MusicalPoint{
+                .sync = 0, .states = {freeState("A", 440.0, -6.0), state("B", 440.0, -6.0, 0.0)}},
+            MusicalPoint{
+                .sync = 960, .states = {freeState("A", 440.0, -6.0), state("B", 440.0, -6.0)}},
             MusicalPoint{.sync = 1920,
                 .states = {state("A", 440.0, -12.0, 45.0), state("B", 440.0, -12.0, 45.0)}},
         });
@@ -831,23 +970,63 @@ TEST_F(TransformDb, ANullPhaseIsAFreeRunningPoint) {
     EXPECT_EQ(phasePoints(db, "A"),
         (std::vector<std::pair<double, std::optional<double>>>{
             {0.0, std::nullopt}, {24000.0, std::nullopt}, {48000.0, target}}));
-    EXPECT_EQ(phasePoints(db, "B"), (std::vector<std::pair<double, std::optional<double>>>{
-                                        {0.0, std::nullopt}, {48000.0, target}}));
+    EXPECT_EQ(phasePoints(db, "B"),
+        (std::vector<std::pair<double, std::optional<double>>>{{0.0, 0.0}, {48000.0, target}}));
 }
 
-TEST_F(TransformDb, RunsOfNullPhasesAreCollapsed) {
+TEST_F(TransformDb, DefaultStatesPlayNoRoleInPhase) {
+    addScore(db);
+    // A starts and ends with default states: it runs free from the start to
+    // its one target, and its last phase point is that target, not the end.
+    // B says nothing about phase: one NULL point at the start.
+    addMusicalSet(db, "P", {"A", "B"},
+        {
+            MusicalPoint{.sync = 0, .states = {state("A", 440.0, -6.0), state("B", 440.0, -6.0)}},
+            MusicalPoint{
+                .sync = 960, .states = {state("A", 440.0, -6.0, -90.0), state("B", 440.0, -6.0)}},
+            MusicalPoint{
+                .sync = 1920, .states = {state("A", 440.0, -12.0), state("B", 440.0, -12.0)}},
+        });
+    const TransformReport report = transformAll(db);
+    ASSERT_TRUE(report.ok());
+    EXPECT_EQ(phasePoints(db, "A"), (std::vector<std::pair<double, std::optional<double>>>{
+                                        {0.0, std::nullopt}, {24000.0, -std::numbers::pi / 2.0}}));
+    EXPECT_EQ(outcomeOf(report, "B").phasePoints, 1U);
+    EXPECT_EQ(phasePoints(db, "B"),
+        (std::vector<std::pair<double, std::optional<double>>>{{0.0, std::nullopt}}));
+}
+
+TEST_F(TransformDb, ADefaultStateNeverWinsACollision) {
+    addScore(db);
+    // The last state is pulled back onto the 90 degree target at 0.5 s.
+    // Being a default state it is no phase point, so the target stays.
+    addMusicalSet(db, "P", {"A"},
+        {
+            MusicalPoint{.sync = 0, .offset = 0.0, .states = {state("A", 440.0, -6.0, 0.0)}},
+            MusicalPoint{.sync = 960, .offset = 0.0, .states = {state("A", 441.0, -6.0, 90.0)}},
+            MusicalPoint{.sync = 1920, .offset = -0.75, .states = {state("A", 442.0, -144.0)}},
+        });
+    const TransformReport report = transformAll(db);
+    ASSERT_TRUE(report.ok()) << report.sets[0].partials[0].error.value_or("");
+    EXPECT_EQ(phasePoints(db, "A"), (std::vector<std::pair<double, std::optional<double>>>{
+                                        {0.0, 0.0}, {24000.0, std::numbers::pi / 2.0}}));
+}
+
+TEST_F(TransformDb, RunsOfFreeRunningPointsAreCollapsed) {
     addScore(db);
     addMusicalSet(db, "P", {"A"},
         {
             MusicalPoint{.sync = 0, .states = {state("A", 440.0, -6.0)}},
-            MusicalPoint{.sync = 480, .states = {state("A", 440.0, -6.0)}},
+            MusicalPoint{.sync = 480, .states = {freeState("A", 440.0, -6.0)}},
             MusicalPoint{.sync = 960, .states = {state("A", 440.0, -6.0)}},
-            MusicalPoint{.sync = 1440, .states = {state("A", 440.0, -6.0)}},
-            MusicalPoint{.sync = 1920, .states = {state("A", 440.0, -12.0)}},
+            MusicalPoint{.sync = 1440, .states = {freeState("A", 440.0, -6.0)}},
+            MusicalPoint{.sync = 1920, .states = {freeState("A", 440.0, -12.0)}},
         });
     const TransformReport report = transformAll(db);
     ASSERT_TRUE(report.ok());
     EXPECT_EQ(outcomeOf(report, "A").frequencyPoints, 5U);
+    // The default first state's NULL point starts the run; the default at
+    // 960 is no point, so the run is 0, 12000, 36000, 48000.
     EXPECT_EQ(outcomeOf(report, "A").phasePoints, 2U);
     EXPECT_EQ(phasePoints(db, "A"), (std::vector<std::pair<double, std::optional<double>>>{
                                         {0.0, std::nullopt}, {48000.0, std::nullopt}}));
@@ -858,7 +1037,8 @@ TEST_F(TransformDb, PhasePointsAreSquashedAndFittedToTheLifeline) {
     // As TheFrequencyEnvelopeDefinesTheLifeline: the last frequency point is
     // pulled back onto the tail at 0.5 s. In the phase points, the last
     // state collides with the 90 degree target at 0.625 s and replaces it;
-    // the fit then moves it to the lifeline's end, dropping the NULL there.
+    // the fit then moves it back to the lifeline's end. The default state at
+    // 0.5 s is no phase point.
     addMusicalSet(db, "P", {"A"},
         {
             MusicalPoint{.sync = 0, .offset = 0.0, .states = {state("A", 440.0, -6.0, 0.0)}},
@@ -908,6 +1088,28 @@ TEST_F(TransformDb, PhaseFaultsFailOnlyThatPartial) {
     EXPECT_NE(outcomeOf(report, "B").error.value_or("").find("[-180, 180]"), std::string::npos);
     EXPECT_NE(outcomeOf(report, "C").error.value_or("").find("lifeline"), std::string::npos);
     EXPECT_EQ(report.failureCount(), 2U);
+}
+
+TEST_F(TransformDb, InvalidPhaseCombinationsFailOnlyThatPartial) {
+    addScore(db);
+    addMusicalSet(db, "P", {"A", "B", "C", "D"},
+        {
+            MusicalPoint{.sync = 0,
+                .states = {state("A", 440.0, -6.0, 0.0), rawState("B", 440.0, -6.0, 90.0, true),
+                    rawState("C", 440.0, -6.0, 90.0, std::nullopt),
+                    rawState("D", 440.0, -6.0, std::nullopt, false)}},
+            MusicalPoint{.sync = 1920,
+                .states = {state("A", 440.0, -12.0), state("B", 440.0, -12.0),
+                    state("C", 440.0, -12.0), state("D", 440.0, -12.0)}},
+        });
+    const TransformReport report = transformAll(db);
+    EXPECT_TRUE(outcomeOf(report, "A").ok());
+    for (const std::string partial : {"B", "C", "D"}) {
+        EXPECT_NE(
+            outcomeOf(report, partial).error.value_or("").find("phase_free_run"), std::string::npos)
+            << partial;
+    }
+    EXPECT_EQ(report.failureCount(), 3U);
 }
 
 } // namespace

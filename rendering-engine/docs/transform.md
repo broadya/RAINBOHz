@@ -1,7 +1,8 @@
 # rendering-engine — transform design
 
 **Status:** implemented, for the first version (§2), designed and built on
-2026-10-02; phase (§6.6) added on 2026-10-03. The code is
+2026-10-02; phase (§6.6) added on 2026-10-03, and made three-way with
+`phase_free_run` the same day. The code is
 [transform/musical_units.hpp](../include/rainbohz/rendering_engine/transform/musical_units.hpp),
 [transform/tempo_map.hpp](../include/rainbohz/rendering_engine/transform/tempo_map.hpp),
 [transform/squash.hpp](../include/rainbohz/rendering_engine/transform/squash.hpp),
@@ -47,7 +48,7 @@ Two things make the step more than a change of units:
 | One `TempoMap` per `Score`, reached by `Score → NEXT_POINT → TempoMap` | Several tempo maps and `TEMPO_MAP_SYNCHRONIZATION_POINT`; any such edge is refused |
 | Held tempi and ramps linear in musical position ([ADR 0013](../../docs/adr/0013-tempo-ramps-are-linear-in-musical-position.md)) | Other ramp shapes |
 | `PartialSetMusicalTimeline` → one `FrequencyPhysicalTimeline`, one `AmplitudePhysicalTimeline` and one `PhasePhysicalTimeline` per partial | |
-| `PartialState.phase` in degrees, NULL a free-running point (§6.6) | |
+| `PartialState.phase` in degrees with `phase_free_run`: a target, a free-running point, or no role (§6.6) | |
 | `POINT_AT.sync_point` and `offset_seconds`, with the squash rule | Overlapping or cross-fading colliding states (§14) |
 | Curve type and amount copied through per property | Interpreting curves; precomputation accepts linear only |
 | Rebuild on every run | Dirty flags and incremental transformation |
@@ -127,7 +128,7 @@ Per `PartialSet` that has a `PartialSetMusicalTimeline` by
   `offset_seconds`;
 - each point's states, by
   `POINT_STATE → PartialStateSet ← MEMBER_OF_SET_MANY_ONE ← PartialState → STATE_OF → Partial`:
-  the partial, `frequency`, `amplitude` and `phase`.
+  the partial, `frequency`, `amplitude`, `phase` and `phase_free_run`.
 
 And, for every partial of such a set, any `FrequencyPhysicalTimeline`,
 `AmplitudePhysicalTimeline` and `PhasePhysicalTimeline` it already has, with
@@ -367,46 +368,76 @@ here and precomputation's business to refuse (precomputation.md §7).
 
 ### 6.6 Phase
 
-Decided with the author on 2026-10-03. `PartialState.phase` is a target in
-degrees, [−180, 180], or NULL, and becomes the partial's
-`PhasePhysicalTimeline`, from which precomputation derives the initial phase
-and the compensation segments (precomputation.md §6.8,
+Decided with the author on 2026-10-03. `PartialState.phase` and
+`phase_free_run` together become the partial's `PhasePhysicalTimeline`, from
+which precomputation derives the initial phase and the compensation segments
+(precomputation.md §6.8,
 [ADR 0019](../../docs/adr/0019-phase-targets-are-met-by-linear-compensation-segments.md)).
 Phase transitions are always linear; the canonical model has no curve and no
 phase lock for them (both removed by the author, 2026-10-03).
 
-**Every state is a phase point.** Unlike frequency and amplitude, NULL is a
-value here, not an absence: a `PartialState` whose phase is NULL is a
-free-running point, which ends the span before it and starts the next. A
-point where the partial has no `PartialState` at all gives no phase point.
-So a partial's phase points are one per state it has, in point order.
+**Three kinds of state** (author, 2026-10-03; the schema comment on
+`PartialState`):
 
-**Within the lifeline.** The partial's first and last frequency knots are on
-points where it has a state, so it always has a phase point at each end. A
-state before the first or after the last is outside the lifeline and fails
-the partial. This is what guarantees precomputation's point at `b₀`: it is
-NULL when the first state gives no phase, and precomputation then works the
-initial phase backwards to meet the first target.
+| `phase` | `phase_free_run` | The state is | Phase point |
+| --- | --- | --- | --- |
+| degrees, [−180, 180] | false | a **target** | the phase, in radians |
+| NULL | true | **free-running** up to here | NULL |
+| NULL | NULL | the **default**: no role in phase | none |
+
+Every other combination (a phase with `phase_free_run` true or NULL, or
+`phase_free_run` false with no phase) is invalid and fails the partial (§8).
+A point where the partial has no `PartialState` at all gives no phase point,
+just like a default state.
+
+A physical NULL point already means "free-running up to here" in
+precomputation, so the default needs nothing new downstream: it is simply no
+point. A target's span starts at the phase point before it, so a target
+after one or more default states is met by one ramp over the whole stretch,
+not by a ramp from the last state.
+
+**The start of the lifeline.** Precomputation needs a phase point at `b₀`.
+When the partial's first state is a default one, the transform gives it a
+NULL point after all: the partial runs free to its first target, and
+precomputation works the initial phase backwards to meet it (author,
+2026-10-03; it is not a compensation ramp, which would change the frequency
+over that span). The point is chosen before squashing (`phaseKnotsOf`), so a
+later state that collides with it at `b₀` replaces it, as a later state
+always does.
+
+**The end of the lifeline gets no such point.** The last phase point is the
+last target or free-running state, wherever it is; after it precomputation
+holds the adjustment, so the partial runs free to the end. A NULL point for
+a default last state would be harmless on its own, but in a collision it
+would win over an earlier target and delete it, which "no role" must never
+do.
+
+**Within the lifeline.** Every state, of any kind, must lie on or between the
+partial's first and last frequency knots; one outside fails the partial
+(`requireStatesWithinLifeline`), since it has no frequency to sound at.
 
 **Placement.** The phase points are squashed on their own, by the rule of
-§6.3: a later state wins a collision, including a later NULL over an earlier
-target. They are then fitted to the lifeline exactly as amplitude is (§6.4):
-the last point moves to the frequency envelope's end, and any other at or
-after it is dropped.
+§6.3: a later point wins a collision, including a later free-running point
+over an earlier target. Default states are not phase points, so they never
+collide. The points are then fitted to the lifeline: the last point, if at or
+after the frequency envelope's end, moves back to it, and any other at or
+after it is dropped. Unlike amplitude (§6.4), a last point before the end
+stays where it is. One point is a valid timeline.
 
 **Units.** Degrees become radians, `θ·π/180`, clamped to [−π, π] so that
 ±180° gives exactly ±π, which precomputation accepts (`toPhase` in
 `units.hpp`).
 
-**Redundant NULLs are removed** (author, 2026-10-03). Because every state is
-a point, a score that is silent about phase writes a NULL at every state. In
-a run of three or more consecutive NULL points only the first and last mean
-anything; the spans between them are flat either way. So the middle ones are
-dropped, in one pass that looks at the two points kept before
-(`collapseFreeRuns`). Precomputation gives the same compensation, with fewer
-segments. A score with no phase anywhere becomes two NULL points, at `b₀` and
-`b_last`: the initial phase is 0 and there is no compensation, which is what
-precomputation did before phase control existed.
+**Redundant NULLs are removed** (author, 2026-10-03). In a run of three or
+more consecutive NULL points only the first and last mean anything; the spans
+between them are flat either way. So the middle ones are dropped, in one pass
+that looks at the two points kept before (`collapseFreeRuns`). Precomputation
+gives the same compensation, with fewer segments. Such runs come from
+consecutive free-running states, the first possibly the NULL point of a
+default first state. A score that says nothing about phase has default states
+only, and becomes one NULL point at `b₀`: the initial phase is 0 and there is
+no compensation, which is what precomputation did before phase control
+existed.
 
 ### 6.7 The run
 
@@ -420,7 +451,7 @@ precomputation did before phase control existed.
    the set (§8), compute τ per point, build each member's knots. A set that
    fails is recorded, with none of its partials attempted.
 5. For each member, in `Partial.id` order: validate the knots (§8), squash
-   each envelope and the phase points, fit amplitude and phase to the
+   each envelope and the phase points (§6.6), fit amplitude and phase to the
    lifeline, convert units, collapse NULL runs, and write (§7). A partial that fails is recorded and the run continues.
 6. Return the report: the tempo maps found, and per set and per partial what
    happened.
@@ -461,8 +492,9 @@ its partials, since it is detected before any partial is attempted.
 | Every `PartialState` reached from a point is the state of a partial of this set, and no two states at one point are of the same partial | set | set fails |
 | Frequency and amplitude each have at least two knots, and share the first and last point (§6.2) | partial | partial fails |
 | Every frequency knot is finite; every amplitude knot is finite and in [−144, 0] dB | partial | partial fails |
-| Every phase is NULL, or finite and in [−180, 180] degrees | partial | partial fails |
-| No state of the partial lies before its first frequency knot or after its last (§6.6) | partial | partial fails |
+| Every state's `phase` and `phase_free_run` are a target, free-running or default (§6.6) | partial | partial fails |
+| Every target is finite and in [−180, 180] degrees | partial | partial fails |
+| No state of the partial, of any kind, lies before its first frequency knot or after its last (§6.6) | partial | partial fails |
 | After squashing, the frequency envelope has at least two points | partial | partial fails: the lifeline collapsed |
 
 A set-level message names the point by its position in the list and its id;
@@ -477,7 +509,7 @@ rules for the columns the transform reads, and the shapes it relies on:
 - range rules for `TempoMap.ticks_per_beat`, `TempoMapPoint.position` and
   `start_tempo`, the four curve fields of `PartialSetMusicalTimelinePoint`,
   and `PartialState.frequency`, `amplitude` and `phase`, all of which may be
-  NULL by design;
+  NULL by design, and the combination of `phase` and `phase_free_run`;
 - `TempoMap` and `PartialSetMusicalTimeline` added to the list checks
   (cycles and merges), with the `FrequencyModulatorPhysicalTimeline` pair that
   the table had been missing;
@@ -502,10 +534,10 @@ alongside `units`, `EngineDb` and the existing modules:
 2. **`tempo_map`** — `TempoMapPointRecord` (as read), `TempoMapPoint`,
    `secondsThrough()` and the `TempoMap` class. No database dependency.
 3. **`squash`** — `Placement` and `squash()`. No dependencies but `units`.
-4. **`transform`** — `Knot`, `PhysicalPoint`, `PhaseKnot`, `PhasePoint`,
-   the pure stages `requireSharedEndPoints()`, `placeKnots()`,
-   `fitToLifeline()`, `requirePhaseWithinLifeline()`, `placePhaseKnots()`
-   and `collapseFreeRuns()`, the report types, and `transformAll(EngineDb&)`,
+4. **`transform`** — `Knot`, `PhysicalPoint`, `StatePhase`, `PhaseKnot`,
+   `PhasePoint`, the pure stages `requireSharedEndPoints()`, `placeKnots()`,
+   `fitToLifeline()`, `requireStatesWithinLifeline()`, `requireValidPhase()`,
+   `phaseKnotsOf()`, `placePhaseKnots()` and `collapseFreeRuns()`, the report types, and `transformAll(EngineDb&)`,
    the only function that reads or writes the database.
 
 ```mermaid
@@ -604,12 +636,16 @@ each cut by the next.
 
 **`phase-musical-score.cypher`.** The tempo map of the first example, and
 seven points: beats 0 to 4, beat 4 again with an offset of −0.25 s, and beat
-8. Partial A is silent about phase at beats 0 to 3, then targets 90° at beat
-4 and −180° at beat 8: its six phase points become four (NULL at 0 and at
-beat 3, 90240.70 samples, then π/2 and −π), and precomputation works its
-initial phase backwards to meet π/2. Partial B targets 0°, then 45° at beat
-4; the next point computes 12000 samples earlier, collides, and its −60°
-replaces the 45° at 133084.26; it ends at 120°.
+8. Partial A runs free at beats 0 to 3, then targets 90° at beat 4 and −180°
+at beat 8: its six phase points become four (NULL at 0 and at beat 3,
+90240.70 samples, then π/2 and −π), and precomputation works its initial
+phase backwards to meet π/2. Partial B targets 0°, then 45° at beat 4; the
+next point computes 12000 samples earlier, collides, and its −60° replaces
+the 45° at 133084.26; it ends at 120°. Partial C has default states at beats
+0, 3 and 8 and targets 30° at beat 2 and −90° at beat 4: three phase points
+(NULL at 0, π/6 at 55234.96, −π/2 at 133084.26). It runs free to π/6, one
+ramp spans beats 2 to 4 across the default state, and it runs free from beat
+4 to its end.
 
 ## 12. Numerical precision
 

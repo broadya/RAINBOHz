@@ -98,12 +98,30 @@ struct PhysicalPoint {
     friend bool operator==(const PhysicalPoint&, const PhysicalPoint&) = default;
 };
 
+/// The phase fields of one PartialState of one partial, as read (§6.6).
+///
+/// Three combinations are valid (author, 2026-10-03): a target (`degrees`
+/// set, `freeRun` false), a free-running point (`degrees` NULL, `freeRun`
+/// true), and the default (both NULL), which plays no role in phase. Any
+/// other combination is invalid (requireValidPhase()).
+struct StatePhase {
+    /// Index of the point in the set's timeline, from 0.
+    std::size_t point = 0;
+
+    /// PartialState.phase, degrees; nullopt when NULL.
+    std::optional<double> degrees;
+
+    /// PartialState.phase_free_run; nullopt when NULL.
+    std::optional<bool> freeRun;
+};
+
 /// One phase point of one partial: the point of the set's timeline it sits
 /// on, and the phase there (§6.6).
 ///
 /// Unlike a Knot, a NULL value is still a point: "free-running up to here"
-/// (precomputation.md §6.8). Every PartialState of the partial gives one; a
-/// point where the partial has no state gives none.
+/// (precomputation.md §6.8). Targets and free-running states give one; a
+/// default state, or a point where the partial has no state, gives none
+/// (phaseKnotsOf()).
 struct PhaseKnot {
     /// Index of the point in the set's timeline, from 0.
     std::size_t point = 0;
@@ -111,6 +129,8 @@ struct PhaseKnot {
     /// The target phase in degrees, in [−180, 180]; nullopt for a NULL
     /// (free-running) point.
     std::optional<double> degrees;
+
+    friend bool operator==(const PhaseKnot&, const PhaseKnot&) = default;
 };
 
 /// A point of a PhasePhysicalTimeline as it will be written.
@@ -167,19 +187,45 @@ std::vector<PhysicalPoint> placeKnots(
 ///                           the first amplitude point.
 void fitToLifeline(std::vector<PhysicalPoint>& amplitude, SampleTime end);
 
-/// Checks that a partial's phase points lie within its lifeline (§6.6).
+/// Checks that a partial's states lie within its lifeline (§6.6).
 ///
 /// The partial's first and last frequency knots sit on points where it has a
-/// state, so it has a phase point on each. A phase point before the first or
-/// after the last is a state outside the lifeline, which has no frequency to
-/// sound at.
+/// state. A state before the first or after the last, whatever its phase,
+/// has no frequency to sound at.
 ///
 /// @param frequency  The partial's frequency knots, in point order. At least
 ///                   two.
-/// @param phase      The partial's phase points, in point order.
-/// @throws PartialTransformError  If the first or last phase point is not on
-///         the point of the first or last frequency knot.
-void requirePhaseWithinLifeline(std::span<const Knot> frequency, std::span<const PhaseKnot> phase);
+/// @param states     The phase fields of every state of the partial, in
+///                   point order.
+/// @throws PartialTransformError  If the first or last state is not on the
+///         point of the first or last frequency knot.
+void requireStatesWithinLifeline(
+    std::span<const Knot> frequency, std::span<const StatePhase> states);
+
+/// Checks that every state's phase fields are one of the three valid
+/// combinations, and that every target is in range (§6.6).
+///
+/// @param states  The phase fields of every state of the partial.
+/// @throws PartialTransformError  If a state has a phase with
+///         phase_free_run true or NULL, or phase_free_run false with no
+///         phase, or a phase that is not finite in [−180, 180] degrees.
+void requireValidPhase(std::span<const StatePhase> states);
+
+/// Selects a partial's phase points from its states (§6.6).
+///
+/// A target gives a point with its phase, a free-running state a NULL point,
+/// and a default state nothing. Precomputation needs a point at the start of
+/// the lifeline, so a default first state gives a NULL point after all: the
+/// partial runs free to its first target (author, 2026-10-03). It is
+/// selected here, before squashing, so that a later state colliding with it
+/// wins as any later state does.
+///
+/// @param states  The phase fields of every state of the partial, in point
+///                order, valid (requireValidPhase()) and at least one, the
+///                first on the lifeline's first point.
+/// @return The phase points, in point order; at least one, the first on the
+///         first state's point.
+std::vector<PhaseKnot> phaseKnotsOf(std::span<const StatePhase> states);
 
 /// Places a partial's phase points in physical time and converts them to
 /// radians (§6.3, §6.6).
@@ -197,15 +243,17 @@ void requirePhaseWithinLifeline(std::span<const Knot> frequency, std::span<const
 std::vector<PhasePoint> placePhaseKnots(
     std::span<const PhaseKnot> knots, std::span<const SampleTime> pointTimes);
 
-/// Fits placed phase points to the partial's lifeline (§6.6), by the same
-/// rule as amplitude (§6.4).
+/// Fits placed phase points to the partial's lifeline (§6.6).
 ///
-/// The last point is moved to the lifeline's end, and any other point at or
-/// after that end is dropped.
+/// The last point is moved back to the lifeline's end if it lies at or after
+/// it, and any other point at or after that end is dropped. Unlike amplitude
+/// (§6.4), the last point may lie before the end and then stays where it
+/// is: the last state that plays a role in phase need not be the partial's
+/// last state.
 ///
 /// @param[in,out] phase  Placed phase points, strictly increasing, at least
-///                       two. On return, strictly increasing, at least two,
-///                       ending exactly at `end`.
+///                       one. On return, strictly increasing, at least one,
+///                       none after `end`.
 /// @param end            The frequency envelope's last time. Later than the
 ///                       first phase point.
 void fitToLifeline(std::vector<PhasePoint>& phase, SampleTime end);
@@ -215,8 +263,9 @@ void fitToLifeline(std::vector<PhasePoint>& phase, SampleTime end);
 /// A NULL point ends the span before it and starts the next; the spans
 /// between consecutive NULL points are flat. In a run of three or more, only
 /// the first and the last mean anything, so the others are dropped (author,
-/// 2026-10-03). Precomputation gives the same compensation either way, with
-/// fewer segments.
+/// 2026-10-03). Such runs come from consecutive free-running states, the
+/// first possibly the NULL point a default first state gives. Precomputation gives the same
+/// compensation either way, with fewer segments.
 ///
 /// @param[in,out] phase  Phase points in time order. On return, no NULL point
 ///                       has a NULL point both before and after it. The first

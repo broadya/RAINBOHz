@@ -100,7 +100,7 @@ constexpr std::string_view kReadMusicalLinks =
 constexpr std::string_view kReadStates =
     "MATCH (p:PartialSetMusicalTimelinePoint)-[:POINT_STATE]->(:PartialStateSet)"
     "<-[:MEMBER_OF_SET_MANY_ONE]-(st:PartialState)-[:STATE_OF]->(partial:Partial) "
-    "RETURN p.id, st.id, partial.id, st.frequency, st.amplitude, st.phase;";
+    "RETURN p.id, st.id, partial.id, st.frequency, st.amplitude, st.phase, st.phase_free_run;";
 
 // Output from an earlier run, or physical-time input, which is replaced.
 constexpr std::string_view kReadExistingFrequency =
@@ -270,8 +270,9 @@ struct StateRecord {
     std::optional<double> frequency;
     std::optional<double> amplitude;
 
-    /// Degrees; NULL is a free-running point, not an absence (§6.6).
+    /// Degrees; with phaseFreeRun, one of three meanings (§6.6).
     std::optional<double> phase;
+    std::optional<bool> phaseFreeRun;
 };
 
 /// A partial's existing physical timeline of one kind, with its point ids in
@@ -404,6 +405,7 @@ Inputs readInputs(EngineDb& db) {
             .frequency = optionalDouble(row.at(3)),
             .amplitude = optionalDouble(row.at(4)),
             .phase = optionalDouble(row.at(5)),
+            .phaseFreeRun = optionalBool(row.at(6)),
         });
     }
 
@@ -549,8 +551,9 @@ struct SetEnvelopes {
     /// Each member partial's knots: frequency, then amplitude.
     std::unordered_map<std::int64_t, std::pair<std::vector<Knot>, std::vector<Knot>>> knots;
 
-    /// Each member partial's phase points, one per state it has (§6.6).
-    std::unordered_map<std::int64_t, std::vector<PhaseKnot>> phase;
+    /// Each member partial's states' phase fields, one per state it has,
+    /// whatever their meaning (§6.6).
+    std::unordered_map<std::int64_t, std::vector<StatePhase>> states;
 };
 
 /// Checks a curve type and amount of a point, for one property.
@@ -639,7 +642,7 @@ SampleTime pointTime(std::size_t index, const MusicalPointRecord& point, std::in
 /// @param states         The PartialStates reached from it.
 /// @param members        The ids of the set's partials.
 /// @param[in,out] envelopes  Each partial's (frequency, amplitude) knots and
-///                       phase points; this point's are appended.
+///                       states' phase fields; this point's are appended.
 /// @throws PartialSetTransformError  If a state belongs to a partial outside
 ///         the set, or two states belong to the same partial.
 void gatherStates(std::size_t index, const MusicalPointRecord& point,
@@ -671,9 +674,10 @@ void gatherStates(std::size_t index, const MusicalPointRecord& point,
                 .curveType = point.amplitudeCurveType.value_or(0),
                 .curveAmount = point.amplitudeCurveAmount.value_or(0.0)});
         }
-        // Every state is a phase point: NULL means free-running up to here.
-        envelopes.phase[state.partialId].push_back(
-            PhaseKnot{.point = index, .degrees = state.phase});
+        // Every state is kept, to check it lies within the lifeline; which
+        // ones are phase points is decided per partial (§6.6).
+        envelopes.states[state.partialId].push_back(
+            StatePhase{.point = index, .degrees = state.phase, .freeRun = state.phaseFreeRun});
     }
 }
 
@@ -862,12 +866,9 @@ void writePartial(EngineDb& db, const PartialOutput& output) {
 ///
 /// @param frequency  Frequency knots, Hz.
 /// @param amplitude  Amplitude knots, dB.
-/// @param phase      Phase points, degrees or NULL.
-/// @throws PartialTransformError  If a frequency is not finite, an amplitude
-///         is not finite or outside [−144, 0], or a phase is neither NULL nor
-///         finite in [−180, 180].
-void requireValues(std::span<const Knot> frequency, std::span<const Knot> amplitude,
-    std::span<const PhaseKnot> phase) {
+/// @throws PartialTransformError  If a frequency is not finite, or an
+///         amplitude is not finite or outside [−144, 0].
+void requireValues(std::span<const Knot> frequency, std::span<const Knot> amplitude) {
     for (const Knot& knot : frequency) {
         if (!std::isfinite(knot.value)) {
             throw PartialTransformError{"at point " + std::to_string(knot.point) +
@@ -882,16 +883,6 @@ void requireValues(std::span<const Knot> frequency, std::span<const Knot> amplit
                                         " its amplitude is " + formatNumber(knot.value) +
                                         " dB; it must be in [" + formatNumber(kMinAmplitude) +
                                         ", " + formatNumber(kMaxAmplitude) + "]"};
-        }
-    }
-    for (const PhaseKnot& knot : phase) {
-        if (knot.degrees.has_value() &&
-            (!std::isfinite(*knot.degrees) || *knot.degrees < kMinPhaseDegrees ||
-                *knot.degrees > kMaxPhaseDegrees)) {
-            throw PartialTransformError{
-                "at point " + std::to_string(knot.point) + " its phase is " +
-                formatNumber(*knot.degrees) + " degrees; it must be NULL or in [" +
-                formatNumber(kMinPhaseDegrees) + ", " + formatNumber(kMaxPhaseDegrees) + "]"};
         }
     }
 }
@@ -911,17 +902,18 @@ void requireValues(std::span<const Knot> frequency, std::span<const Knot> amplit
 void transformPartial(EngineDb& db, const Inputs& inputs, const SetEnvelopes& envelopes,
     std::int64_t partialId, SampleRate rate, PartialTransformOutcome& outcome) {
     static const std::pair<std::vector<Knot>, std::vector<Knot>> kNoKnots;
-    static const std::vector<PhaseKnot> kNoPhase;
+    static const std::vector<StatePhase> kNoStates;
     const auto found = envelopes.knots.find(partialId);
     const auto& [frequencyKnots, amplitudeKnots] =
         found == envelopes.knots.end() ? kNoKnots : found->second;
-    const auto foundPhase = envelopes.phase.find(partialId);
-    const std::vector<PhaseKnot>& phaseKnots =
-        foundPhase == envelopes.phase.end() ? kNoPhase : foundPhase->second;
+    const auto foundStates = envelopes.states.find(partialId);
+    const std::vector<StatePhase>& states =
+        foundStates == envelopes.states.end() ? kNoStates : foundStates->second;
 
     requireSharedEndPoints(frequencyKnots, amplitudeKnots);
-    requirePhaseWithinLifeline(frequencyKnots, phaseKnots);
-    requireValues(frequencyKnots, amplitudeKnots, phaseKnots);
+    requireStatesWithinLifeline(frequencyKnots, states);
+    requireValues(frequencyKnots, amplitudeKnots);
+    requireValidPhase(states);
 
     PartialOutput output{.partialId = partialId,
         .staleFrequency = {},
@@ -929,7 +921,7 @@ void transformPartial(EngineDb& db, const Inputs& inputs, const SetEnvelopes& en
         .stalePhase = {},
         .frequency = placeKnots(frequencyKnots, envelopes.pointTimes),
         .amplitude = placeKnots(amplitudeKnots, envelopes.pointTimes),
-        .phase = placePhaseKnots(phaseKnots, envelopes.pointTimes)};
+        .phase = placePhaseKnots(phaseKnotsOf(states), envelopes.pointTimes)};
     if (output.frequency.size() < 2) {
         throw PartialTransformError{
             "its lifeline collapsed to a single instant at " +
@@ -937,12 +929,6 @@ void transformPartial(EngineDb& db, const Inputs& inputs, const SetEnvelopes& en
             " samples: every later frequency point was pulled back onto the first by its offset"};
     }
     fitToLifeline(output.amplitude, output.frequency.back().time);
-    // The phase points include every frequency knot's point, so they cannot
-    // collapse further than the frequency envelope did; checked regardless,
-    // because the fit below needs two.
-    if (output.phase.size() < 2) {
-        throw PartialTransformError{"its phase points collapsed to a single instant"};
-    }
     fitToLifeline(output.phase, output.frequency.back().time);
     collapseFreeRuns(output.phase);
     for (PhysicalPoint& point : output.frequency) {
@@ -1081,24 +1067,66 @@ void fitToLifeline(std::vector<PhysicalPoint>& amplitude, SampleTime end) {
     amplitude.push_back(last);
 }
 
-void requirePhaseWithinLifeline(std::span<const Knot> frequency, std::span<const PhaseKnot> phase) {
+void requireStatesWithinLifeline(
+    std::span<const Knot> frequency, std::span<const StatePhase> states) {
     // The caller has checked that frequency has at least two knots, and each
-    // sits on a point where the partial has a state, so phase is not empty.
-    if (phase.empty() || phase.front().point != frequency.front().point) {
+    // sits on a point where the partial has a state, so states is not empty.
+    if (states.empty() || states.front().point != frequency.front().point) {
         throw PartialTransformError{
             "it has a state at point " +
-            (phase.empty() ? std::string{"(none)"} : std::to_string(phase.front().point)) +
+            (states.empty() ? std::string{"(none)"} : std::to_string(states.front().point)) +
             ", before its frequency is first defined at point " +
             std::to_string(frequency.front().point) +
             "; every state must lie within the lifeline the frequency defines"};
     }
-    if (phase.back().point != frequency.back().point) {
+    if (states.back().point != frequency.back().point) {
         throw PartialTransformError{
-            "it has a state at point " + std::to_string(phase.back().point) +
+            "it has a state at point " + std::to_string(states.back().point) +
             ", after its frequency is last defined at point " +
             std::to_string(frequency.back().point) +
             "; every state must lie within the lifeline the frequency defines"};
     }
+}
+
+void requireValidPhase(std::span<const StatePhase> states) {
+    for (const StatePhase& state : states) {
+        const std::string where = "at point " + std::to_string(state.point);
+        if (state.degrees.has_value()) {
+            if (state.freeRun != false) {
+                throw PartialTransformError{where + " its phase is " +
+                                            formatNumber(*state.degrees) +
+                                            " degrees with phase_free_run " +
+                                            (state.freeRun.has_value() ? "true" : "NULL") +
+                                            "; a phase target needs phase_free_run false"};
+            }
+            if (!std::isfinite(*state.degrees) || *state.degrees < kMinPhaseDegrees ||
+                *state.degrees > kMaxPhaseDegrees) {
+                throw PartialTransformError{
+                    where + " its phase is " + formatNumber(*state.degrees) +
+                    " degrees; a target must be in [" + formatNumber(kMinPhaseDegrees) + ", " +
+                    formatNumber(kMaxPhaseDegrees) + "]"};
+            }
+        } else if (state.freeRun == false) {
+            throw PartialTransformError{
+                where + " its phase_free_run is false with no phase; false needs a phase target, "
+                        "true means free-running, and NULL plays no role in phase"};
+        }
+    }
+}
+
+std::vector<PhaseKnot> phaseKnotsOf(std::span<const StatePhase> states) {
+    std::vector<PhaseKnot> knots;
+    for (const StatePhase& state : states) {
+        const bool isTarget = state.degrees.has_value();
+        const bool isFree = state.freeRun == true;
+        // A default first state still gives a NULL point: precomputation
+        // needs one at the lifeline's start, and running free to the first
+        // target is what the default means there.
+        if (isTarget || isFree || knots.empty()) {
+            knots.push_back(PhaseKnot{.point = state.point, .degrees = state.degrees});
+        }
+    }
+    return knots;
 }
 
 std::vector<PhasePoint> placePhaseKnots(
@@ -1121,7 +1149,7 @@ std::vector<PhasePoint> placePhaseKnots(
 
 void fitToLifeline(std::vector<PhasePoint>& phase, SampleTime end) {
     PhasePoint last = phase.back();
-    last.time = end;
+    last.time = std::min(last.time, end);
     phase.pop_back();
     std::erase_if(phase, [end](const PhasePoint& point) { return point.time >= end; });
     phase.push_back(last);

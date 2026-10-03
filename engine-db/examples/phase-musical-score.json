@@ -1,5 +1,5 @@
 {
-  "_comment": "Mirror of phase-musical-score.cypher for rendering-engine/test/oracle/render_oracle.py: the physical values the transform must produce, computed independently from rendering-engine/docs/transform.md. Times in samples, frequencies in radians per sample, amplitudes in dB, phases in radians (null for a NULL point). Set and partial ids are the SERIAL ids the score gets when loaded alone. A's run of four NULL points is collapsed to its first and last; B's point at beat 4 less 0.25 s collides with beat 4 and wins.",
+  "_comment": "Mirror of phase-musical-score.cypher for rendering-engine/test/oracle/render_oracle.py: the physical values the transform must produce, computed independently from rendering-engine/docs/transform.md. Times in samples, frequencies in radians per sample, amplitudes in dB, phases in radians (null for a NULL point). Set and partial ids are the SERIAL ids the score gets when loaded alone. A's run of four free-running points is collapsed to its first and last; B's point at beat 4 less 0.25 s collides with beat 4 and wins; C's default first state gives a NULL point at the start, its default states at beats 3 and 8 give none, so its last phase point is at beat 4.",
   "sample_rate": 48000,
   "partial_sets": [
     {
@@ -108,6 +108,59 @@
             [
               325084.25866750954,
               2.0943951023931953
+            ]
+          ]
+        },
+        {
+          "id": 2,
+          "frequency": [
+            [
+              0.0,
+              0.08639379797371931
+            ],
+            [
+              133084.2586675095,
+              0.08639379797371931
+            ],
+            [
+              325084.25866750954,
+              0.08639379797371931
+            ]
+          ],
+          "amplitude": [
+            [
+              0.0,
+              -18.0
+            ],
+            [
+              55234.957910741934,
+              -18.0
+            ],
+            [
+              90240.69681518123,
+              -18.0
+            ],
+            [
+              133084.2586675095,
+              -18.0
+            ],
+            [
+              325084.25866750954,
+              -144.0
+            ]
+          ],
+          "phase": [
+            [
+              0.0,
+              null
+            ],
+            [
+              55234.957910741934,
+              0.5235987755982988
+            ],
+            [
+              133084.2586675095,
+              -1.5707963267948966
             ]
           ]
         }

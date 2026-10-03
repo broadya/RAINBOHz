@@ -788,12 +788,29 @@ CREATE NODE TABLE PartialStateSet (
 // not by the database (LadybugDB has no CHECK constraints).
 //
 // Ranges (compiler-enforced):
-//   frequency    Hz,      allowed to be outside of audio range and even be negative, but will not be rendered.
-//   phase        degrees, [-180, 180]
-//   amplitude    dB,      [-144, 0]      (-144 dB ~ -inf sentinel value)
+//   frequency      Hz,      allowed to be outside of audio range and even be negative, but will not be rendered.
+//   phase          degrees, [-180, 180]
+//   phase_free_run Boolean,
+//   amplitude      dB,      [-144, 0]      (-144 dB ~ -inf sentinel value)
 //
-//   phase may explicitly take a NULL value, other values may not be NULL.
-//   A NULL value for phase means that the partial runs "free" to this state.
+// Three possible valid types of phase node in a PartialState:
+// 1. phase is NOT NULL and phase_free_run is false.
+// The property phase specifies the target phase at this point.
+// 2. phase_free_run is true and phase is NULL.
+// In this case the intention is to allow the parial to "run freely" to this
+// point, simply accumulating phase without needing to hit a particular phase
+// target.
+// 3. phase_free_run is NULL and the phase propperty is also NULL
+// This is the "default" case.
+// In this case, the intention is that this node does not play a role in 
+// determining phase. In particular, it may be between nodes that do play
+// such a role.
+//
+// Three possible invalid types of phase node in a PartialState:
+// 1. phase_free_run is true and phase is NOT NULL.
+// 2. phase_free_run is NULL and phase is NOT NULL
+// 3. phase_free_run is false and phase is NULL
+// These are all integrity constraint errors.
 //
 //  All values are "nominal" because they can be affected by modulators
 //  and in the case of frequency also by phase (phase takes priority where
@@ -802,10 +819,11 @@ CREATE NODE TABLE PartialStateSet (
 // @canonical
 // ============================================================
 CREATE NODE TABLE PartialState (
-    id           SERIAL,   
-    frequency    FLOAT,
-    phase        FLOAT,
-    amplitude    FLOAT,
+    id              SERIAL,   
+    frequency       FLOAT,
+    phase           FLOAT,
+    phase_free_run  BOOLEAN,
+    amplitude       FLOAT,
     PRIMARY KEY (id)
 );
 

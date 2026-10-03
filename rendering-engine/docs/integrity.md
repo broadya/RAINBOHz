@@ -90,7 +90,7 @@ the schema documents a range for it.
 | `PartialSetMusicalTimelinePoint.frequency_curve_amount`, `amplitude_curve_amount` | no | 0 to 1 | schema |
 | `PartialState.frequency` | **allowed**: no knot here | any finite value | transform.md §6.2 (author, 2026-10-02) |
 | `PartialState.amplitude` | **allowed**: no knot here | −144 to 0 | schema's canonical range |
-| `PartialState.phase` | **allowed**: a free-running point | −180 to 180 degrees | schema's canonical range ([transform.md](transform.md) §6.6) |
+| `PartialState.phase` | **allowed**: free-running or default, as `phase_free_run` says | −180 to 180 degrees | schema's canonical range ([transform.md](transform.md) §6.6) |
 
 The `EngineConfig.channelMode` and `AmplitudePhysicalTimelinePoint` rows arrived
 with rendering ([rendering.md](rendering.md) §9, decided 2026-09-24,
@@ -98,6 +98,8 @@ implemented 2026-09-25). The `TempoMap`, `TempoMapPoint`,
 `PartialSetMusicalTimelinePoint` and `PartialState` rows arrived with the
 transform ([transform.md](transform.md) §9, 2026-10-02), and
 `PartialState.phase` with the transform's phase mapping (2026-10-03).
+`PartialState.phase_free_run` is a nullable BOOLEAN with no range; what is
+checked is its combination with `phase`, below.
 
 Three further checks cover what no single column can:
 
@@ -115,7 +117,7 @@ Three further checks cover what no single column can:
   stopping silently at a revisited node, since cycles are the list checks'
   business.
 
-Five more arrived with the transform, covering the musical-time tables it
+Six more arrived with the transform, covering the musical-time tables it
 reads (transform.md §9; all decided by the author on 2026-10-02):
 
 - **Tempo map shape.** Every `TempoMap` has at least one point; the first is
@@ -134,6 +136,10 @@ reads (transform.md §9; all decided by the author on 2026-10-02):
 - **State membership.** A `PartialStateSet` reached from a timeline point
   holds states only of partials in that point's `PartialSet`, at most one
   per partial.
+- **PartialState phase.** Every `PartialState`'s `phase` and
+  `phase_free_run` are a target (a phase, false), free-running (NULL, true)
+  or the default (NULL, NULL). Any other combination is a violation (author,
+  2026-10-03; transform.md §6.6).
 
 That there is one `TempoMap` per Score and no synchronisation edge is a limit
 of the transform's first version, not of the model, so the transform checks

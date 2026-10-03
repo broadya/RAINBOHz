@@ -194,6 +194,10 @@ std::optional<double> optionalDouble(const DbValue& value) {
     return optionalOf<double>(value, "a floating-point number");
 }
 
+std::optional<bool> optionalBool(const DbValue& value) {
+    return optionalOf<bool>(value, "a boolean");
+}
+
 std::optional<std::string> optionalString(const DbValue& value) {
     return optionalOf<std::string>(value, "a string");
 }

@@ -131,7 +131,8 @@ struct RangeRule {
 /// section 9): tempo map resolution and points, the curve fields of musical
 /// timeline points, and PartialState values, which may be NULL by design (a
 /// NULL frequency or amplitude is "no knot here"; a NULL phase is a
-/// free-running point).
+/// free-running point or plays no role, as phase_free_run says, which
+/// checkPartialStatePhase() checks).
 ///
 /// @return The rules, in the order their checks are reported. Valid for the
 ///         whole program.
@@ -877,6 +878,38 @@ IntegrityCheck checkPartialStateLinks(EngineDb& db) {
     return check;
 }
 
+/// Checks that every PartialState's phase and phase_free_run are one of the
+/// three valid combinations (author, 2026-10-03; docs/transform.md section
+/// 6.6): a target (phase set, phase_free_run false), a free-running point
+/// (phase NULL, true), or the default (both NULL).
+///
+/// @param db  Database to check.
+/// @return The check's outcome, in PartialState id order.
+/// @throws EngineDbError  If the query fails.
+IntegrityCheck checkPartialStatePhase(EngineDb& db) {
+    IntegrityCheck check{.name =
+                             "every PartialState's phase and phase_free_run are a target "
+                             "(phase, false), free-running (NULL, true) or default (NULL, NULL)",
+        .violationCount = 0,
+        .violations = {}};
+    for (const DbRow& row :
+        db.query("MATCH (st:PartialState) WHERE (st.phase IS NOT NULL AND "
+                 "(st.phase_free_run IS NULL OR st.phase_free_run)) OR "
+                 "(st.phase IS NULL AND st.phase_free_run IS NOT NULL AND NOT st.phase_free_run) "
+                 "RETURN st.id, st.phase, st.phase_free_run ORDER BY st.id;")) {
+        const std::optional<double> phase = optionalDouble(row.at(1));
+        const std::optional<bool> freeRun = optionalBool(row.at(2));
+        std::string freeRunText = "NULL";
+        if (freeRun.has_value()) {
+            freeRunText = *freeRun ? "true" : "false";
+        }
+        check.add("PartialState " + std::to_string(requireInt64(row.at(0))) + ": phase " +
+                  (phase.has_value() ? formatNumber(*phase) : "NULL") + " with phase_free_run " +
+                  freeRunText);
+    }
+    return check;
+}
+
 /// Checks that a PartialStateSet reached from a timeline point holds states
 /// only of partials in that point's PartialSet, and at most one per partial.
 ///
@@ -1093,6 +1126,7 @@ IntegrityReport checkIntegrity(EngineDb& db) {
     report.checks.push_back(checkPointAt(db));
     report.checks.push_back(checkMusicalOrder(db));
     report.checks.push_back(checkPartialStateLinks(db));
+    report.checks.push_back(checkPartialStatePhase(db));
     report.checks.push_back(checkStateMembership(db));
     for (const ListType& type : kListTypes) {
         IntegrityCheck cycles;

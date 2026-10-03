@@ -112,6 +112,13 @@ std::optional<std::int64_t> optionalInt64(const DbValue& value);
 ///         column of the wrong type is a schema mismatch worth hearing about.
 std::optional<double> optionalDouble(const DbValue& value);
 
+/// Reads a nullable boolean column.
+///
+/// @param value  One value from a DbRow.
+/// @return The boolean, or nullopt if `value` is NULL.
+/// @throws EngineDbError  If `value` is neither NULL nor a boolean.
+std::optional<bool> optionalBool(const DbValue& value);
+
 /// Reads a nullable string column.
 ///
 /// @param value  One value from a DbRow.

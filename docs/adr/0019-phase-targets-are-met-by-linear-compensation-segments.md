@@ -145,7 +145,10 @@ code is `buildCompensation`, `initialPhaseOf` and `naturalPhaseAt` in
 `precomputation.cpp`, `compensationAt` in `segment_maths.hpp`, and
 `wrapHalfOpen` in `units.hpp`.
 
-The transform maps `PartialState.phase` (degrees, NULL a free-running point)
-to the phase timeline (transform.md §6.6, 2026-10-03). To be revisited when
+The transform maps `PartialState.phase` (degrees) and `phase_free_run` to
+the phase timeline (transform.md §6.6, 2026-10-03): a target gives a point
+with its phase, a free-running state a NULL point, and a default state (both
+NULL) no point, except that a default first state gives the NULL point at
+`b₀` that this rule needs, so the partial runs free to its first target. To be revisited when
 frequency modulators make N(t) richer: they change how N is computed, not
 this rule.

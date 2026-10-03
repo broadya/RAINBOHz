@@ -36,6 +36,7 @@
 namespace {
 
 using rainbohz::rendering_engine::checkIntegrity;
+using rainbohz::rendering_engine::DbRow;
 using rainbohz::rendering_engine::EngineDb;
 using rainbohz::rendering_engine::findListDefects;
 using rainbohz::rendering_engine::IntegrityCheck;
@@ -43,6 +44,7 @@ using rainbohz::rendering_engine::IntegrityReport;
 using rainbohz::rendering_engine::kMaxReportedViolations;
 using rainbohz::rendering_engine::ListDefects;
 using rainbohz::rendering_engine::loadCypherFile;
+using rainbohz::rendering_engine::requireInt64;
 
 using IdMap = std::unordered_map<std::int64_t, std::int64_t>;
 
@@ -181,8 +183,8 @@ TEST_F(IntegrityDb, ASoundScorePasses) {
     const IntegrityReport report = checkIntegrity(db);
     EXPECT_TRUE(report.ok()) << failures(report);
     // One EngineConfig check, 21 range rules, set membership, lifeline
-    // equality, five musical-time checks, and two per NEXT_POINT list type.
-    EXPECT_EQ(report.checks.size(), 1U + 21U + 2U + 5U + (2U * 14U));
+    // equality, six musical-time checks, and two per NEXT_POINT list type.
+    EXPECT_EQ(report.checks.size(), 1U + 21U + 2U + 6U + (2U * 14U));
 }
 
 TEST(Integrity, TheExampleScorePasses) {
@@ -598,10 +600,40 @@ TEST_F(MusicalIntegrityDb, PartialStatePhaseMayBeNullButMustBeInDegrees) {
     // Every phase in the example is NULL, which is allowed. One state is set
     // to the edge of the range and one beyond it.
     db.execute("MATCH (:Partial {name: 'A'})<-[:STATE_OF]-(st:PartialState) "
-               "WHERE st.frequency < 400.0 SET st.phase = -180.0;");
+               "WHERE st.frequency < 400.0 SET st.phase = -180.0, st.phase_free_run = false;");
     db.execute("MATCH (:Partial {name: 'B'})<-[:STATE_OF]-(st:PartialState) "
-               "WHERE st.amplitude < -20.0 AND st.amplitude > -30.0 SET st.phase = 180.5;");
-    EXPECT_EQ(find(checkIntegrity(db), "PartialState.phase ").violationCount, 1U);
+               "WHERE st.amplitude < -20.0 AND st.amplitude > -30.0 "
+               "SET st.phase = 180.5, st.phase_free_run = false;");
+    const IntegrityReport report = checkIntegrity(db);
+    EXPECT_EQ(find(report, "PartialState.phase ").violationCount, 1U);
+    EXPECT_TRUE(find(report, "every PartialState's phase and phase_free_run").ok());
+}
+
+TEST_F(MusicalIntegrityDb, PartialStatePhaseCombinationsAreChecked) {
+    // The example's states are all default (both NULL). Five of them are
+    // given each valid non-default combination and each invalid one.
+    const std::vector<std::string> assignments{
+        "st.phase = 90.0, st.phase_free_run = false", // target: valid
+        "st.phase_free_run = true",                   // free-running: valid
+        "st.phase = 90.0, st.phase_free_run = true",  // invalid
+        "st.phase = 90.0",                            // invalid: phase_free_run NULL
+        "st.phase_free_run = false",                  // invalid: no phase
+    };
+    const std::vector<DbRow> ids = db.query("MATCH (st:PartialState) RETURN st.id ORDER BY st.id;");
+    ASSERT_GE(ids.size(), assignments.size());
+    for (std::size_t i = 0; i < assignments.size(); ++i) {
+        db.query("MATCH (st:PartialState) WHERE st.id = $id SET " + assignments[i] + ";",
+            {{"id", requireInt64(ids[i].at(0))}});
+    }
+    const IntegrityCheck check =
+        find(checkIntegrity(db), "every PartialState's phase and phase_free_run");
+    ASSERT_EQ(check.violationCount, 3U);
+    EXPECT_NE(check.violations[0].find("phase 90 with phase_free_run true"), std::string::npos)
+        << check.violations[0];
+    EXPECT_NE(check.violations[1].find("phase 90 with phase_free_run NULL"), std::string::npos)
+        << check.violations[1];
+    EXPECT_NE(check.violations[2].find("phase NULL with phase_free_run false"), std::string::npos)
+        << check.violations[2];
 }
 
 } // namespace

@@ -180,21 +180,6 @@ struct EntryRecord {
     std::optional<std::string> failure;
 };
 
-/// Reads a nullable boolean column.
-///
-/// @param value  One value from a DbRow.
-/// @return The boolean, or nullopt if `value` is NULL.
-/// @throws EngineDbError  If `value` is neither NULL nor a boolean.
-std::optional<bool> optionalBool(const DbValue& value) {
-    if (std::holds_alternative<std::monostate>(value)) {
-        return std::nullopt;
-    }
-    if (const bool* held = std::get_if<bool>(&value)) {
-        return *held;
-    }
-    throw EngineDbError{"expected a boolean or NULL"};
-}
-
 /// Reads the segment columns of a row, which every segment query returns in
 /// the same order from column `from`.
 ///

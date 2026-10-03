@@ -575,7 +575,9 @@ the smaller the change.
 **`NULL` is a point, not an absence.** A point with `phase` `NULL` means
 "free-running up to here": no adjustment is made over the span that ends
 there. It still starts a new span, so a target after it is met by a ramp over
-the shorter span from the `NULL` point, not from the target before.
+the shorter span from the `NULL` point, not from the target before. (In the
+canonical model a free-running state gives a `NULL` point, and a default
+state, which plays no role in phase, gives none: transform.md §6.6.)
 
 **The natural phase.** N(t) is the phase the frequency envelope gives: the
 integral of §6.5, from the initial phase φ₀. It is evaluated at a time *t*
