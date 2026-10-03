@@ -13,7 +13,8 @@
 //
 // Per partial, per sample, the loop does one sine, one exponential, and a
 // handful of additions: the phase advances by the exact one-sample increment
-// of the segment's antiderivative, freq + g/2 (ADR 0007), the frequency by
+// of the segment's antiderivative, freq + g/2 (ADR 0007), plus the slope of
+// the phase compensation in force (ADR 0019), the frequency by
 // its gradient, the amplitude by its gradient; the roll-off is a function of
 // the frequency at the sample (ADR 0008). No accumulated value survives a
 // chunk boundary: the caller re-anchors every active partial from the closed
@@ -33,7 +34,7 @@ namespace rainbohz::rendering_engine {
 /// The per-partial state of a block, one array per quantity, all double.
 ///
 /// The three that change every sample -- phase, freq, amp -- and the three
-/// per-chunk constants -- gradient, halfGradient, ampGradient. Lane `i` of
+/// per-chunk constants -- gradient, phaseStepOffset, ampGradient. Lane `i` of
 /// every array belongs to the same partial.
 struct BlockState {
     /// Wrapped phase at the current sample, radians, in [-π, π].
@@ -48,8 +49,12 @@ struct BlockState {
     /// The render segment's frequency gradient g, radians per sample².
     std::vector<double> gradient;
 
-    /// g / 2: the constant in the exact one-sample phase increment.
-    std::vector<double> halfGradient;
+    /// g / 2 + c: the constant in the one-sample phase increment. g / 2
+    /// makes the increment the exact integral of a linear segment (ADR 0007);
+    /// c is the slope of the phase compensation, radians per sample
+    /// (ADR 0019). Folded into one value so that phase control costs the
+    /// loop nothing.
+    std::vector<double> phaseStepOffset;
 
     /// The render segment's amplitude gradient, dB per sample.
     std::vector<double> ampGradient;
@@ -77,6 +82,9 @@ struct Anchor {
     /// The render segment's amplitude path, re-based to its start.
     NominalAmplitude amplitude;
 
+    /// The render segment's phase compensation, re-based to its start.
+    NominalCompensation compensation;
+
     /// Source-time offset of the chunk's first sample from the render
     /// segment's start: τ_a. Not negative.
     SampleDuration tau;
@@ -84,9 +92,11 @@ struct Anchor {
 
 /// Sets lane `lane` of `block` from the closed form at `anchor.tau`, exactly.
 ///
-/// phase = wrap(phaseAt(startPhase, nominal, τ)), freq = frequencyAt(nominal,
-/// τ), amp = amplitudeAt(amplitude, τ); the gradients are the segment's. This
-/// is the boundary where unit types are unwrapped into the arrays.
+/// phase = wrap(phaseAt(startPhase, nominal, τ) + compensationAt(compensation,
+/// τ)), freq = frequencyAt(nominal, τ), amp = amplitudeAt(amplitude, τ); the
+/// gradients are the segment's, and the phase step offset is g / 2 plus the
+/// compensation's slope. This is the boundary where unit types are unwrapped
+/// into the arrays.
 ///
 /// @param[in,out] block  The block. Lane `lane` of every array is overwritten.
 /// @param lane           Which lane. Less than `block.size()`; not checked.
@@ -98,7 +108,7 @@ void anchorPartial(BlockState& block, std::size_t lane, const Anchor& anchor) no
 /// For each sample, in order: sum over the active lanes of
 /// `sin(phase) · toLinear(amp + rollOff(freq))`, added into `out[n]` once
 /// per sample; then each active lane's phase advances by the exact
-/// one-sample increment `freq + halfGradient` and is wrapped, its freq by
+/// one-sample increment `freq + phaseStepOffset` and is wrapped, its freq by
 /// `gradient`, and its amp by `ampGradient`. Everything is computed in
 /// double and narrowed to SampleValue once, at the add.
 ///

@@ -71,10 +71,12 @@ classDiagram
         +DOUBLE end_time
         +DOUBLE start_phase
     }
-    class PartialPhaseCompensationRegion {
+    class PartialPhaseCompensationSegment {
         +SERIAL id_pk
-        +DOUBLE start_phase
-        +DOUBLE end_phase
+        +DOUBLE start_time
+        +DOUBLE end_time
+        +DOUBLE start_phase_delta
+        +DOUBLE end_phase_delta
     }
     class PartialSegmentNominalFrequency {
         +SERIAL id_pk
@@ -130,7 +132,7 @@ classDiagram
     class PhasePhysicalTimelinePoint {
         +SERIAL id_pk
         +DOUBLE time
-        +FLOAT phase
+        +DOUBLE phase
     }
     class FrequencyModulatorPhysicalTimelinePoint {
         +SERIAL id_pk
@@ -332,7 +334,7 @@ classDiagram
         +INT64 sync_point_child
     }
     TempoMap "*" -- TEMPO_MAP_SYNCHRONIZATION_POINT
-    TEMPO_MAP_SYNCHRONIZATION_POINT -- "1" TempoMap
+    TEMPO_MAP_SYNCHRONIZATION_POINT -- "*" TempoMap
     class STATE_OF {
         <<REL>>
     }
@@ -353,11 +355,6 @@ classDiagram
     }
     Partial "*" -- PARTIAL_IN_FRAME
     PARTIAL_IN_FRAME -- "*" Frame
-    class REGION_TO_SEGMENT {
-        <<REL>>
-    }
-    PartialPhaseCompensationRegion "1" -- REGION_TO_SEGMENT
-    REGION_TO_SEGMENT -- "*" PartialIntegrableSegment
     class SEGMENT_TO_FREQUENCY_NOMINAL {
         <<REL>>
     }
@@ -418,6 +415,11 @@ classDiagram
     }
     PartialSegmentPhysicalTimeline "1" -- NEXT_POINT__PartialSegmentPhysicalTimeline__PartialIntegrableSegment
     NEXT_POINT__PartialSegmentPhysicalTimeline__PartialIntegrableSegment -- "1" PartialIntegrableSegment
+    class NEXT_POINT__PartialSegmentPhysicalTimeline__PartialPhaseCompensationSegment["NEXT_POINT"] {
+        <<REL>>
+    }
+    PartialSegmentPhysicalTimeline "1" -- NEXT_POINT__PartialSegmentPhysicalTimeline__PartialPhaseCompensationSegment
+    NEXT_POINT__PartialSegmentPhysicalTimeline__PartialPhaseCompensationSegment -- "1" PartialPhaseCompensationSegment
     class NEXT_POINT__SpatialPositionMusicalTimeline__SpatialPositionMusicalTimelinePoint["NEXT_POINT"] {
         <<REL>>
     }
@@ -478,16 +480,21 @@ classDiagram
     }
     PartialSetMusicalTimeline "1" -- NEXT_POINT__PartialSetMusicalTimeline__PartialSetMusicalTimelinePoint
     NEXT_POINT__PartialSetMusicalTimeline__PartialSetMusicalTimelinePoint -- "1" PartialSetMusicalTimelinePoint
-    class NEXT_POINT__Score__TempoMapPoint["NEXT_POINT"] {
+    class NEXT_POINT__Score__TempoMap["NEXT_POINT"] {
         <<REL>>
     }
-    Score "1" -- NEXT_POINT__Score__TempoMapPoint
-    NEXT_POINT__Score__TempoMapPoint -- "1" TempoMapPoint
+    Score "1" -- NEXT_POINT__Score__TempoMap
+    NEXT_POINT__Score__TempoMap -- "1" TempoMap
     class NEXT_POINT__PartialIntegrableSegment__PartialIntegrableSegment["NEXT_POINT"] {
         <<REL>>
     }
     PartialIntegrableSegment "1" -- NEXT_POINT__PartialIntegrableSegment__PartialIntegrableSegment
     NEXT_POINT__PartialIntegrableSegment__PartialIntegrableSegment -- "1" PartialIntegrableSegment
+    class NEXT_POINT__PartialPhaseCompensationSegment__PartialPhaseCompensationSegment["NEXT_POINT"] {
+        <<REL>>
+    }
+    PartialPhaseCompensationSegment "1" -- NEXT_POINT__PartialPhaseCompensationSegment__PartialPhaseCompensationSegment
+    NEXT_POINT__PartialPhaseCompensationSegment__PartialPhaseCompensationSegment -- "1" PartialPhaseCompensationSegment
     class NEXT_POINT__SpatialPositionMusicalTimelinePoint__SpatialPositionMusicalTimelinePoint["NEXT_POINT"] {
         <<REL>>
     }
@@ -648,6 +655,11 @@ classDiagram
     }
     FrameEntry "*" -- FRAME_ENTRY_PHYSICAL_TIMELINE__FrameEntry__PartialIntegrableSegment
     FRAME_ENTRY_PHYSICAL_TIMELINE__FrameEntry__PartialIntegrableSegment -- "*" PartialIntegrableSegment
+    class FRAME_ENTRY_PHYSICAL_TIMELINE__FrameEntry__PartialPhaseCompensationSegment["FRAME_ENTRY_PHYSICAL_TIMELINE"] {
+        <<REL>>
+    }
+    FrameEntry "*" -- FRAME_ENTRY_PHYSICAL_TIMELINE__FrameEntry__PartialPhaseCompensationSegment
+    FRAME_ENTRY_PHYSICAL_TIMELINE__FrameEntry__PartialPhaseCompensationSegment -- "*" PartialPhaseCompensationSegment
     class FRAME_ENTRY_PHYSICAL_TIMELINE__FrameEntry__AmplitudePhysicalTimelinePoint["FRAME_ENTRY_PHYSICAL_TIMELINE"] {
         <<REL>>
     }

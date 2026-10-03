@@ -42,8 +42,8 @@ constexpr bool strictlyInside(SampleTime t, SampleTime from, SampleTime to) noex
 /// @param fs       The frame's start.
 /// @param fe       The frame's end.
 /// @return `fs`, `fe`, the lifeline's ends where they fall inside the frame,
-///         and every integrable segment boundary and amplitude point time
-///         strictly inside it.
+///         and every integrable segment boundary, amplitude point time and
+///         compensation segment boundary strictly inside it.
 std::vector<SampleTime> renderBoundaries(const PartialData& partial, SampleTime fs, SampleTime fe) {
     std::vector<SampleTime> bounds{fs, fe};
     const auto add = [&](SampleTime t) {
@@ -59,6 +59,10 @@ std::vector<SampleTime> renderBoundaries(const PartialData& partial, SampleTime 
     }
     for (const AmplitudePoint& point : partial.amplitude) {
         add(point.time);
+    }
+    for (const CompensationSegment& segment : partial.compensation) {
+        add(segment.startTime);
+        add(segment.endTime);
     }
     std::ranges::sort(bounds);
     const auto duplicates = std::ranges::unique(bounds);
@@ -107,6 +111,27 @@ std::pair<const AmplitudePoint&, const AmplitudePoint&> coveringPiece(
     return {points[cursor], points[cursor + 1]};
 }
 
+/// The compensation segment covering `start`, advancing a forward-only
+/// cursor.
+///
+/// @param segments      The partial's compensation segments, in time order.
+/// @param start         A render segment's start.
+/// @param[in,out] cursor  Index of the last covering segment; moves forward.
+/// @return The segment with `startTime ≤ start < endTime`.
+/// @throws std::invalid_argument  If there is none.
+const CompensationSegment& coveringCompensation(
+    std::span<const CompensationSegment> segments, SampleTime start, std::size_t& cursor) {
+    while (cursor + 1 < segments.size() && segments[cursor].endTime <= start) {
+        ++cursor;
+    }
+    if (segments.empty() ||
+        !(segments[cursor].startTime <= start && start < segments[cursor].endTime)) {
+        throw std::invalid_argument{
+            "buildRenderSegments: no compensation segment covers a present render segment"};
+    }
+    return segments[cursor];
+}
+
 } // namespace
 
 std::vector<RenderSegment> buildRenderSegments(
@@ -120,23 +145,27 @@ std::vector<RenderSegment> buildRenderSegments(
     std::vector<RenderSegment> result;
     result.reserve(bounds.size() - 1);
 
-    // Both cursors only move forward: the boundaries are sorted, and so are
-    // the segments and the amplitude points.
+    // The cursors only move forward: the boundaries are sorted, and so are
+    // the segments, the amplitude points and the compensation segments.
     std::size_t segment = 0;
     std::size_t piece = 0;
+    std::size_t ramp = 0;
     for (std::size_t i = 0; i + 1 < bounds.size(); ++i) {
         RenderSegment render{.start = bounds[i],
             .end = bounds[i + 1],
             .present = lifelineStart <= bounds[i] && bounds[i] < lifelineEnd,
             .startPhase = Phase{0.0},
             .nominal = {},
-            .amplitude = {}};
+            .amplitude = {},
+            .compensation = {}};
         if (!render.present) {
             result.push_back(render);
             continue;
         }
         const Segment& covering = coveringSegment(partial.segments, render.start, segment);
         const auto [from, to] = coveringPiece(partial.amplitude, render.start, piece);
+        const CompensationSegment& compensation =
+            coveringCompensation(partial.compensation, render.start, ramp);
 
         // Re-base to the render segment's own start (§6.4.1). φ_s comes from
         // the same phaseAt on the same stored values as precomputation uses,
@@ -152,6 +181,7 @@ std::vector<RenderSegment> buildRenderSegments(
             .startDecibels = from.amplitude + ampGradient * (render.start - from.time),
             .gradient = ampGradient,
         };
+        render.compensation = compensationFrom(compensation, render.start);
         result.push_back(render);
     }
     return result;
@@ -238,6 +268,7 @@ void renderPartialSet(
                 Anchor{.startPhase = segment.startPhase,
                     .nominal = segment.nominal,
                     .amplitude = segment.amplitude,
+                    .compensation = segment.compensation,
                     .tau = at - segment.start});
             active.push_back(i);
         }

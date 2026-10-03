@@ -64,8 +64,9 @@ struct ListType {
 /// These are checked whether or not the engine uses them yet: a cycle or a
 /// merge is a structural defect in any list, and the check is the same for
 /// all of them.
-constexpr std::array<ListType, 13> kListTypes{{
+constexpr std::array<ListType, 14> kListTypes{{
     {.timeline = "PartialSegmentPhysicalTimeline", .node = "PartialIntegrableSegment"},
+    {.timeline = "PartialSegmentPhysicalTimeline", .node = "PartialPhaseCompensationSegment"},
     {.timeline = "SpatialPositionMusicalTimeline", .node = "SpatialPositionMusicalTimelinePoint"},
     {.timeline = "AmplitudePhysicalTimeline", .node = "AmplitudePhysicalTimelinePoint"},
     {.timeline = "FrequencyPhysicalTimeline", .node = "FrequencyPhysicalTimelinePoint"},
@@ -550,8 +551,13 @@ void checkLists(
     EngineDb& db, const ListType& type, IntegrityCheck& cycles, IntegrityCheck& merges) {
     const std::string timeline{type.timeline};
     const std::string node{type.node};
-    cycles.name = timeline + " lists have no cycles";
-    merges.name = timeline + " lists do not merge into one another";
+    // A list is named after its timeline, unless the timeline heads more than
+    // one list; then after its node table, so that the names stay distinct.
+    const bool sharedTimeline =
+        std::ranges::count(kListTypes, type.timeline, &ListType::timeline) > 1;
+    const std::string name{sharedTimeline ? type.node : type.timeline};
+    cycles.name = name + " lists have no cycles";
+    merges.name = name + " lists do not merge into one another";
 
     const auto heads = readIdMap(
         db, "MATCH (t:" + timeline + ")-[:NEXT_POINT]->(n:" + node + ") RETURN t.id, n.id;");

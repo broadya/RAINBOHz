@@ -180,7 +180,10 @@ the example score holds no labels, so it asks for every partial. `make` sets
 repository. A second, richer score, `two-partial-sets.cypher`, with its
 request `examples/two-partial-sets-request.yaml`, exercises two partial
 sets, glides, fades, a mid-frame start and partials leaving the audio
-range. Two more are written in the canonical model, in musical time, and
+range. `phase-target-score.cypher`, with `examples/phase-target-request.yaml`,
+exercises phase control: phase targets, free-running `NULL` points and a
+`NULL` start ([docs/precomputation.md](docs/precomputation.md) §6.8). Two
+more are written in the canonical model, in musical time, and
 go through the transform: `tempo-map-score.cypher`, a tempo ramp with
 per-property NULL states, and `offset-collision-score.cypher`, percussive
 hits whose fixed offsets collide ([docs/transform.md](docs/transform.md)
@@ -211,6 +214,7 @@ rendering-engine/
 ├── examples/
 │   ├── minimum-request.yaml  the render request `make run-rendering-engine` passes
 │   ├── two-partial-sets-request.yaml  for engine-db/examples/two-partial-sets.cypher
+│   ├── phase-target-request.yaml      for engine-db/examples/phase-target-score.cypher
 │   ├── tempo-map-request.yaml         for engine-db/examples/tempo-map-score.cypher
 │   └── offset-collision-request.yaml  for engine-db/examples/offset-collision-score.cypher
 ├── include/rainbohz/rendering_engine/

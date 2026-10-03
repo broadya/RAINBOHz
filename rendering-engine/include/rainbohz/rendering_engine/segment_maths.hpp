@@ -113,4 +113,30 @@ constexpr Phase phaseAt(
     return startPhase + phaseIncrement(nominal, tau);
 }
 
+/// The phase compensation in force over a span: a linear ramp, re-based to
+/// the span's start (docs/precomputation.md section 6.8).
+///
+/// D(τ) = startDelta + slope · τ
+///
+/// It is added to the phase that the frequency envelope produces. Its slope
+/// is a small constant frequency offset; it is not part of the nominal
+/// frequency, so the roll-off does not see it.
+struct NominalCompensation {
+    /// The compensation at the span's start, τ = 0. Unwrapped.
+    Phase startDelta;
+
+    /// Its rate of change, radians per sample. Zero on a free-running span.
+    AngularFrequency slope;
+};
+
+/// The phase compensation at local time `tau`.
+///
+/// @param compensation  The span's ramp.
+/// @param tau           Position within the span, from its start.
+/// @return D(τ), unwrapped, in radians.
+constexpr Phase compensationAt(
+    const NominalCompensation& compensation, SampleDuration tau) noexcept {
+    return compensation.startDelta + compensation.slope * tau;
+}
+
 } // namespace rainbohz::rendering_engine

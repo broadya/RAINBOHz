@@ -873,7 +873,7 @@ CREATE REL TABLE PARTIAL_IN_FRAME (
 // phase and frequency for a parial. Note that phase modulators
 // and Doppler shift compensation do not need to be applied during
 // the precomputation phase. The precomputation phase is concerned
-// with the source frequency and phase from a spatial audio perspective.
+// with the source frequency and phase, from a spatial audio perspective.
 //
 // It is permitted to have a segment with any length > 0.
 // The range described by a segment is continuous time in the range
@@ -886,11 +886,9 @@ CREATE REL TABLE PARTIAL_IN_FRAME (
 // start_phase    The initial unwrapped phase for this sample.
 //
 // start_phase does not include compensations necessary due to phase
-// compensation regions. However, if a segment is the first phase in a 
-// phase compensation region that starts with an absolute phase value,
-// then it takes on that absolute phase value.
-//
-// Phase compensation regions result in additional phase envelopes.
+// compensation segments. The actual phase rendered will include this
+// just as it will phase modulation. This type of node is only
+// concerned with the phase that arises from frequency itself.
 // ============================================================
 CREATE NODE TABLE PartialIntegrableSegment (
     id SERIAL,
@@ -901,28 +899,19 @@ CREATE NODE TABLE PartialIntegrableSegment (
 );
 
 // ============================================================
-// PartialPhaseCompensationRegion: Specifications can include the
+// PartialPhaseCompensationSegment: Specifications can include the
 // possibility that partials have an exact phase at certain
 // points in their timeline. This can require compensation
-// to be applied in certain zones, which are contiguous sequences
-// of PartialIntegrableSegment. It is inherent that these
-// regions, where present, define boundaries of integrable segments.
+// to be applied, defined by a contiguous sequence
+// of nodes of this type.
 // ============================================================
-CREATE NODE TABLE PartialPhaseCompensationRegion (
+CREATE NODE TABLE PartialPhaseCompensationSegment (
     id SERIAL,
-    start_phase         DOUBLE,
-    end_phase           DOUBLE,
+    start_time                DOUBLE,
+    end_time                  DOUBLE,
+    start_phase_delta         DOUBLE,
+    end_phase_delta           DOUBLE,
     PRIMARY KEY (id)
-);
-
-// ============================================================
-// REGION_TO_SEGMENT: A PartialPhaseCompensationRegion has
-// a contiguous sequence of PartialIntegrableSegment
-// associated with it.
-// ============================================================
-CREATE REL TABLE REGION_TO_SEGMENT (
-    FROM PartialPhaseCompensationRegion TO PartialIntegrableSegment,
-    ONE_MANY
 );
 
 // ============================================================
@@ -1130,7 +1119,7 @@ CREATE NODE TABLE FrequencyPhysicalTimelinePoint (
 CREATE NODE TABLE PhasePhysicalTimelinePoint (
     id                          SERIAL,
     time                        DOUBLE,
-    phase                       FLOAT,
+    phase                       DOUBLE,
     PRIMARY KEY (id)
 );
 
@@ -1453,6 +1442,7 @@ CREATE REL TABLE POINT_STATE (
 CREATE REL TABLE NEXT_POINT (
     // Head of the linked lists
     FROM PartialSegmentPhysicalTimeline TO PartialIntegrableSegment,
+    FROM PartialSegmentPhysicalTimeline TO PartialPhaseCompensationSegment,
     FROM SpatialPositionMusicalTimeline TO SpatialPositionMusicalTimelinePoint,
     FROM AmplitudePhysicalTimeline TO AmplitudePhysicalTimelinePoint,
     FROM FrequencyPhysicalTimeline TO FrequencyPhysicalTimelinePoint,
@@ -1471,6 +1461,7 @@ CREATE REL TABLE NEXT_POINT (
 
     // Further nodes of the linked lists
     FROM PartialIntegrableSegment TO PartialIntegrableSegment,
+    FROM PartialPhaseCompensationSegment TO PartialPhaseCompensationSegment,
     FROM SpatialPositionMusicalTimelinePoint TO SpatialPositionMusicalTimelinePoint,
     FROM AmplitudePhysicalTimelinePoint TO AmplitudePhysicalTimelinePoint,
     FROM FrequencyPhysicalTimelinePoint TO FrequencyPhysicalTimelinePoint,
@@ -1596,6 +1587,7 @@ CREATE REL TABLE FRAME_ENTRY (
 // ============================================================
 CREATE REL TABLE FRAME_ENTRY_PHYSICAL_TIMELINE (
     FROM FrameEntry TO PartialIntegrableSegment,
+    FROM FrameEntry TO PartialPhaseCompensationSegment,
     FROM FrameEntry TO AmplitudePhysicalTimelinePoint,
     MANY_MANY
 );

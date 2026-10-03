@@ -226,8 +226,10 @@ void reportPrecomputation(std::ostream& out, const PrecomputationReport& report,
         }
         if (verbose && outcome.frames.has_value()) {
             out << "    ok       " << describePartial(outcome) << ": " << outcome.segmentCount
-                << " segment(s), frames " << outcome.frames->first.value() << ".."
-                << outcome.frames->last.value() << ", " << outcome.entryCount << " frame entries\n";
+                << " segment(s), " << outcome.compensationCount
+                << " phase compensation segment(s), frames " << outcome.frames->first.value()
+                << ".." << outcome.frames->last.value() << ", " << outcome.entryCount
+                << " frame entries\n";
         }
     }
     out << "  precomputed " << report.partials.size() - report.failureCount() << " of "

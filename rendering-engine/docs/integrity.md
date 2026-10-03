@@ -152,10 +152,15 @@ validation covers the entries it reads, per frame (rendering.md §9).
 
 Every list type in `NEXT_POINT` is checked, not just the ones the engine
 reads. A cycle or a merge is a structural defect in any list, and the check is
-the same for all thirteen types. (`FrequencyModulatorPhysicalTimeline` was
+the same for all fourteen types. (`FrequencyModulatorPhysicalTimeline` was
 missing from the table until the transform's checks were added on
 2026-10-02, although the schema declares it; `TempoMap` and
-`PartialSetMusicalTimeline` arrived at the same time.) These checks are about the graph's shape, not the
+`PartialSetMusicalTimeline` arrived at the same time. The
+`PartialPhaseCompensationSegment` list arrived with phase control on
+2026-10-03. It is headed by `PartialSegmentPhysicalTimeline`, which also
+heads the integrable segments. A timeline that heads more than one list has
+its lists' checks named after their node tables, `PartialIntegrableSegment`
+and `PartialPhaseCompensationSegment`, so that the names stay distinct.) These checks are about the graph's shape, not the
 meaning of any feature, so they do not come under §3's rule.
 
 `NEXT_POINT` is `ONE_ONE`, but Ladybug counts multiplicity separately for each
@@ -232,7 +237,7 @@ only ever hold identifiers from the schema, never input.
   §9). The same invariant holds for every timeline, and it would sit
   naturally here as a third list check.
 - **Checking precomputation's output.** The list checks already cover
-  `PartialSegmentPhysicalTimeline`, but they run before precomputation, so they see
+  `PartialSegmentPhysicalTimeline`'s two lists, but they run before precomputation, so they see
   only output left from an earlier run (`--db-path`). Running the checks again
   after precomputation would check the engine's own output too.
 - **Orphans.** Whether nodes that no timeline reaches should be reported

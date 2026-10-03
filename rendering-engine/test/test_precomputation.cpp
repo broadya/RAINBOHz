@@ -13,14 +13,17 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <numbers>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #ifndef RE_TEST_SCHEMA_FILE
@@ -33,7 +36,11 @@
 namespace {
 
 using rainbohz::rendering_engine::AmplitudePointRecord;
+using rainbohz::rendering_engine::buildCompensation;
 using rainbohz::rendering_engine::buildSegments;
+using rainbohz::rendering_engine::compensationAt;
+using rainbohz::rendering_engine::compensationFrom;
+using rainbohz::rendering_engine::CompensationSegment;
 using rainbohz::rendering_engine::DbRow;
 using rainbohz::rendering_engine::EngineDb;
 using rainbohz::rendering_engine::frameEntries;
@@ -45,21 +52,29 @@ using rainbohz::rendering_engine::FrameSize;
 using rainbohz::rendering_engine::FrequencyPoint;
 using rainbohz::rendering_engine::FrequencyPointRecord;
 using rainbohz::rendering_engine::gatherBoundaries;
+using rainbohz::rendering_engine::initialPhaseOf;
 using rainbohz::rendering_engine::integrate;
 using rainbohz::rendering_engine::loadCypherFile;
+using rainbohz::rendering_engine::naturalPhaseAt;
+using rainbohz::rendering_engine::NominalCompensation;
 using rainbohz::rendering_engine::optionalDouble;
 using rainbohz::rendering_engine::PartialPrecomputationError;
 using rainbohz::rendering_engine::Phase;
+using rainbohz::rendering_engine::PhasePointRecord;
+using rainbohz::rendering_engine::PhaseTarget;
 using rainbohz::rendering_engine::PrecomputationError;
 using rainbohz::rendering_engine::PrecomputationReport;
 using rainbohz::rendering_engine::precomputeAll;
 using rainbohz::rendering_engine::requireInt64;
 using rainbohz::rendering_engine::resolveFrameSize;
+using rainbohz::rendering_engine::SampleDuration;
 using rainbohz::rendering_engine::SampleTime;
 using rainbohz::rendering_engine::Segment;
 using rainbohz::rendering_engine::validateAmplitudeTimes;
 using rainbohz::rendering_engine::validateFrequencyEnvelope;
+using rainbohz::rendering_engine::validatePhaseTimeline;
 using rainbohz::rendering_engine::walkChain;
+using rainbohz::rendering_engine::wrapHalfOpen;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -83,6 +98,18 @@ std::vector<FrequencyPoint> workedExampleEnvelope() {
     const std::vector<FrequencyPointRecord> records{
         record(0.0, 0.1), record(48000.0, 0.2), record(120000.0, 0.05)};
     return validateFrequencyEnvelope(records);
+}
+
+/// A compensation segment with no compensation.
+///
+/// @param start  Start time, samples.
+/// @param end    End time, samples.
+/// @return A flat segment at delta 0 over `[start, end)`.
+CompensationSegment flat(double start, double end) {
+    return CompensationSegment{.startTime = SampleTime{start},
+        .endTime = SampleTime{end},
+        .startDelta = Phase{0.0},
+        .endDelta = Phase{0.0}};
 }
 
 /// Formats a double as a Cypher literal that reads back exactly.
@@ -117,6 +144,15 @@ ScorePoint at(double time, double frequency, int curveType = 0) {
     return ScorePoint{.time = time, .frequency = frequency, .curveType = curveType};
 }
 
+/// Whether addPartial() gives the partial a PhasePhysicalTimeline.
+enum class PhaseTimeline : std::uint8_t {
+    /// One point, at the first frequency time, phase 0: the timeline every
+    /// partial must have at least.
+    Default,
+    /// No PhasePhysicalTimeline; addPhaseTimeline() can add one.
+    None,
+};
+
 /// Whether addPartial() gives the partial an AmplitudePhysicalTimeline.
 enum class Amplitude : std::uint8_t {
     /// Two points, at the first and last frequency times, both at -6 dB: the
@@ -138,8 +174,11 @@ enum class Amplitude : std::uint8_t {
 /// @param amplitude   Whether to add the amplitude timeline, and what shape.
 /// @param amplitudeTimes  When not empty, the amplitude points' times instead
 ///                    of the matching pair, all at -6 dB.
+/// @param phase       Whether to add the default phase timeline. It is added
+///                    only when `points` is not empty.
 void addPartial(EngineDb& db, const std::string& name, const std::vector<ScorePoint>& points,
-    Amplitude amplitude = Amplitude::Matching, const std::vector<double>& amplitudeTimes = {}) {
+    Amplitude amplitude = Amplitude::Matching, const std::vector<double>& amplitudeTimes = {},
+    PhaseTimeline phase = PhaseTimeline::Default) {
     db.execute("CREATE (:Partial {name: '" + name +
                "'})-[:HAS_PHYSICAL_TIMELINE]->(:FrequencyPhysicalTimeline);");
     if (points.empty()) {
@@ -154,6 +193,13 @@ void addPartial(EngineDb& db, const std::string& name, const std::vector<ScorePo
     }
     db.execute(cypher + ";");
 
+    if (phase == PhaseTimeline::Default) {
+        db.execute("MATCH (p:Partial {name: '" + name +
+                   "'}) CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(:PhasePhysicalTimeline)"
+                   "-[:NEXT_POINT]->(:PhasePhysicalTimelinePoint {time: " +
+                   literal(points.front().time) + ", phase: 0.0});");
+    }
+
     if (amplitude == Amplitude::None) {
         return;
     }
@@ -167,6 +213,29 @@ void addPartial(EngineDb& db, const std::string& name, const std::vector<ScorePo
     for (const double time : times) {
         cypher += "-[:NEXT_POINT]->(:AmplitudePhysicalTimelinePoint {time: " + literal(time) +
                   ", amplitude: -6.0, amplitude_curve_type: 0})";
+    }
+    db.execute(cypher + ";");
+}
+
+/// One point of a phase timeline built by addPhaseTimeline(): time in
+/// samples, and phase in radians or nullopt for NULL.
+using PhasePoint = std::pair<double, std::optional<double>>;
+
+/// Adds a PhasePhysicalTimeline to a partial made with PhaseTimeline::None.
+///
+/// @param[in,out] db  Database holding the partial.
+/// @param name        Partial.name.
+/// @param points      The points, linked in order. May be empty.
+void addPhaseTimeline(
+    EngineDb& db, const std::string& name, const std::vector<PhasePoint>& points) {
+    std::string cypher = "MATCH (p:Partial {name: '" + name +
+                         "'}) CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:PhasePhysicalTimeline)";
+    if (!points.empty()) {
+        cypher += " WITH t CREATE (t)";
+    }
+    for (const auto& [time, phase] : points) {
+        cypher += "-[:NEXT_POINT]->(:PhasePhysicalTimelinePoint {time: " + literal(time) +
+                  ", phase: " + (phase.has_value() ? literal(*phase) : "NULL") + "})";
     }
     db.execute(cypher + ";");
 }
@@ -428,8 +497,9 @@ TEST(FrameEntries, WorkedExample) {
     std::vector<Segment> segments = buildSegments(gatherBoundaries(envelope), envelope);
     integrate(segments);
     const std::vector<SampleTime> amplitude{SampleTime{0.0}, SampleTime{120000.0}};
+    const std::vector<CompensationSegment> compensation{flat(0.0, 120000.0)};
 
-    const std::vector<FrameEntryTarget> entries = frameEntries(segments, amplitude,
+    const std::vector<FrameEntryTarget> entries = frameEntries(segments, amplitude, compensation,
         FrameRange{.first = FrameNumber{0}, .last = FrameNumber{2}}, FrameSize{48000});
 
     ASSERT_EQ(entries.size(), 3U);
@@ -441,6 +511,8 @@ TEST(FrameEntries, WorkedExample) {
     EXPECT_EQ(entries[0].point, 0U);
     EXPECT_EQ(entries[1].point, 0U);
     EXPECT_EQ(entries[2].point, 0U);
+    EXPECT_EQ(entries[0].compensation, 0U);
+    EXPECT_EQ(entries[2].compensation, 0U);
 }
 
 // A partial starting mid-frame enters at its own start, not the frame's; a
@@ -452,20 +524,290 @@ TEST(FrameEntries, EntryTimeIsTheLaterOfLifelineAndFrameStart) {
     std::vector<Segment> segments = buildSegments(gatherBoundaries(envelope), envelope);
     const std::vector<SampleTime> amplitude{
         SampleTime{500.0}, SampleTime{1000.0}, SampleTime{2000.0}, SampleTime{2500.0}};
+    const std::vector<CompensationSegment> compensation{
+        flat(500.0, 1200.0), flat(1200.0, 2000.0), flat(2000.0, 2500.0)};
 
-    const std::vector<FrameEntryTarget> entries = frameEntries(segments, amplitude,
+    const std::vector<FrameEntryTarget> entries = frameEntries(segments, amplitude, compensation,
         FrameRange{.first = FrameNumber{0}, .last = FrameNumber{2}}, FrameSize{1000});
 
     ASSERT_EQ(entries.size(), 3U);
-    // Frame 0: t* = max(500, 0) = 500 -> segment 0, point 0.
+    // Frame 0: t* = max(500, 0) = 500 -> segment 0, point 0, compensation 0.
     EXPECT_EQ(entries[0].segment, 0U);
     EXPECT_EQ(entries[0].point, 0U);
-    // Frame 1: t* = 1000 -> segment 0 (ends at 1500), point 1 (at 1000).
+    EXPECT_EQ(entries[0].compensation, 0U);
+    // Frame 1: t* = 1000 -> segment 0 (ends at 1500), point 1 (at 1000),
+    // compensation 0 (mid-segment: it ends at 1200).
     EXPECT_EQ(entries[1].segment, 0U);
     EXPECT_EQ(entries[1].point, 1U);
-    // Frame 2: t* = 2000 -> segment 1, point 2 (at 2000).
+    EXPECT_EQ(entries[1].compensation, 0U);
+    // Frame 2: t* = 2000 -> segment 1, point 2 (at 2000), compensation 2,
+    // which starts exactly at the frame's start.
     EXPECT_EQ(entries[2].segment, 1U);
     EXPECT_EQ(entries[2].point, 2U);
+    EXPECT_EQ(entries[2].compensation, 2U);
+}
+
+// ---------------------------------------------------------------------------
+// Phase control (§6.8)
+// ---------------------------------------------------------------------------
+
+constexpr double kPi = std::numbers::pi;
+
+/// A phase point record with every property but the phase set.
+///
+/// @param time   Time, samples.
+/// @param phase  Phase, radians; nullopt for NULL.
+/// @return The record, with id 0.
+PhasePointRecord phaseRecord(double time, std::optional<double> phase) {
+    return PhasePointRecord{.id = 0, .time = time, .phase = phase};
+}
+
+/// Validated phase targets, from (time, phase) pairs.
+///
+/// @param points  The points; a nullopt phase is NULL.
+/// @return The targets, unvalidated.
+std::vector<PhaseTarget> targetsOf(const std::vector<PhasePoint>& points) {
+    std::vector<PhaseTarget> targets;
+    targets.reserve(points.size());
+    for (const auto& [time, phase] : points) {
+        targets.push_back(PhaseTarget{.time = SampleTime{time},
+            .phase = phase.has_value() ? std::optional<Phase>{Phase{*phase}} : std::nullopt});
+    }
+    return targets;
+}
+
+/// The segments of a constant-frequency partial over `[start, end)`,
+/// integrated from the initial phase the targets give, as precomputation
+/// does it.
+///
+/// @param start      Lifeline start, samples.
+/// @param end        Lifeline end, samples.
+/// @param frequency  Radians per sample.
+/// @param targets    The phase timeline.
+/// @return The integrated segments.
+std::vector<Segment> integratedConstant(
+    double start, double end, double frequency, const std::vector<PhaseTarget>& targets) {
+    const std::vector<FrequencyPointRecord> records{
+        record(start, frequency), record(end, frequency)};
+    const std::vector<FrequencyPoint> envelope = validateFrequencyEnvelope(records);
+    std::vector<Segment> segments = buildSegments(gatherBoundaries(envelope), envelope);
+    integrate(segments);
+    integrate(segments, initialPhaseOf(segments, targets));
+    return segments;
+}
+
+/// The phase actually rendered at `t`: the envelope's plus the compensation.
+///
+/// @param segments      Integrated segments.
+/// @param compensation  Compensation segments covering `t`.
+/// @param t             A time within the lifeline.
+/// @return N(t) + D(t), unwrapped.
+Phase renderedPhaseAt(const std::vector<Segment>& segments,
+    const std::vector<CompensationSegment>& compensation, double t) {
+    for (const CompensationSegment& c : compensation) {
+        if (c.startTime.value() <= t && t < c.endTime.value()) {
+            return naturalPhaseAt(segments, SampleTime{t}) +
+                   compensationAt(compensationFrom(c, SampleTime{t}), SampleDuration{0.0});
+        }
+    }
+    ADD_FAILURE() << "no compensation segment covers " << t;
+    return Phase{0.0};
+}
+
+/// The brief's frequency: from 10 000 to 30 000 samples the envelope adds
+/// three cycles and a quarter, so a partial at phase 0 at 10 000 runs free to
+/// 90 degrees at 30 000.
+constexpr double kBriefFrequency = ((kPi / 2.0) + (6.0 * kPi)) / 20000.0;
+
+TEST(ValidatePhaseTimeline, AcceptsTargetsAndNullPoints) {
+    const std::vector<PhasePointRecord> points{
+        phaseRecord(0.0, std::nullopt), phaseRecord(48000.0, 1.0), phaseRecord(120000.0, -kPi)};
+    const std::vector<PhaseTarget> targets = validatePhaseTimeline(points, workedExampleEnvelope());
+    ASSERT_EQ(targets.size(), 3U);
+    EXPECT_FALSE(targets[0].phase.has_value()) << "NULL means free-running, not absent";
+    EXPECT_EQ(targets[1].phase->value(), 1.0);
+    EXPECT_EQ(targets[2].time.value(), 120000.0) << "a point at the lifeline's end is allowed";
+}
+
+TEST(ValidatePhaseTimeline, NeedsAPointAtTheLifelinesStart) {
+    EXPECT_THROW(validatePhaseTimeline({}, workedExampleEnvelope()), PartialPrecomputationError);
+    const std::vector<PhasePointRecord> late{phaseRecord(10.0, 0.0)};
+    EXPECT_THROW(validatePhaseTimeline(late, workedExampleEnvelope()), PartialPrecomputationError);
+}
+
+TEST(ValidatePhaseTimeline, TimesMustIncreaseWithinTheLifeline) {
+    const std::vector<PhasePointRecord> repeated{phaseRecord(0.0, 0.0), phaseRecord(0.0, 1.0)};
+    EXPECT_THROW(
+        validatePhaseTimeline(repeated, workedExampleEnvelope()), PartialPrecomputationError);
+    const std::vector<PhasePointRecord> after{phaseRecord(0.0, 0.0), phaseRecord(130000.0, 1.0)};
+    EXPECT_THROW(validatePhaseTimeline(after, workedExampleEnvelope()), PartialPrecomputationError);
+    const std::vector<PhasePointRecord> unset{PhasePointRecord{.id = 0, .time = {}, .phase = 0.0}};
+    EXPECT_THROW(validatePhaseTimeline(unset, workedExampleEnvelope()), PartialPrecomputationError);
+}
+
+TEST(ValidatePhaseTimeline, PhaseMustBeWrappedRadians) {
+    const std::vector<PhasePointRecord> outside{phaseRecord(0.0, 4.0)};
+    EXPECT_THROW(
+        validatePhaseTimeline(outside, workedExampleEnvelope()), PartialPrecomputationError);
+    const std::vector<PhasePointRecord> nan{
+        phaseRecord(0.0, std::numeric_limits<double>::quiet_NaN())};
+    EXPECT_THROW(validatePhaseTimeline(nan, workedExampleEnvelope()), PartialPrecomputationError);
+}
+
+TEST(NaturalPhaseAt, IsPhaseAtOnTheCoveringSegment) {
+    const std::vector<FrequencyPoint> envelope = workedExampleEnvelope();
+    std::vector<Segment> segments = buildSegments(gatherBoundaries(envelope), envelope);
+    integrate(segments);
+
+    EXPECT_EQ(naturalPhaseAt(segments, SampleTime{0.0}).value(), 0.0);
+    EXPECT_EQ(naturalPhaseAt(segments, SampleTime{48000.0}), segments[1].startPhase)
+        << "a boundary is evaluated on the segment it starts";
+    EXPECT_NEAR(naturalPhaseAt(segments, SampleTime{120000.0}).value(), 16200.0, 1e-6)
+        << "the lifeline's end is the last segment evaluated at its length";
+    EXPECT_THROW(naturalPhaseAt(segments, SampleTime{120001.0}), std::invalid_argument);
+}
+
+TEST(InitialPhaseOf, IsTheFirstTargetWhenItIsSet) {
+    const std::vector<Segment> segments =
+        integratedConstant(0.0, 200.0, 0.01, targetsOf({{0.0, 0.5}}));
+    EXPECT_EQ(segments[0].startPhase.value(), 0.5);
+}
+
+TEST(InitialPhaseOf, IsZeroWhenEveryPointIsNull) {
+    const std::vector<Segment> segments = integratedConstant(
+        0.0, 200.0, 0.01, targetsOf({{0.0, std::nullopt}, {100.0, std::nullopt}}));
+    EXPECT_EQ(segments[0].startPhase.value(), 0.0);
+}
+
+// The brief's NULL start: phase 180 degrees at 30 000 with no ramp, by
+// starting where running free arrives there. From 0 the envelope reaches
+// 90 degrees (mod 2π), so φ₀ is 90 degrees.
+TEST(InitialPhaseOf, IsWorkedBackwardsFromTheFirstTargetAfterANullStart) {
+    const std::vector<PhaseTarget> targets = targetsOf({{10000.0, std::nullopt}, {30000.0, kPi}});
+    const std::vector<Segment> segments =
+        integratedConstant(10000.0, 40000.0, kBriefFrequency, targets);
+
+    EXPECT_NEAR(segments[0].startPhase.value(), kPi / 2.0, 1e-12);
+    EXPECT_NEAR(wrapHalfOpen(naturalPhaseAt(segments, SampleTime{30000.0}) - Phase{kPi}).value(),
+        0.0, 1e-12);
+
+    const std::vector<CompensationSegment> compensation = buildCompensation(segments, targets);
+    ASSERT_EQ(compensation.size(), 2U);
+    for (const CompensationSegment& c : compensation) {
+        EXPECT_EQ(c.startDelta.value(), 0.0) << "the anchor is met by φ₀, not by a ramp";
+        EXPECT_EQ(c.endDelta.value(), 0.0);
+    }
+}
+
+// The brief: 0 degrees at 10 s, 180 degrees at 30 s, and running free the
+// partial would be at 90 degrees. The ramp adds 90 degrees over the 20 s, so
+// 45 degrees at 20 s.
+TEST(BuildCompensation, TheBriefsExample) {
+    const std::vector<PhaseTarget> targets = targetsOf({{10000.0, 0.0}, {30000.0, kPi}});
+    const std::vector<Segment> segments =
+        integratedConstant(10000.0, 40000.0, kBriefFrequency, targets);
+
+    const std::vector<CompensationSegment> compensation = buildCompensation(segments, targets);
+
+    ASSERT_EQ(compensation.size(), 2U);
+    EXPECT_EQ(compensation[0].startTime.value(), 10000.0);
+    EXPECT_EQ(compensation[0].endTime.value(), 30000.0);
+    EXPECT_EQ(compensation[0].startDelta.value(), 0.0);
+    EXPECT_NEAR(compensation[0].endDelta.value(), kPi / 2.0, 1e-9);
+    EXPECT_NEAR(
+        compensationFrom(compensation[0], SampleTime{20000.0}).startDelta.value(), kPi / 4.0, 1e-9);
+    // After the last target the compensation holds.
+    EXPECT_EQ(compensation[1].startTime.value(), 30000.0);
+    EXPECT_EQ(compensation[1].endTime.value(), 40000.0);
+    EXPECT_EQ(compensation[1].startDelta, compensation[0].endDelta);
+    EXPECT_EQ(compensation[1].endDelta, compensation[0].endDelta);
+    // And the rendered phase meets the target.
+    EXPECT_NEAR(wrapHalfOpen(renderedPhaseAt(segments, compensation, 30000.0) - Phase{kPi}).value(),
+        0.0, 1e-9);
+}
+
+// The brief again, with a NULL point at 20 s: free-running to there, then the
+// same 90 degrees over the remaining 10 s, so 45 degrees at 25 s.
+TEST(BuildCompensation, ANullPointStartsTheRampLater) {
+    const std::vector<PhaseTarget> targets =
+        targetsOf({{10000.0, 0.0}, {20000.0, std::nullopt}, {30000.0, kPi}});
+    const std::vector<Segment> segments =
+        integratedConstant(10000.0, 40000.0, kBriefFrequency, targets);
+
+    const std::vector<CompensationSegment> compensation = buildCompensation(segments, targets);
+
+    ASSERT_EQ(compensation.size(), 3U);
+    EXPECT_EQ(compensation[0].startDelta.value(), 0.0);
+    EXPECT_EQ(compensation[0].endDelta.value(), 0.0) << "free-running up to the NULL point";
+    EXPECT_EQ(compensation[1].startTime.value(), 20000.0);
+    EXPECT_NEAR(compensation[1].endDelta.value(), kPi / 2.0, 1e-9);
+    EXPECT_NEAR(
+        compensationFrom(compensation[1], SampleTime{25000.0}).startDelta.value(), kPi / 4.0, 1e-9);
+    EXPECT_NEAR(wrapHalfOpen(renderedPhaseAt(segments, compensation, 30000.0) - Phase{kPi}).value(),
+        0.0, 1e-9);
+}
+
+TEST(BuildCompensation, OnePointIsOneFlatSegment) {
+    const std::vector<PhaseTarget> targets = targetsOf({{0.0, 0.5}});
+    const std::vector<Segment> segments = integratedConstant(0.0, 200.0, 0.01, targets);
+
+    const std::vector<CompensationSegment> compensation = buildCompensation(segments, targets);
+
+    ASSERT_EQ(compensation.size(), 1U);
+    EXPECT_EQ(compensation[0].startTime.value(), 0.0);
+    EXPECT_EQ(compensation[0].endTime.value(), 200.0);
+    EXPECT_EQ(compensation[0].startDelta.value(), 0.0);
+    EXPECT_EQ(compensation[0].endDelta.value(), 0.0);
+}
+
+// At zero frequency the natural phase stays at φ₀, so the adjustments are
+// exactly the differences between targets.
+TEST(BuildCompensation, AnExactHalfCycleGoesNegative) {
+    const std::vector<PhaseTarget> targets = targetsOf({{0.0, 0.0}, {100.0, kPi}});
+    const std::vector<Segment> segments = integratedConstant(0.0, 200.0, 0.0, targets);
+
+    const std::vector<CompensationSegment> compensation = buildCompensation(segments, targets);
+
+    ASSERT_EQ(compensation.size(), 2U);
+    EXPECT_EQ(compensation[0].endDelta.value(), -kPi);
+}
+
+TEST(BuildCompensation, DeltasAreRunningTotalsThatDoNotWrap) {
+    const std::vector<PhaseTarget> targets = targetsOf({{0.0, 0.0}, {100.0, 2.0}, {200.0, -2.0}});
+    const std::vector<Segment> segments = integratedConstant(0.0, 300.0, 0.0, targets);
+
+    const std::vector<CompensationSegment> compensation = buildCompensation(segments, targets);
+
+    ASSERT_EQ(compensation.size(), 3U);
+    EXPECT_EQ(compensation[0].endDelta.value(), 2.0);
+    // From 2 to -2 is -4, which is nearer as +(2π − 4): a total of 2π − 2,
+    // beyond π and kept that way.
+    EXPECT_NEAR(compensation[1].endDelta.value(), (2.0 * kPi) - 2.0, 1e-12);
+    EXPECT_GT(compensation[1].endDelta.value(), kPi);
+}
+
+TEST(BuildCompensation, ATargetAtTheLifelinesEndNeedsNoTrailingSegment) {
+    const std::vector<PhaseTarget> targets = targetsOf({{0.0, 0.0}, {200.0, 1.0}});
+    const std::vector<Segment> segments = integratedConstant(0.0, 200.0, 0.0, targets);
+
+    const std::vector<CompensationSegment> compensation = buildCompensation(segments, targets);
+
+    ASSERT_EQ(compensation.size(), 1U);
+    EXPECT_EQ(compensation[0].endTime.value(), 200.0);
+    EXPECT_EQ(compensation[0].endDelta.value(), 1.0);
+}
+
+TEST(CompensationFrom, RebasesTheRamp) {
+    const CompensationSegment segment{.startTime = SampleTime{100.0},
+        .endTime = SampleTime{300.0},
+        .startDelta = Phase{1.0},
+        .endDelta = Phase{3.0}};
+
+    const NominalCompensation atStart = compensationFrom(segment, SampleTime{100.0});
+    EXPECT_EQ(atStart.startDelta.value(), 1.0) << "exactly the stored start";
+    EXPECT_EQ(atStart.slope.value(), 0.01);
+    EXPECT_DOUBLE_EQ(compensationFrom(segment, SampleTime{200.0}).startDelta.value(), 2.0);
+    EXPECT_DOUBLE_EQ(compensationAt(atStart, SampleDuration{200.0}).value(), 3.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -549,6 +891,19 @@ TEST_F(PrecomputationDb, WritesTheWorkedExample) {
             "(:FrameEntry)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(a:AmplitudePhysicalTimelinePoint) "
             "WHERE a.time = 0.0 RETURN count(*);"),
         3);
+    // Its one phase point gives one flat compensation segment, which every
+    // entry also leads to.
+    EXPECT_EQ(report.partials[0].compensationCount, 1U);
+    EXPECT_EQ(
+        count(db, "MATCH (:Partial)-[:HAS_PHYSICAL_TIMELINE]->(:PartialSegmentPhysicalTimeline)"
+                  "-[:NEXT_POINT]->(c:PartialPhaseCompensationSegment) "
+                  "WHERE c.start_time = 0.0 AND c.end_time = 120000.0 "
+                  "AND c.start_phase_delta = 0.0 AND c.end_phase_delta = 0.0 "
+                  "RETURN count(c);"),
+        1);
+    EXPECT_EQ(count(db, "MATCH (:FrameEntry)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->"
+                        "(:PartialPhaseCompensationSegment) RETURN count(*);"),
+        3);
     EXPECT_EQ(count(db, "MATCH (s:PartialIntegrableSegment)-[:SEGMENT_TO_FREQUENCY_NOMINAL]->"
                         "(n:PartialSegmentNominalFrequency) WHERE n.linear_component "
                         "AND NOT n.curve_component AND n.curve_frequency IS NULL "
@@ -613,7 +968,106 @@ TEST_F(PrecomputationDb, RebuildingIsIdempotent) {
     EXPECT_EQ(count(db, "MATCH ()-[r:PARTIAL_IN_FRAME]->() RETURN count(r);"), 3);
     EXPECT_EQ(count(db, "MATCH (f:Frame) RETURN count(f);"), 3);
     EXPECT_EQ(count(db, "MATCH (e:FrameEntry) RETURN count(e);"), 3);
-    EXPECT_EQ(count(db, "MATCH ()-[r:FRAME_ENTRY_PHYSICAL_TIMELINE]->() RETURN count(r);"), 6);
+    EXPECT_EQ(count(db, "MATCH (c:PartialPhaseCompensationSegment) RETURN count(c);"), 1);
+    EXPECT_EQ(count(db, "MATCH ()-[r:FRAME_ENTRY_PHYSICAL_TIMELINE]->() RETURN count(r);"), 9);
+}
+
+TEST_F(PrecomputationDb, RebuildingReplacesTheCompensationSegments) {
+    addPartial(
+        db, "P", {at(0.0, 0.1), at(144000.0, 0.1)}, Amplitude::Matching, {}, PhaseTimeline::None);
+    addPhaseTimeline(db, "P", {{0.0, 0.0}, {60000.0, std::nullopt}, {100000.0, 1.0}});
+
+    ASSERT_TRUE(precomputeAll(db).ok());
+    ASSERT_TRUE(precomputeAll(db).ok());
+
+    EXPECT_EQ(count(db, "MATCH (c:PartialPhaseCompensationSegment) RETURN count(c);"), 3);
+}
+
+TEST_F(PrecomputationDb, WritesPhaseCompensationSegments) {
+    addPartial(
+        db, "P", {at(0.0, 0.1), at(144000.0, 0.1)}, Amplitude::Matching, {}, PhaseTimeline::None);
+    addPhaseTimeline(db, "P", {{0.0, 0.0}, {60000.0, std::nullopt}, {100000.0, 1.0}});
+
+    const PrecomputationReport report = precomputeAll(db);
+
+    ASSERT_TRUE(report.ok()) << *report.partials[0].error;
+    EXPECT_EQ(report.partials[0].compensationCount, 3U);
+    const std::vector<DbRow> rows =
+        db.query("MATCH (c:PartialPhaseCompensationSegment) "
+                 "RETURN c.start_time, c.end_time, c.start_phase_delta, c.end_phase_delta "
+                 "ORDER BY c.start_time;");
+    ASSERT_EQ(rows.size(), 3U);
+    EXPECT_EQ(optionalDouble(rows[0].at(1)).value(), 60000.0);
+    EXPECT_EQ(optionalDouble(rows[0].at(3)).value(), 0.0) << "free-running to the NULL point";
+    EXPECT_EQ(optionalDouble(rows[1].at(0)).value(), 60000.0);
+    EXPECT_EQ(optionalDouble(rows[2].at(1)).value(), 144000.0);
+    // 0.1 rad/sample for 100000 samples is 10000 rad; the ramp makes up the
+    // difference to 1.0 (mod 2π), the smaller way round.
+    const double expected = wrapHalfOpen(Phase{1.0} - Phase{0.1 * 100000.0}).value();
+    EXPECT_NEAR(optionalDouble(rows[1].at(3)).value(), expected, 1e-9);
+    EXPECT_EQ(optionalDouble(rows[2].at(2)), optionalDouble(rows[1].at(3)));
+}
+
+TEST_F(PrecomputationDb, EachFrameEntryLeadsToTheCoveringCompensationSegment) {
+    addPartial(
+        db, "P", {at(0.0, 0.1), at(144000.0, 0.1)}, Amplitude::Matching, {}, PhaseTimeline::None);
+    addPhaseTimeline(db, "P", {{0.0, 0.0}, {60000.0, std::nullopt}, {100000.0, 1.0}});
+    ASSERT_TRUE(precomputeAll(db).ok());
+
+    // Frames 0 and 1 enter the first compensation segment (frame 1 in its
+    // middle), frame 2 the second, which covers its start at 96000.
+    const auto entryStart = [&](int frame) {
+        return optionalDouble(
+            db.query("MATCH (:Frame {frame_number: CAST($frame AS INT32)})-[:FRAME_ENTRY]->"
+                     "(:FrameEntry)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->"
+                     "(c:PartialPhaseCompensationSegment) RETURN c.start_time;",
+                  {{"frame", static_cast<std::int64_t>(frame)}})
+                .at(0)
+                .at(0))
+            .value();
+    };
+    EXPECT_EQ(entryStart(0), 0.0);
+    EXPECT_EQ(entryStart(1), 0.0);
+    EXPECT_EQ(entryStart(2), 60000.0);
+}
+
+TEST_F(PrecomputationDb, ANullStartPutsTheBackDerivedPhaseInTheFirstSegment) {
+    addPartial(db, "P", {at(0.0, 0.001), at(96000.0, 0.001)}, Amplitude::Matching, {},
+        PhaseTimeline::None);
+    addPhaseTimeline(db, "P", {{0.0, std::nullopt}, {48000.0, 1.0}});
+
+    ASSERT_TRUE(precomputeAll(db).ok());
+
+    const std::vector<double> phases = startPhases(db, "P");
+    ASSERT_EQ(phases.size(), 1U);
+    EXPECT_NEAR(phases[0], wrapHalfOpen(Phase{1.0} - Phase{0.001 * 48000.0}).value(), 1e-12);
+    EXPECT_EQ(count(db, "MATCH (c:PartialPhaseCompensationSegment) "
+                        "WHERE c.start_phase_delta = 0.0 AND c.end_phase_delta = 0.0 "
+                        "RETURN count(c);"),
+        2);
+}
+
+TEST_F(PrecomputationDb, APartialWithoutAPhasePhysicalTimelineFails) {
+    addPartial(
+        db, "P", {at(0.0, 0.1), at(100.0, 0.2)}, Amplitude::Matching, {}, PhaseTimeline::None);
+
+    const PrecomputationReport report = precomputeAll(db);
+
+    ASSERT_EQ(report.partials.size(), 1U);
+    ASSERT_FALSE(report.partials[0].ok());
+    EXPECT_NE(report.partials[0].error->find("PhasePhysicalTimeline"), std::string::npos);
+    EXPECT_EQ(count(db, "MATCH (s:PartialIntegrableSegment) RETURN count(s);"), 0);
+}
+
+TEST_F(PrecomputationDb, APhasePhysicalTimelineWithoutPointsFails) {
+    addPartial(
+        db, "P", {at(0.0, 0.1), at(100.0, 0.2)}, Amplitude::Matching, {}, PhaseTimeline::None);
+    addPhaseTimeline(db, "P", {});
+
+    const PrecomputationReport report = precomputeAll(db);
+
+    ASSERT_FALSE(report.partials[0].ok());
+    EXPECT_NE(report.partials[0].error->find("PhasePhysicalTimeline"), std::string::npos);
 }
 
 TEST_F(PrecomputationDb, APartialWithoutAnAmplitudePhysicalTimelineFails) {

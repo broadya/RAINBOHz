@@ -117,6 +117,7 @@ if(Python3_Interpreter_FOUND)
     re_add_oracle_test(two-partial-sets two-partial-sets two-partial-sets-request.yaml)
     re_add_oracle_test(tempo-map-score tempo-map-score tempo-map-request.yaml)
     re_add_oracle_test(offset-collision-score offset-collision-score offset-collision-request.yaml)
+    re_add_oracle_test(phase-target-score phase-target-score phase-target-request.yaml)
 
     # Server mode, end to end over HTTP (docs/server.md): the same score and
     # request as an oracle test, served instead of run as a batch, and the

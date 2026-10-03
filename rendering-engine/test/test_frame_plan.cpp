@@ -25,6 +25,7 @@ using rainbohz::rendering_engine::AmplitudePoint;
 using rainbohz::rendering_engine::buildRenderSegments;
 using rainbohz::rendering_engine::buildSegments;
 using rainbohz::rendering_engine::chunkCuts;
+using rainbohz::rendering_engine::CompensationSegment;
 using rainbohz::rendering_engine::Decibels;
 using rainbohz::rendering_engine::FrameNumber;
 using rainbohz::rendering_engine::FrameSize;
@@ -36,6 +37,7 @@ using rainbohz::rendering_engine::makeRollOff;
 using rainbohz::rendering_engine::PartialData;
 using rainbohz::rendering_engine::PartialPlan;
 using rainbohz::rendering_engine::PartialSetPlan;
+using rainbohz::rendering_engine::Phase;
 using rainbohz::rendering_engine::planPartialSet;
 using rainbohz::rendering_engine::renderPartialSet;
 using rainbohz::rendering_engine::RenderSegment;
@@ -55,7 +57,8 @@ const FrameNumber kFrame3{3};
 /// @param frequency  (time, radians per sample) pairs, at least two.
 /// @param amplitude  (time, dB) pairs, at least two, spanning the same times.
 /// @param id         Partial.id.
-/// @return The data, with segments integrated from phase 0.
+/// @return The data, with segments integrated from phase 0 and one flat
+///         compensation segment at 0 over the lifeline.
 PartialData partial(const std::vector<std::pair<double, double>>& frequency,
     const std::vector<std::pair<double, double>>& amplitude, std::int64_t id = 0) {
     std::vector<FrequencyPointRecord> records;
@@ -69,12 +72,17 @@ PartialData partial(const std::vector<std::pair<double, double>>& frequency,
         .partialName = std::nullopt,
         .partialSetId = 0,
         .segments = buildSegments(gatherBoundaries(envelope), envelope),
-        .amplitude = {}};
+        .amplitude = {},
+        .compensation = {}};
     integrate(data.segments);
     for (const auto& [time, value] : amplitude) {
         data.amplitude.push_back(
             AmplitudePoint{.time = SampleTime{time}, .amplitude = Decibels{value}});
     }
+    data.compensation.push_back(CompensationSegment{.startTime = envelope.front().time,
+        .endTime = envelope.back().time,
+        .startDelta = Phase{0.0},
+        .endDelta = Phase{0.0}});
     return data;
 }
 
@@ -88,6 +96,28 @@ PartialData constantPartial() {
 PartialData midFramePartial() {
     return partial({{144100.5, 0.05}, {146100.5, 0.06}, {300000.5, 0.06}},
         {{144100.5, -60.0}, {145100.5, -6.0}, {290000.5, -6.0}, {300000.5, -90.0}}, 1);
+}
+
+/// The constant partial with a phase compensation that ramps from 0 to 1.0
+/// over [144000, 144500) of frame 3 and holds after: a change of slope in
+/// the middle of the frame.
+PartialData compensatedPartial() {
+    PartialData data = constantPartial();
+    data.compensation = {
+        CompensationSegment{.startTime = SampleTime{0.0},
+            .endTime = SampleTime{144000.0},
+            .startDelta = Phase{0.0},
+            .endDelta = Phase{0.0}},
+        CompensationSegment{.startTime = SampleTime{144000.0},
+            .endTime = SampleTime{144500.0},
+            .startDelta = Phase{0.0},
+            .endDelta = Phase{1.0}},
+        CompensationSegment{.startTime = SampleTime{144500.0},
+            .endTime = SampleTime{480000.0},
+            .startDelta = Phase{1.0},
+            .endDelta = Phase{1.0}},
+    };
+    return data;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,6 +212,38 @@ TEST(BuildRenderSegments, ABoundaryExactlyOnTheFrameEdgeIsNotACut) {
     EXPECT_TRUE(one[0].present);
 }
 
+TEST(BuildRenderSegments, ACompensationBoundaryInsideTheFrameIsACut) {
+    const std::vector<RenderSegment> segments =
+        buildRenderSegments(compensatedPartial(), kFrame3, kFrameSize);
+    ASSERT_EQ(segments.size(), 2U);
+    EXPECT_EQ(segments[0].start.value(), 144000.0);
+    EXPECT_EQ(segments[0].end.value(), 144500.0);
+    EXPECT_EQ(segments[0].compensation.startDelta.value(), 0.0);
+    EXPECT_DOUBLE_EQ(segments[0].compensation.slope.value(), 1.0 / 500.0);
+    EXPECT_EQ(segments[1].start.value(), 144500.0);
+    EXPECT_EQ(segments[1].compensation.startDelta.value(), 1.0);
+    EXPECT_EQ(segments[1].compensation.slope.value(), 0.0);
+    // The phase from the envelope is untouched by the cut.
+    EXPECT_NEAR(segments[1].startPhase.value(), 14450.0, 1e-9);
+}
+
+TEST(BuildRenderSegments, ACompensationRampIsRebasedToTheFrame) {
+    // Frame 3 starts 100 samples into a ramp of 0.002 rad/sample.
+    PartialData data = constantPartial();
+    data.compensation = {CompensationSegment{.startTime = SampleTime{143900.0},
+                             .endTime = SampleTime{144400.0},
+                             .startDelta = Phase{2.0},
+                             .endDelta = Phase{3.0}},
+        CompensationSegment{.startTime = SampleTime{144400.0},
+            .endTime = SampleTime{480000.0},
+            .startDelta = Phase{3.0},
+            .endDelta = Phase{3.0}}};
+    const std::vector<RenderSegment> segments = buildRenderSegments(data, kFrame3, kFrameSize);
+    ASSERT_EQ(segments.size(), 2U);
+    EXPECT_DOUBLE_EQ(segments[0].compensation.startDelta.value(), 2.2);
+    EXPECT_DOUBLE_EQ(segments[0].compensation.slope.value(), 0.002);
+}
+
 TEST(BuildRenderSegments, RefusesDataThatDoesNotCoverAPresentSegment) {
     PartialData data = constantPartial();
     data.amplitude = {AmplitudePoint{.time = SampleTime{0.0}, .amplitude = Decibels{-6.0}},
@@ -208,7 +270,8 @@ PartialPlan segmentsStartingAt(const std::vector<double>& starts, double end) {
             .present = true,
             .startPhase = {},
             .nominal = {},
-            .amplitude = {}});
+            .amplitude = {},
+            .compensation = {}});
     }
     return plan;
 }
@@ -293,6 +356,20 @@ TEST(RenderPartialSet, ReanchoringAtEveryCutAgreesWithTheClosedForm) {
             expected += std::sin(phase) * std::pow(10.0, decibels / 20.0);
         }
         EXPECT_NEAR(out[n], expected, 2e-6) << "sample " << n;
+    }
+}
+
+TEST(RenderPartialSet, ACompensationRampAgreesWithTheClosedForm) {
+    const std::vector<PartialData> data{compensatedPartial()};
+    const PartialSetPlan plan = planPartialSet(0, data, kFrame3, kFrameSize);
+    std::vector<SampleValue> out(48000, 0);
+    renderPartialSet(plan, makeRollOff(SampleRate{48000}), out);
+
+    for (const std::size_t n : {0U, 1U, 250U, 499U, 500U, 501U, 47999U}) {
+        const auto tau = static_cast<double>(n);
+        const double delta = tau < 500.0 ? tau / 500.0 : 1.0;
+        EXPECT_NEAR(out[n], 0.501187 * std::sin(14400.0 + (0.1 * tau) + delta), 2e-6)
+            << "sample " << n;
     }
 }
 

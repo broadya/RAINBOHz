@@ -62,6 +62,7 @@ Anchor anchor(double startPhase, double frequency, double gradient, double decib
             .linearGradient = FrequencyGradient{gradient}},
         .amplitude = NominalAmplitude{.startDecibels = Decibels{decibels},
             .gradient = DecibelGradient{ampGradient}},
+        .compensation = {},
         .tau = SampleDuration{tau},
     };
 }
@@ -150,7 +151,7 @@ TEST(RenderKernel, AnchoringMidSegmentMatchesTheClosedForm) {
     EXPECT_NEAR(block.freq[0], 0.0500025, 1e-12);
     EXPECT_NEAR(block.amp[0], -59.973, 1e-9);
     EXPECT_DOUBLE_EQ(block.gradient[0], 5e-6);
-    EXPECT_DOUBLE_EQ(block.halfGradient[0], 2.5e-6);
+    EXPECT_DOUBLE_EQ(block.phaseStepOffset[0], 2.5e-6);
     EXPECT_DOUBLE_EQ(block.ampGradient[0], 0.054);
 }
 

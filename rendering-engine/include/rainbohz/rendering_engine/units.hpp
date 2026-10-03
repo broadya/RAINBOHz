@@ -380,6 +380,25 @@ inline Phase wrap(Phase phase) noexcept {
     return Phase{std::remainder(phase.value(), 2.0 * std::numbers::pi)};
 }
 
+/// Reduces a phase difference to the half-open range [-π, π): the smallest
+/// adjustment that reaches the same angle, with an exact half cycle taken as
+/// −π (author, 2026-10-03).
+///
+/// Unlike wrap(), whose result may be either end of [-π, π], this one has a
+/// single answer for every angle. Phase compensation needs that: which way an
+/// exact half cycle goes must not depend on rounding (docs/precomputation.md
+/// section 6.8).
+///
+/// @param phase  Any phase; a non-finite value gives NaN.
+/// @return The same angle, in [-π, π).
+inline Phase wrapHalfOpen(Phase phase) noexcept {
+    double reduced = std::remainder(phase.value(), 2.0 * std::numbers::pi);
+    if (reduced >= std::numbers::pi) {
+        reduced -= 2.0 * std::numbers::pi;
+    }
+    return Phase{reduced};
+}
+
 /// A frequency in radians per sample.
 ///
 /// Unbounded in both directions: the model allows negative frequencies and
@@ -435,6 +454,19 @@ public:
 private:
     double value_ = 0.0;
 };
+
+/// The constant frequency that accumulates `p` over `d`: the rate of a linear
+/// phase ramp, such as a phase compensation segment's.
+///
+/// A free function rather than a hidden friend: neither operand is an
+/// AngularFrequency, so argument-dependent lookup would not find a friend.
+///
+/// @param p  The phase gained.
+/// @param d  The duration over which it is gained. Not zero.
+/// @return `p / d`, radians per sample.
+constexpr AngularFrequency operator/(Phase p, SampleDuration d) noexcept {
+    return AngularFrequency{p.value() / d.value()};
+}
 
 /// A rate of change of frequency, in radians per sample².
 class FrequencyGradient {

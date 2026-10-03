@@ -48,4 +48,11 @@ CREATE (partial0)-[:HAS_PHYSICAL_TIMELINE]->(frequencyPhysicalTimeline0)
 CREATE (frequencyPhysicalTimelinePoint0:FrequencyPhysicalTimelinePoint {time:0.0, frequency:0.1})
 CREATE (frequencyPhysicalTimelinePoint1:FrequencyPhysicalTimelinePoint {time:480000.0, frequency:0.1})
 CREATE (frequencyPhysicalTimeline0)-[:NEXT_POINT]->(frequencyPhysicalTimelinePoint0)
-CREATE (frequencyPhysicalTimelinePoint0)-[:NEXT_POINT]->(frequencyPhysicalTimelinePoint1);
+CREATE (frequencyPhysicalTimelinePoint0)-[:NEXT_POINT]->(frequencyPhysicalTimelinePoint1)
+
+// A partial has a phase timeline, with at least one point: its phase at the
+// start of its lifeline, in radians. One point and no more lets the phase run
+// free from there.
+CREATE (phasePhysicalTimeline0:PhasePhysicalTimeline {})
+CREATE (partial0)-[:HAS_PHYSICAL_TIMELINE]->(phasePhysicalTimeline0)
+CREATE (phasePhysicalTimeline0)-[:NEXT_POINT]->(:PhasePhysicalTimelinePoint {time:0.0, phase:0.0});

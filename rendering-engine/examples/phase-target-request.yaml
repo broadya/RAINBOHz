@@ -1,0 +1,17 @@
+# Render request for rendering-engine in batch mode, beside
+# engine-db/examples/phase-target-score.cypher as --state. Every frame of
+# the score: each partial's phase targets fall in one of them, and frame 1
+# holds partial B's NULL point and the change of slope after it.
+#
+#   frames:               the frames to render, one WAV file each
+#     - frame: <n>        an integer, 0 or greater (0 is the first frame);
+#                         each frame at most once
+#       labels: [a, b]    optional; only partials carrying these labels.
+#                         Omitted or [] means every partial.
+
+frames:
+  - frame: 0
+  - frame: 1
+  - frame: 2
+  - frame: 3
+  - frame: 4

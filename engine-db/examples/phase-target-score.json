@@ -1,0 +1,40 @@
+{
+  "_comment": "Mirror of phase-target-score.cypher for rendering-engine/test/oracle/render_oracle.py. Times in samples, frequencies in radians per sample, amplitudes in dB, phases in radians (null for a NULL point). Set and partial ids are the SERIAL ids the score gets when loaded alone, in creation order.",
+  "sample_rate": 48000,
+  "partial_sets": [
+    {
+      "id": 0,
+      "partials": [
+        {
+          "id": 0,
+          "frequency": [[0.0, 0.1], [240000.0, 0.1]],
+          "amplitude": [[0.0, -12.0], [240000.0, -12.0]],
+          "phase": [[0.0, 0.0], [144000.0, 3.141592653589793]]
+        },
+        {
+          "id": 1,
+          "frequency": [[0.0, 0.12], [240000.0, 0.12]],
+          "amplitude": [[0.0, -12.0], [240000.0, -12.0]],
+          "phase": [[0.0, 0.0], [72000.0, null], [144000.0, 3.141592653589793]]
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "partials": [
+        {
+          "id": 2,
+          "frequency": [[0.0, 0.05], [240000.0, 0.08]],
+          "amplitude": [[0.0, -12.0], [240000.0, -12.0]],
+          "phase": [[0.0, null], [96000.0, 3.141592653589793]]
+        },
+        {
+          "id": 3,
+          "frequency": [[30000.5, 0.2], [100000.5, 0.15], [200000.5, 0.2]],
+          "amplitude": [[30000.5, -12.0], [200000.5, -12.0]],
+          "phase": [[30000.5, 1.0], [50000.25, -2.5], [100000.5, null], [150000.75, 3.0], [200000.5, -1.0]]
+        }
+      ]
+    }
+  ]
+}

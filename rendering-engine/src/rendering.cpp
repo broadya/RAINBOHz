@@ -86,6 +86,12 @@ constexpr std::string_view kReadEntryPoints =
     "WHERE f.frame_number = CAST($frame AS INT32) "
     "RETURN e.id, a.id, a.time, a.amplitude, a.amplitude_curve_type;";
 
+constexpr std::string_view kReadEntryCompensation =
+    "MATCH (f:Frame)-[:FRAME_ENTRY]->(e:FrameEntry)"
+    "-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(c:PartialPhaseCompensationSegment) "
+    "WHERE f.frame_number = CAST($frame AS INT32) "
+    "RETURN e.id, c.id, c.start_time, c.end_time, c.start_phase_delta, c.end_phase_delta;";
+
 // Query 3: one hop along NEXT_POINT for every node still walking, by
 // primary-key lookup (engine_db.hpp, DbParameter, on why UNWIND).
 constexpr std::string_view kNextSegments =
@@ -100,6 +106,12 @@ constexpr std::string_view kNextPoints =
     "MATCH (a:AmplitudePhysicalTimelinePoint {id: "
     "id})-[:NEXT_POINT]->(b:AmplitudePhysicalTimelinePoint) "
     "RETURN a.id, b.id, b.time, b.amplitude, b.amplitude_curve_type;";
+
+constexpr std::string_view kNextCompensation =
+    "UNWIND $ids AS id "
+    "MATCH (a:PartialPhaseCompensationSegment {id: id})-[:NEXT_POINT]->"
+    "(b:PartialPhaseCompensationSegment) "
+    "RETURN a.id, b.id, b.start_time, b.end_time, b.start_phase_delta, b.end_phase_delta;";
 
 /// The value of AmplitudePhysicalTimelinePoint.amplitude_curve_type for a linear
 /// curve: the only one this version renders.
@@ -137,6 +149,17 @@ struct PointRecord {
     bool hasSuccessor = false;
 };
 
+/// A PartialPhaseCompensationSegment as read.
+struct CompensationRecord {
+    std::int64_t id = 0;
+    std::optional<double> startTime;
+    std::optional<double> endTime;
+    std::optional<double> startDelta;
+    std::optional<double> endDelta;
+    /// Whether the segment has a NEXT_POINT successor. Set by the walk.
+    bool hasSuccessor = false;
+};
+
 /// Everything gathered for one FrameEntry, before validation.
 struct EntryRecord {
     std::int64_t entryId = 0;
@@ -149,6 +172,9 @@ struct EntryRecord {
     bool entrySegmentHasPredecessor = false;
     /// The entry point(s) and, after the walk, their successors in order.
     std::vector<PointRecord> points;
+    /// The entry compensation segment(s) and, after the walk, their
+    /// successors in order.
+    std::vector<CompensationRecord> compensation;
     /// The failure found during the gather, if any, so that the walk can
     /// leave a broken partial alone and report it afterwards.
     std::optional<std::string> failure;
@@ -206,6 +232,23 @@ PointRecord pointFromRow(const DbRow& row, std::size_t from) {
     };
 }
 
+/// Reads the compensation segment columns of a row.
+///
+/// @param row   A row of kReadEntryCompensation or kNextCompensation.
+/// @param from  Index of the segment's id column.
+/// @return The record, with hasSuccessor false.
+/// @throws EngineDbError  If a column is of the wrong type.
+CompensationRecord compensationFromRow(const DbRow& row, std::size_t from) {
+    return CompensationRecord{
+        .id = requireInt64(row.at(from)),
+        .startTime = optionalDouble(row.at(from + 1)),
+        .endTime = optionalDouble(row.at(from + 2)),
+        .startDelta = optionalDouble(row.at(from + 3)),
+        .endDelta = optionalDouble(row.at(from + 4)),
+        .hasSuccessor = false,
+    };
+}
+
 // ---------------------------------------------------------------------------
 // The gather (§6.3)
 // ---------------------------------------------------------------------------
@@ -217,14 +260,15 @@ PointRecord pointFromRow(const DbRow& row, std::size_t from) {
 /// a node records a failure on its entry, as walkChain does; a node whose
 /// time is NULL ends its walk, and validation reports it.
 ///
-/// @tparam Record     SegmentRecord or PointRecord.
+/// @tparam Record     SegmentRecord, PointRecord or CompensationRecord.
 /// @param[in,out] db  Database to read.
-/// @param cypher      kNextSegments or kNextPoints.
+/// @param cypher      kNextSegments, kNextPoints or kNextCompensation.
 /// @param frameEnd    The frame's end, source time.
 /// @param[in,out] entries  The entries. Each one's list grows by the nodes
 ///                         walked; `hasSuccessor` is set on every node found
 ///                         to have one.
-/// @param list        Selects the list on an entry: its segments or points.
+/// @param list        Selects the list on an entry: its segments, points or
+///                    compensation segments.
 /// @param startOf     The start time of a record, or nullopt when NULL.
 /// @param fromRow     Builds a record from a result row, from column 1.
 /// @param what        The list's name, for failure messages.
@@ -310,6 +354,7 @@ std::vector<EntryRecord> gatherFrame(EngineDb& db, FrameNumber frame, FrameSize 
                 .segments = {},
                 .entrySegmentHasPredecessor = false,
                 .points = {},
+                .compensation = {},
                 .failure = std::nullopt});
         }
         if (const std::optional<std::int64_t> setId = optionalInt64(row.at(3))) {
@@ -325,15 +370,21 @@ std::vector<EntryRecord> gatherFrame(EngineDb& db, FrameNumber frame, FrameSize 
     for (const DbRow& row : db.query(kReadEntryPoints, byFrame)) {
         entries[byEntry.at(requireInt64(row.at(0)))].points.push_back(pointFromRow(row, 1));
     }
+    for (const DbRow& row : db.query(kReadEntryCompensation, byFrame)) {
+        entries[byEntry.at(requireInt64(row.at(0)))].compensation.push_back(
+            compensationFromRow(row, 1));
+    }
 
     // An entry with other than one node of a list type fails validation;
     // the walk must not extend it as if it were sound.
     for (EntryRecord& entry : entries) {
-        if (entry.segments.size() != 1 || entry.points.size() != 1) {
+        if (entry.segments.size() != 1 || entry.points.size() != 1 ||
+            entry.compensation.size() != 1) {
             entry.failure = "its FrameEntry leads to " + std::to_string(entry.segments.size()) +
-                            " segment(s) and " + std::to_string(entry.points.size()) +
-                            " amplitude point(s); exactly one of each is required, so it was "
-                            "not precomputed, or not for this frame";
+                            " segment(s), " + std::to_string(entry.points.size()) +
+                            " amplitude point(s) and " + std::to_string(entry.compensation.size()) +
+                            " phase compensation segment(s); exactly one of each is required, "
+                            "so it was not precomputed, or not for this frame";
         }
     }
 
@@ -346,6 +397,11 @@ std::vector<EntryRecord> gatherFrame(EngineDb& db, FrameNumber frame, FrameSize 
         db, kNextPoints, frameEnd, entries,
         [](EntryRecord& e) -> std::vector<PointRecord>& { return e.points; },
         [](const PointRecord& p) { return p.time; }, pointFromRow, "AmplitudePhysicalTimeline");
+    walkFrontier<CompensationRecord>(
+        db, kNextCompensation, frameEnd, entries,
+        [](EntryRecord& e) -> std::vector<CompensationRecord>& { return e.compensation; },
+        [](const CompensationRecord& c) { return c.startTime; }, compensationFromRow,
+        "PartialPhaseCompensationSegment list");
     return entries;
 }
 
@@ -566,6 +622,79 @@ void validateLifelineEnds(const EntryRecord& entry, std::span<const Segment> seg
     }
 }
 
+/// Checks an entry's compensation segments and converts them to typed values
+/// (§9).
+///
+/// They must cover the same span as the integrable segments: the entry
+/// compensation segment covers the frame's entry time, they are contiguous,
+/// and where the frame contains the end of either list it contains the end
+/// of both, at the same time.
+///
+/// @param entry      What the gather produced for one FrameEntry, walked.
+/// @param segments   The validated integrable segments.
+/// @param entryTime  The frame's entry time, from validateEntryPosition().
+/// @param fe         The frame's end.
+/// @return The compensation segments, contiguous, in list order.
+/// @throws PartialRenderError  If a value is NULL or not finite, a segment is
+///         empty or not contiguous with the one before it, the entry segment
+///         does not cover `entryTime`, or the list ends at a different time
+///         from the integrable segments.
+std::vector<CompensationSegment> validateCompensation(const EntryRecord& entry,
+    std::span<const Segment> segments, SampleTime entryTime, SampleTime fe) {
+    std::vector<CompensationSegment> compensation;
+    for (std::size_t i = 0; i < entry.compensation.size(); ++i) {
+        const CompensationRecord& record = entry.compensation[i];
+        const std::string where = "phase compensation segment " + std::to_string(i) + " (id " +
+                                  std::to_string(record.id) + ")";
+        const SampleTime start{requireFinite(record.startTime, where, "start_time")};
+        const SampleTime end{requireFinite(record.endTime, where, "end_time")};
+        const Phase startDelta{requireFinite(record.startDelta, where, "start_phase_delta")};
+        const Phase endDelta{requireFinite(record.endDelta, where, "end_phase_delta")};
+        if (!(end > start)) {
+            throw PartialRenderError{where + ": end_time " + formatNumber(end.value()) +
+                                     " is not after start_time " + formatNumber(start.value())};
+        }
+        if (i > 0 && start != compensation.back().endTime) {
+            throw PartialRenderError{where + ": start_time " + formatNumber(start.value()) +
+                                     " is not the previous segment's end_time " +
+                                     formatNumber(compensation.back().endTime.value()) +
+                                     "; the segments are not contiguous"};
+        }
+        compensation.push_back(CompensationSegment{
+            .startTime = start, .endTime = end, .startDelta = startDelta, .endDelta = endDelta});
+    }
+
+    const CompensationSegment& first = compensation.front();
+    if (!(first.startTime <= entryTime && entryTime < first.endTime)) {
+        throw PartialRenderError{"its entry phase compensation segment [" +
+                                 formatNumber(first.startTime.value()) + ", " +
+                                 formatNumber(first.endTime.value()) +
+                                 ") does not cover the frame's entry time " +
+                                 formatNumber(entryTime.value()) + "; the FrameEntry is stale"};
+    }
+
+    // As validateLifelineEnds(): a list is known to end only where its last
+    // node starts inside the frame's reach and has no successor.
+    const bool segmentsEnded =
+        segments.back().startTime < fe && !entry.segments.back().hasSuccessor;
+    const bool compensationEnded =
+        compensation.back().startTime < fe && !entry.compensation.back().hasSuccessor;
+    const SampleTime segmentsEnd = segments.back().endTime;
+    const SampleTime compensationEnd = compensation.back().endTime;
+    if ((segmentsEnded && compensationEnded && segmentsEnd != compensationEnd) ||
+        (compensationEnded && !segmentsEnded && compensationEnd < fe) ||
+        (segmentsEnded && !compensationEnded && segmentsEnd < fe)) {
+        throw PartialRenderError{"its phase compensation segments end at " +
+                                 (compensationEnded ? formatNumber(compensationEnd.value())
+                                                    : std::string{"or after the frame's end"}) +
+                                 " but its integrable segments end at " +
+                                 (segmentsEnded ? formatNumber(segmentsEnd.value())
+                                                : std::string{"or after the frame's end"}) +
+                                 "; the two must end together"};
+    }
+    return compensation;
+}
+
 /// Checks one entry's gathered data and converts it to typed values (§9).
 ///
 /// @param entry  What the gather produced for one FrameEntry, walked.
@@ -596,10 +725,12 @@ PartialData validateEntry(const EntryRecord& entry, FrameNumber frame, FrameSize
         .partialSetId = entry.partialSetIds.front(),
         .segments = validateSegments(entry),
         .amplitude = {},
+        .compensation = {},
     };
     const SampleTime entryTime = validateEntryPosition(entry, data.segments, fs, fe);
     data.amplitude = validateAmplitude(entry, entryTime);
     validateLifelineEnds(entry, data.segments, data.amplitude, fe);
+    data.compensation = validateCompensation(entry, data.segments, entryTime, fe);
     return data;
 }
 

@@ -59,6 +59,11 @@ struct PartialData {
     /// The amplitude points from the frame's entry point onward: strictly
     /// increasing in time, bracketing the same span. At least 2.
     std::vector<AmplitudePoint> amplitude;
+
+    /// The phase compensation segments from the frame's entry compensation
+    /// segment onward: contiguous, in time order, covering the same span.
+    /// Not empty.
+    std::vector<CompensationSegment> compensation;
 };
 
 /// A span of the frame during which one partial's behaviour is described by
@@ -66,8 +71,8 @@ struct PartialData {
 /// 6.4.1).
 ///
 /// The parameters are re-based to the segment's own start, so that the hot
-/// loop never refers back to the integrable segment or amplitude piece it came
-/// from.
+/// loop never refers back to the integrable segment, amplitude piece or
+/// compensation segment it came from.
 struct RenderSegment {
     /// Start, in source time. `[start, end)`.
     SampleTime start;
@@ -89,13 +94,18 @@ struct RenderSegment {
 
     /// a_s and g_a: the covering amplitude piece, re-based to `start`.
     NominalAmplitude amplitude;
+
+    /// D_s and c: the covering compensation segment's ramp, re-based to
+    /// `start`.
+    NominalCompensation compensation;
 };
 
 /// Builds one partial's render segments for a frame.
 ///
 /// The boundaries are the frame's start and end, the lifeline's start and end
-/// where they fall inside the frame, and every integrable segment boundary
-/// and amplitude point time strictly inside the frame; sorted and distinct,
+/// where they fall inside the frame, and every integrable segment boundary,
+/// amplitude point time and compensation segment boundary strictly inside the
+/// frame; sorted and distinct,
 /// one render segment between each consecutive pair, covering the frame
 /// contiguously.
 ///
@@ -105,8 +115,8 @@ struct RenderSegment {
 /// @return The render segments, in time order, from the frame's start to its
 ///         end. At least one.
 /// @throws std::invalid_argument  If a present segment has no covering
-///         integrable segment or amplitude piece in `partial`, which the
-///         gather's validation rules out.
+///         integrable segment, amplitude piece or compensation segment in
+///         `partial`, which the gather's validation rules out.
 std::vector<RenderSegment> buildRenderSegments(
     const PartialData& partial, FrameNumber frame, FrameSize size);
 

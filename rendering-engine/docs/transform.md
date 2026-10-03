@@ -46,7 +46,8 @@ Two things make the step more than a change of units:
 | --- | --- |
 | One `TempoMap` per `Score`, reached by `Score → NEXT_POINT → TempoMap` | Several tempo maps and `TEMPO_MAP_SYNCHRONIZATION_POINT`; any such edge is refused |
 | Held tempi and ramps linear in musical position ([ADR 0013](../../docs/adr/0013-tempo-ramps-are-linear-in-musical-position.md)) | Other ramp shapes |
-| `PartialSetMusicalTimeline` → one `FrequencyPhysicalTimeline` and one `AmplitudePhysicalTimeline` per partial | Phase (`PartialState.phase`, `phase_lock`, `PhasePhysicalTimeline`): read for nothing, written nowhere |
+| `PartialSetMusicalTimeline` → one `FrequencyPhysicalTimeline` and one `AmplitudePhysicalTimeline` per partial | Phase (`PartialState.phase`, `phase_lock`): read for nothing |
+| An interim `PhasePhysicalTimeline` per partial: one point, phase 0 at the start of the lifeline | Mapping the canonical model's phase to the `PhasePhysicalTimeline` |
 | `POINT_AT.sync_point` and `offset_seconds`, with the squash rule | Overlapping or cross-fading colliding states (§14) |
 | Curve type and amount copied through per property | Interpreting curves; precomputation accepts linear only |
 | Rebuild on every run | Dirty flags and incremental transformation |
@@ -56,6 +57,15 @@ Everything in the right-hand column is anticipated by the structure in §6,
 but none of it is implemented, and none of it is validated against: a score
 that contains, for example, a `PartialState.phase` is transformed as though
 it were NULL.
+
+**Interim phase timeline.** Precomputation requires every partial to have a
+`PhasePhysicalTimeline` with a point at the start of its lifeline
+(precomputation.md §6.8). Until the transform maps the canonical model's
+phase, it writes that minimum: one point, phase 0, at the first frequency
+point's time. This is the free-running partial starting at phase 0, which is
+what precomputation did before phase control existed. Like the other
+timelines it replaces, any existing phase timeline is deleted and rewritten
+on every run. It goes when the real mapping arrives.
 
 ## 3. Units and types
 
@@ -566,8 +576,9 @@ score is written, not here.
 ## 13. Future extensions
 
 - **Phase.** `PartialState.phase` (degrees, nullable: "free") and
-  `phase_lock` become a `PhasePhysicalTimeline` in radians, once
-  precomputation's phase support exists to read it.
+  `phase_lock` become a `PhasePhysicalTimeline` in radians, replacing the
+  interim one-point timeline (§2). Precomputation's phase support exists
+  (precomputation.md §6.8); this is the next step.
 - **Spatial position and modulators**, each a musical timeline to convert the
   same way.
 - **Several tempo maps**, synchronised by `TEMPO_MAP_SYNCHRONIZATION_POINT`:

@@ -2,7 +2,8 @@
 
 **Status:** implemented, for the first version (§2), including the frame
 entries of §6.7 and the amplitude reading they need (§4), which were designed
-on 2026-09-24 for rendering and implemented on 2026-09-25. The code is
+on 2026-09-24 for rendering and implemented on 2026-09-25, and phase control
+(§6.8), designed with the author and implemented on 2026-10-03. The code is
 [units.hpp](../include/rainbohz/rendering_engine/units.hpp),
 [segment_maths.hpp](../include/rainbohz/rendering_engine/segment_maths.hpp),
 [precomputation.hpp](../include/rainbohz/rendering_engine/precomputation.hpp) and
@@ -20,9 +21,10 @@ version of the engine. It operates on `engine-db` as declared in
 Generating audio happens in two steps:
 
 1. **Precomputation** — determine, for every partial, the state it is in at
-   the start of every integrable segment of its lifeline. The output is a
-   `PartialSegmentPhysicalTimeline` per partial, plus the frames each partial is
-   audible in.
+   the start of every integrable segment of its lifeline, and the phase
+   compensation that makes it meet the phase targets of its phase timeline.
+   The output is a `PartialSegmentPhysicalTimeline` per partial, plus the
+   frames each partial is audible in.
 2. **Rendering** — produce the samples of a frame for each channel. Covered by
    a later document.
 
@@ -34,22 +36,22 @@ what lets any frame be rendered in isolation (design.md §2).
 
 ## 2. Scope of this version
 
-The engine is being built up one feature at a time. This version deliberately
-handles only the core frequency envelope.
+The engine is being built up one feature at a time. This version handles the
+core frequency envelope and phase control.
 
 | In this version | Not yet |
 | --- | --- |
 | One `FrequencyPhysicalTimeline` per partial, linear curves only | Curve types other than linear (step, accelerate, decelerate, s-curve) |
-| Unwrapped phase accumulation from 0 | Initial phase and phase control (`PhasePhysicalTimeline` is ignored) |
-| `PartialSegmentPhysicalTimeline`, `PartialIntegrableSegment`, `PartialSegmentNominalFrequency` | Frequency modulators (`PartialSegmentFrequencyModulator`) |
-| `PARTIAL_IN_FRAME`, and the `Frame` nodes it needs | Phase compensation regions |
-| `FrameEntry` nodes into the segment and amplitude lists (§6.7) | Entries into modulator lists |
-| Rebuild on every run | Dirty flags and incremental recomputation |
-| | Spatial position, distance delay, Doppler |
+| One `PhasePhysicalTimeline` per partial: the initial phase, phase targets and free-running points (§6.8) | Frequency modulators (`PartialSegmentFrequencyModulator`) |
+| `PartialSegmentPhysicalTimeline`, `PartialIntegrableSegment`, `PartialSegmentNominalFrequency`, `PartialPhaseCompensationSegment` | Entries into modulator lists |
+| `PARTIAL_IN_FRAME`, and the `Frame` nodes it needs | Dirty flags and incremental recomputation |
+| `FrameEntry` nodes into the segment, amplitude and compensation lists (§6.7) | Spatial position, distance delay, Doppler |
+| Rebuild on every run | |
 
 Everything in the right-hand column is anticipated by the structure in §6, but
 none of it is implemented, and none of it is validated against: a score that
-contains, for example, a `PhasePhysicalTimeline` is precomputed as though it did not.
+contains, for example, a `FrequencyModulatorPhysicalTimeline` is precomputed
+as though it did not.
 
 ## 3. Units and types
 
@@ -164,6 +166,14 @@ using `time` only; the amplitude values and curve fields are rendering's
 concern (rendering.md §8), but the list is validated whole here (§7),
 because this is where the lists are walked.
 
+For phase control (§6.8) it reads each partial's one `PhasePhysicalTimeline`
+and its `PhasePhysicalTimelinePoint`s in `NEXT_POINT` order, using `time` and
+`phase`. `phase` is in wrapped radians, and `NULL` is a value, not an
+absence: it means "free-running up to here". Every partial must have this
+timeline, with at least one point, at the start of its lifeline (author,
+2026-10-03); the compiler is expected to guarantee it, and precomputation
+checks it (§7).
+
 It also reads the singleton `EngineConfig`, for the frame size:
 
 - `frameSize`, if not `NULL`;
@@ -184,16 +194,21 @@ For each partial, precomputation writes:
   timeline node, in time order;
 - one `PartialSegmentNominalFrequency` per segment, attached by
   `SEGMENT_TO_FREQUENCY_NOMINAL`;
+- a chain of `PartialPhaseCompensationSegment`, linked by `NEXT_POINT` from
+  the same timeline node, in time order, covering the same lifeline (§6.8);
 - one `PARTIAL_IN_FRAME` edge to every `Frame` whose time range overlaps
   the partial's life, creating any `Frame` node that does not yet exist;
 - for each of those frames, one `FrameEntry` node, joined to the frame by
   `FRAME_ENTRY`, to the partial by `FRAME_ENTRY_PARTIAL`, and by
-  `FRAME_ENTRY_PHYSICAL_TIMELINE` to the `PartialIntegrableSegment` and to the
-  `AmplitudePhysicalTimelinePoint` that the frame's rendering starts from (§6.7).
+  `FRAME_ENTRY_PHYSICAL_TIMELINE` to the `PartialIntegrableSegment`, the
+  `AmplitudePhysicalTimelinePoint` and the `PartialPhaseCompensationSegment`
+  that the frame's rendering starts from (§6.7).
 
 The shape, for the worked example of §12 (three frequency points, two
 segments, three frames), with an amplitude timeline of two points added so
-that the frame entries can be shown:
+that the frame entries can be shown. Its phase timeline, one point of phase 0
+at the start, and the one flat compensation segment it gives, are left out
+of the drawing for space; every entry leads to that segment too:
 
 ```mermaid
 flowchart LR
@@ -294,9 +309,9 @@ flowchart TD
 
 ### 6.2 One partial
 
-The work for one partial is in four stages, separated so that stages 2 and 3
+The work for one partial is in five stages, separated so that stages 2 to 5
 and the frame-scope calculation are pure functions over in-memory data. Only
-stages 1 and 4 touch the database.
+stage 1 and the write touch the database.
 
 1. **Read** the partial's inputs. The database is read once, in bulk, for all
    partials before the first is processed (§10); this stage picks out one
@@ -305,8 +320,10 @@ stages 1 and 4 touch the database.
    input changes.
 3. **Build segments** — one segment between each consecutive pair of
    boundaries, each with its nominal frequency parameters.
-4. **Integrate and write** — walk the segments in order with the phase
-   accumulator, then write everything in one transaction.
+4. **Integrate** — walk the segments in order with the phase accumulator,
+   from the initial phase φ₀ (§6.8).
+5. **Compensate and write** — build the phase compensation segments (§6.8),
+   then write everything in one transaction.
 
 ```mermaid
 flowchart TD
@@ -321,7 +338,7 @@ flowchart TD
     nominal --> moreSeg{"More segments?"}
     moreSeg -- yes --> nominal
 
-    moreSeg -- no --> init["<b>Stage 4 — integrate</b><br/>φ = 0.0 (double, unwrapped)<br/>i = 0"]
+    moreSeg -- no --> init["<b>Stage 4 — integrate</b><br/>φ = φ₀ (double, unwrapped; §6.8)<br/>i = 0"]
     init --> assign["segment i: start_phase = φ"]
     assign --> integ["φ = φ + phaseIncrement(nominal i, Δtᵢ)<br/>using exactly the values that will be stored (§6.5)"]
     integ --> finite{"φ finite?"}
@@ -329,13 +346,14 @@ flowchart TD
     finite -- yes --> next{"More segments?"}
     next -- yes --> step["i = i + 1"] --> assign
 
-    next -- no --> scope["Frame scope of P (§6.6)<br/>k from ⌊b₀ / F⌋ to ⌈b_last / F⌉ − 1"]
+    next -- no --> comp["<b>Stage 5 — compensate</b><br/>PartialPhaseCompensationSegments<br/>from the phase timeline (§6.8)"]
+    comp --> scope["Frame scope of P (§6.6)<br/>k from ⌊b₀ / F⌋ to ⌈b_last / F⌉ − 1"]
     scope --> scopeOk{"Frame numbers fit INT32?"}
     scopeOk -- no --> err
 
     scopeOk -- yes --> begin["BEGIN TRANSACTION"]
-    begin --> del["Delete P's existing PartialSegmentPhysicalTimeline,<br/>its segments, their nominal frequencies,<br/>P's PARTIAL_IN_FRAME edges and its FrameEntry nodes"]
-    del --> write["Create PartialSegmentPhysicalTimeline, segments,<br/>NEXT_POINT chain, nominal frequencies"]
+    begin --> del["Delete P's existing PartialSegmentPhysicalTimeline,<br/>its segments, their nominal frequencies, its compensation segments,<br/>P's PARTIAL_IN_FRAME edges and its FrameEntry nodes"]
+    del --> write["Create PartialSegmentPhysicalTimeline, segments,<br/>NEXT_POINT chains, nominal frequencies, compensation segments"]
     write --> frames["Create missing Frame nodes;<br/>create PARTIAL_IN_FRAME edges"]
     frames --> entries["Create FrameEntry nodes and their edges (§6.7)"]
     entries --> dbOk{"All writes succeeded?"}
@@ -354,12 +372,16 @@ is harmless; it will matter once dirty flags exist (§13).
 
 ### 6.3 Gathering boundaries
 
-A boundary is any time at which some input to the partial changes how it
-behaves. Soon there will be three sources:
+A boundary is any time at which some input to the partial's frequency
+changes how it behaves. Soon there will be two sources:
 
 - the main frequency envelope — the time of every `FrequencyPhysicalTimelinePoint`;
-- frequency modulators — the times of their timeline points;
-- phase regions — their start and end times.
+- frequency modulators — the times of their timeline points.
+
+Phase points are **not** a source. The phase compensation segments of §6.8
+are a list of their own, with boundaries unrelated to the integrable
+segments' (author, 2026-10-03); rendering merges the two (rendering.md
+§6.4.1).
 
 The boundaries from all sources are merged into one sorted set of distinct
 times. Consecutive boundaries define the segments, so the segments form a
@@ -421,7 +443,7 @@ antiderivatives of its components:
 \qquad
 \varphi_{i+1} = \varphi_i + \Phi_i(\Delta t_i) - \Phi_i(0)
 \qquad
-\varphi_0 = 0
+\varphi_0 = \text{the initial phase (§6.8)}
 ```
 
 where φᵢ is segment *i*'s `start_phase`. For the linear component Φ(0) = 0,
@@ -486,10 +508,13 @@ t^*_k = \max(b_0,\ k \cdot F)
 
 - the **entry segment** is the segment with `start_time ≤ t*_k < end_time`;
 - the **entry point** is the last `AmplitudePhysicalTimelinePoint` with
-  `time ≤ t*_k`, the start of the amplitude piece covering `t*_k`.
+  `time ≤ t*_k`, the start of the amplitude piece covering `t*_k`;
+- the **entry compensation segment** is the `PartialPhaseCompensationSegment`
+  with `start_time ≤ t*_k < end_time`, by the same rule as the entry segment.
 
-Both exist for every frame in scope, because `t*_k ∈ [b₀, b_last)` there and
-the amplitude timeline's first and last times equal `b₀` and `b_last` (§7).
+All three exist for every frame in scope, because `t*_k ∈ [b₀, b_last)` there,
+the amplitude timeline's first and last times equal `b₀` and `b_last` (§7),
+and both segment lists cover `[b₀, b_last)` exactly.
 
 They are recorded as one **`FrameEntry`** node per partial per frame: a node
 with no properties, whose only purpose is to be found from the frame and to
@@ -499,11 +524,13 @@ lead to the right places. Three relationship tables join it up:
 | --- | --- | --- | --- |
 | `FRAME_ENTRY` | `Frame` → `FrameEntry` | `ONE_MANY` | a frame has one entry per partial in scope; an entry belongs to one frame |
 | `FRAME_ENTRY_PARTIAL` | `FrameEntry` → `Partial` | `MANY_ONE` | an entry belongs to one partial; a partial has one per frame |
-| `FRAME_ENTRY_PHYSICAL_TIMELINE` | `FrameEntry` → `PartialIntegrableSegment`, `FrameEntry` → `AmplitudePhysicalTimelinePoint` | one per pair | an entry leads to one segment and one point; a list node is the entry of every frame it spans |
+| `FRAME_ENTRY_PHYSICAL_TIMELINE` | `FrameEntry` → `PartialIntegrableSegment`, `FrameEntry` → `AmplitudePhysicalTimelinePoint`, `FrameEntry` → `PartialPhaseCompensationSegment` | one per pair | an entry leads to one segment, one point and one compensation segment; a list node is the entry of every frame it spans |
 
 `Frame` is keyed by frame number, so the renderer reaches a frame's entries
 in one indexed hop from a primary-key lookup, and from each entry reaches
-the partial and both lists in one hop more. Nothing is filtered on a
+the partial and all three lists in one hop more. The compensation list is
+reached from the same `FrameEntry` as the others, not from one of its own
+(author, 2026-10-03). Nothing is filtered on a
 property. The node is the graph's way of saying "this partial, in this
 frame", and it is the natural home for any per-partial per-frame state a
 later version wants to keep, such as the phase at the frame's start
@@ -515,7 +542,7 @@ in one hop rather than two. It is kept for now (§14).
 All the entries of one partial come from one forward pass over each list,
 advancing a cursor as the frame starts increase, so the cost is the length
 of the list plus the number of frames, not their product. An entry per
-partial per frame is one node and four edges at the same count as the scope
+partial per frame is one node and five edges at the same count as the scope
 edges.
 
 **Under Doppler** the source time at a receiver frame's start is not known
@@ -529,6 +556,102 @@ directions of `NEXT_POINT` are indexed (AGENTS.md, Bidirectional
 Traversal), so the backward walk costs what a forward one would. With no
 distance delay the entry is already exact and there is no walk. This
 version computes `t*_k` in source time, which is the zero-delay rule.
+
+### 6.8 Phase control
+
+Decided with the author on 2026-10-03; [ADR 0019](../../docs/adr/0019-phase-targets-are-met-by-linear-compensation-segments.md)
+records the decision.
+
+**Phase is a target, not an envelope.** A `PhasePhysicalTimelinePoint`
+`{time, phase}` says "at this time, the phase must be this". It does not shape
+the phase between points the way a frequency point shapes the frequency; the
+frequency envelope does that, and the phase follows from it. To hit a target
+the engine works out what the phase *would* be at that time, and adds a
+linear adjustment from the previous point up to it. That adjustment is a
+small constant change of frequency over the span: the trade-off between
+frequency and phase is resolved in favour of phase, and the longer the span,
+the smaller the change.
+
+**`NULL` is a point, not an absence.** A point with `phase` `NULL` means
+"free-running up to here": no adjustment is made over the span that ends
+there. It still starts a new span, so a target after it is met by a ramp over
+the shorter span from the `NULL` point, not from the target before.
+
+**The natural phase.** N(t) is the phase the frequency envelope gives: the
+integral of §6.5, from the initial phase φ₀. It is evaluated at a time *t*
+by `phaseAt` on the integrable segment covering *t* (`naturalPhaseAt`), the
+same computation the renderer makes there, so the two agree to the last bit.
+
+**The initial phase φ₀** lives in the integrable segments: it is the first
+segment's `start_phase`, and the accumulator starts from it (author,
+2026-10-03). So the integrable segments hold the phase the frequency gives
+from the initial condition, and nothing of the compensation.
+
+- If the first point (which is at `b₀`) has a phase, φ₀ is that phase.
+- If it is `NULL`, φ₀ is worked **backwards**: the partial runs free from
+  `b₀` and meets the first point that has a phase, the *anchor*, exactly:
+
+  ```math
+  \varphi_0 = \text{wrap}_{[-\pi,\pi)}\!\left(\theta_k - N_0(t_k)\right)
+  ```
+
+  where N₀ is the natural phase integrated from 0. Every span up to the
+  anchor is free-running. (Author, 2026-10-03: obscure, but the kind of thing
+  the system should allow.)
+- If every point is `NULL`, φ₀ is 0.
+
+Because φ₀ can depend on N₀, the segments are integrated twice: from 0, then
+from φ₀. What is written is a straight integration from φ₀, exactly as if φ₀
+had been known from the start.
+
+**Compensation segments.** A `PartialPhaseCompensationSegment`
+`{start_time, end_time, start_phase_delta, end_phase_delta}` is a span over
+which the adjustment D ramps linearly from `start_phase_delta` to
+`end_phase_delta`. The list is headed by the partial's
+`PartialSegmentPhysicalTimeline`, beside the integrable segments, and there
+is **always at least one**: the model is easier to write and to understand if
+it is always present, and a flat ramp costs the renderer nothing (author,
+2026-10-03). Its boundaries are `b₀`, every phase point time strictly inside
+`(b₀, b_last)`, and `b_last`; they have no relation to the integrable
+segments' boundaries.
+
+**The running adjustment.** D starts at 0 at `b₀` and is a running total that
+is **never wrapped**. Wrapping it would make no audible difference, but an
+unwrapped total keeps the accumulated phase a true count of the cycles that
+occurred, which may matter later (author, 2026-10-03). In time order, for
+each point after the anchor:
+
+- a point with phase θᵢ at tᵢ moves D by the smallest change that meets it,
+
+  ```math
+  D \leftarrow D + \text{wrap}_{[-\pi,\pi)}\!\left(\theta_i - (N(t_i) + D)\right)
+  ```
+
+  and the span ending at tᵢ ramps from the old D to the new one;
+- a `NULL` point leaves D as it is, so the span ending there is flat.
+
+The anchor and every point before it are already met by φ₀, so their spans
+are flat at 0. If the last point is before `b_last`, the span from it to
+`b_last` is flat at the final D.
+
+`wrap_[−π,π)` reduces to the half-open range: a change of exactly half a
+cycle is −π, never +π (author, 2026-10-03). It is `wrapHalfOpen` in
+`units.hpp`, distinct from the renderer's `wrap`, whose result may be either
+end of `[−π, π]`.
+
+**Worked example** (the author's): a constant-frequency partial with phase 0
+at 10 s and π at 30 s, which, running free, would be at π/2 at 30 s. The
+adjustment needed is +π/2 over 20 s, so D is π/4 at 20 s. With a `NULL` point
+added at 20 s, the span `[10 s, 20 s)` is flat and the same π/2 is made up
+over `[20 s, 30 s)`, so D is π/4 at 25 s. With the first point `NULL`
+instead, φ₀ is π/2 and there is no adjustment at all.
+
+**What rendering does with it** (rendering.md §6.4.1, §7): the phase at *t*
+is N(t) + D(t). Compensation segment starts are a further source of render
+segment boundaries, and over a render segment D adds a constant slope
+`(end_phase_delta − start_phase_delta) / (end_time − start_time)` to the
+per-sample phase step. The slope is not part of the nominal frequency, so the
+frequency-range roll-off does not see it.
 
 ## 7. Validation
 
@@ -556,6 +679,10 @@ reason.
 | The partial has an `AmplitudePhysicalTimeline` with at least 2 points, and the chain has no cycle | partial | partial fails |
 | Every amplitude point's `time` is non-`NULL` and finite, and strictly increases along the list | partial | partial fails |
 | The first amplitude point's `time` equals the first frequency point's, and the last equals the last, exactly: the two timelines define the lifeline together (author, 2026-09-24) | partial | partial fails |
+| The partial has a `PhasePhysicalTimeline` with at least 1 point, and the chain has no cycle | partial | partial fails |
+| Every phase point's `time` is non-`NULL` and finite, and strictly increases along the list | partial | partial fails |
+| The first phase point's `time` equals the first frequency point's exactly, and no phase point is after the last | partial | partial fails |
+| Every phase point's `phase` is `NULL`, or finite and in `[−π, π]` | partial | partial fails |
 
 Three rules from the schema are **not** checks here:
 
@@ -592,8 +719,9 @@ database.
 ## 8. Numerical precision
 
 **Everything integrated into phase is `double`**: time, frequency, frequency
-gradient, accumulated phase, and (when they arrive) curve and frequency
-modulator parameters. Both in memory and in `engine-db`.
+gradient, accumulated phase, phase targets and compensation deltas, and (when
+they arrive) curve and frequency modulator parameters. Both in memory and in
+`engine-db`.
 
 This was a deliberate choice over storing frequency parameters as `float`,
 which would halve their storage. With `float` parameters, precomputation would
@@ -710,7 +838,11 @@ classDiagram
         +validateFrequencyEnvelope(records) vector~FrequencyPoint~
         +gatherBoundaries(envelope) vector~SampleTime~
         +buildSegments(boundaries, envelope) vector~Segment~
-        +integrate(segments) Phase
+        +integrate(segments, Phase initialPhase) Phase
+        +validatePhaseTimeline(records, envelope) vector~PhaseTarget~
+        +naturalPhaseAt(segments, SampleTime) Phase
+        +initialPhaseOf(segments, targets) Phase
+        +buildCompensation(segments, targets) vector~CompensationSegment~
         +frameScope(SampleTime start, SampleTime end, FrameSize) FrameRange
         -readInputs(EngineDb) Inputs
         -precomputePartial(EngineDb, Inputs, partial, FrameSize)
@@ -798,8 +930,8 @@ Stale output is deleted segment by segment; each new segment is created
 together with its nominal frequency, linked from the node before it. Frame
 scope is one statement per partial, `UNWIND range($first, $last)` with a
 `MERGE` on `Frame`. Frame entries are one statement per frame in the first
-version, creating the `FrameEntry` node and its four edges together from the
-frame number and the two list node ids; `UNWIND` over a list parameter is
+version, creating the `FrameEntry` node and its five edges together from the
+frame number and the three list node ids; `UNWIND` over a list parameter is
 the batching path if the count shows in a profile. Deleting a partial's
 segments removes their `FRAME_ENTRY_PHYSICAL_TIMELINE` edges with them, but the
 `FrameEntry` nodes and their other edges are deleted explicitly, with the
@@ -807,7 +939,10 @@ scope edges.
 
 **Tests.** `segment_maths` is tested against hand-derived closed-form values:
 a constant segment, rising and falling glides, negative frequency, a segment of
-fractional length, and splitting a segment without changing its phase. The
+fractional length, and splitting a segment without changing its phase. Phase
+control is tested on the author's worked examples (§6.8), the back-worked
+initial phase, the exact half cycle, unwrapped running totals, and a target
+at the lifeline's end. The
 unit types are tested largely at compile time: each operation that must not
 compile is a `static_assert`. Each pure stage of precomputation has its own
 tests, and whole runs are tested against the real schema in memory: the
@@ -837,6 +972,10 @@ design will build on:
   strictly increasing in time, starting and ending exactly where the
   frequency timeline does. Rendering may rely on this and need not walk
   the list from its head.
+- Its compensation segments are contiguous, in time order, non-empty, and
+  cover exactly `[b₀, b_last)`. The phase the partial must have at *t* is
+  N(t) + D(t), D interpolated linearly over the covering compensation
+  segment, and it meets every phase target of the phase timeline (§6.8).
 
 ## 12. Worked example
 
@@ -891,7 +1030,6 @@ In roughly the order they are expected. Each is placed so that it slots into
 | --- | --- |
 | Frequency curve types | A curve component in `NominalFrequency` with its own antiderivative term in Φ; validation relaxes to accept the new `frequency_curve_type` values. |
 | Frequency modulators | A second boundary source (§6.3); `PartialSegmentFrequencyModulator` nodes per segment; their antiderivatives join Φ. Frequency modulation is multiplicative, so the integrand becomes a product and Φ is no longer a simple sum — the proof of concept's closed-form method (`proof-of-concept/maths/`) is the reference. |
-| Initial phase, phase control, phase regions | A third boundary source. φ₀ comes from the phase timeline rather than 0; a segment that starts a region with an absolute phase takes that value. Phase compensation is then a database update over the region's segments. |
 | Spatial position and delay | Frame scope computed in receiver time from the delayed partial life (§6.6), and frame entries by one of the two rules of §6.7. |
 | Modulator entries | A `FrameEntry` per partial set per frame, or further `FRAME_ENTRY_PHYSICAL_TIMELINE` pairs, since modulator lists hang off the set rather than the partial. |
 | Dirty flags | Replace rebuild-every-run: only partials whose inputs changed are recomputed. A partial that fails must then not keep stale output (§6.2). |

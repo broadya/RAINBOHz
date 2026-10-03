@@ -182,7 +182,7 @@ TEST_F(IntegrityDb, ASoundScorePasses) {
     EXPECT_TRUE(report.ok()) << failures(report);
     // One EngineConfig check, twenty range rules, set membership, lifeline
     // equality, five musical-time checks, and two per NEXT_POINT list type.
-    EXPECT_EQ(report.checks.size(), 1U + 20U + 2U + 5U + (2U * 13U));
+    EXPECT_EQ(report.checks.size(), 1U + 20U + 2U + 5U + (2U * 14U));
 }
 
 TEST(Integrity, TheExampleScorePasses) {

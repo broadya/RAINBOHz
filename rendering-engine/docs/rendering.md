@@ -2,7 +2,8 @@
 
 **Status:** implemented, for the first version (§2). This document is the
 agreed design, settled with the author on 2026-09-24; the code followed on
-2026-09-25. It is `sample_value.hpp`, `amplitude_maths.hpp`,
+2026-09-25. Phase control (precomputation.md §6.8) was added on 2026-10-03:
+the compensation list joins the gather, the render segments and the anchor. It is `sample_value.hpp`, `amplitude_maths.hpp`,
 `render_kernel.hpp`, `frame_plan.hpp`, `wav_writer.hpp` and `rendering.hpp`
 under [include/rainbohz/rendering_engine/](../include/rainbohz/rendering_engine/),
 with their sources under [src/](../src/), as §11 lays out. Where the
@@ -50,6 +51,7 @@ Built one feature at a time, as precomputation was.
 | --- | --- |
 | Every partial in a frame's scope; labels are ignored (§4, §13) | Label selection |
 | Linear frequency segments from precomputation | Curve components in segments |
+| Phase compensation segments from precomputation: the phase meets its targets (§6.4.1, §7) | |
 | One `AmplitudePhysicalTimeline` per partial, linear curves only | Amplitude curve types other than linear |
 | Amplitude in dB, summed per sample, one conversion to linear | Amplitude modulators (they join the dB sum, §8.1) |
 | Frequency-range roll-off, stateless (§8.2) | Frequency modulators |
@@ -61,7 +63,7 @@ Built one feature at a time, as precomputation was.
 
 A score containing something in the right-hand column is either refused
 (curve types, channel modes: §9) or rendered as though it were absent
-(labels, modulators, phase timelines). Every item is anticipated by a
+(labels, modulators). Every item is anticipated by a
 specific place in the structure, listed in §13.
 
 ## 3. Units and types
@@ -144,9 +146,10 @@ And per requested frame *k* (§6.3):
 - the frame's `FrameEntry` nodes, `(f:Frame {frame_number: k})-[:FRAME_ENTRY]->(e:FrameEntry)`,
   one per partial in scope; from each, the partial and its set,
   `(e)-[:FRAME_ENTRY_PARTIAL]->(p:Partial)<-[:HAS_PARTIAL]-(ps:PartialSet)`,
-  and the two list nodes from which the frame's rendering starts,
-  `(e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(node)`: a `PartialIntegrableSegment` and an
-  `AmplitudePhysicalTimelinePoint` (precomputation.md §6.7);
+  and the three list nodes from which the frame's rendering starts,
+  `(e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(node)`: a `PartialIntegrableSegment`, an
+  `AmplitudePhysicalTimelinePoint` and a `PartialPhaseCompensationSegment`
+  (precomputation.md §6.7);
 - from each entry node, the nodes that follow it along `NEXT_POINT` until
   one starts at or after the frame's end; and each segment's
   `PartialSegmentNominalFrequency`.
@@ -287,13 +290,15 @@ the length of any list:
 2. **Entry nodes.** One query per list type returns each entry's list node
    with its properties:
    `MATCH (:Frame {frame_number: $k})-[:FRAME_ENTRY]->(e:FrameEntry)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(s:PartialIntegrableSegment)-[:SEGMENT_TO_FREQUENCY_NOMINAL]->(n) RETURN e.id, s.*, n.*`,
-   and the same for `AmplitudePhysicalTimelinePoint`. Rows are matched to partials
-   by the entry id from query 1.
+   and the same for `AmplitudePhysicalTimelinePoint` and
+   `PartialPhaseCompensationSegment`. Rows are matched to partials by the
+   entry id from query 1.
 3. **Frontier walks.** Starting from the entry nodes, one query per hop
    returns the successors of every node that has not yet reached the
    frame's end:
    `UNWIND $ids AS id MATCH (a:PartialIntegrableSegment {id: id})-[:NEXT_POINT]->(b)`,
-   and the same for amplitude points. (The `WHERE a.id IN $ids` form the
+   and the same for amplitude points and compensation segments. (The
+   `WHERE a.id IN $ids` form the
    design first proposed is refused by Ladybug 0.19.1, which will not
    compare a `SERIAL` with an `INT64` list; the `UNWIND` form is a
    primary-key lookup per id, which is better anyway.) A partial leaves
@@ -310,6 +315,7 @@ PartialData
     partialId, partialName, partialSetId
     segments:   [ {startTime, endTime, nominal, startPhase} ... ]   contiguous, covering [max(b0, fs), min(b_last, fe))
     amplitude:  [ {time, decibels} ... ]                            strictly increasing, bracketing the same span
+    compensation: [ {startTime, endTime, startDelta, endDelta} ... ] contiguous, covering the same span
     or: the validation failure
 ```
 
@@ -340,15 +346,16 @@ scope, all validated:
 #### 6.4.1 Render segments
 
 A render segment is a span of the frame during which one partial's
-behaviour is described by one set of parameters: one integrable segment and
-one amplitude piece, or nothing at all. The list for one partial covers the
+behaviour is described by one set of parameters: one integrable segment, one
+amplitude piece and one compensation segment, or nothing at all. The list for one partial covers the
 frame contiguously and is built by the same merge that precomputation uses
 for boundaries (precomputation.md §6.3):
 
 - Boundaries, in source time: `fs` and `fe`; the lifeline's start `b₀` and
   end `b_last`; every integrable segment boundary strictly inside `(fs, fe)`;
-  every amplitude point time strictly inside `(fs, fe)`. Sorted, distinct,
-  clipped to `[fs, fe]`.
+  every amplitude point time strictly inside `(fs, fe)`; every compensation
+  segment boundary strictly inside `(fs, fe)`. Sorted, distinct, clipped to
+  `[fs, fe]`.
 - One render segment between each consecutive pair, `[sᵢ, sᵢ₊₁)`.
 - **Present** iff `b₀ ≤ sᵢ < b_last`. Because `b₀` and `b_last` are
   themselves boundaries, a render segment is entirely inside the lifeline or
@@ -377,9 +384,18 @@ a_s = a_j + g_a\,(s_i - t_j)
 g_a = \frac{a_{j+1} - a_j}{t_{j+1} - t_j}
 ```
 
+```math
+D_s = d_0 + (d_1 - d_0)\,\frac{s_i - c_0}{c_1 - c_0}
+\qquad
+c = \frac{d_1 - d_0}{c_1 - c_0}
+```
+
 where the covering integrable segment is the one with
-`start_time ≤ sᵢ < end_time`, and the covering amplitude piece is the one
-with `t_j ≤ sᵢ < t_{j+1}`. Both always exist for a present segment: the
+`start_time ≤ sᵢ < end_time`, the covering amplitude piece is the one
+with `t_j ≤ sᵢ < t_{j+1}`, and the covering compensation segment `[c₀, c₁)`,
+with deltas `d₀` and `d₁`, is the one with `c₀ ≤ sᵢ < c₁`. `D_s` is
+interpolated rather than accumulated, so it is exactly `d₀` at the
+compensation segment's own start (`compensationFrom`). Both always exist for a present segment: the
 integrable segments cover `[b₀, b_last)` exactly (precomputation.md §11), the
 amplitude timeline's first and last times equal `b₀` and `b_last`, and the
 gather started each list at the node covering the frame's first instant
@@ -403,6 +419,7 @@ RenderSegment
     startPhase        Phase             φ_s, unwrapped
     nominal           NominalFrequency  { f_s, g }         (segment_maths)
     amplitude         NominalAmplitude  { a_s, g_a }       (amplitude_maths, §8)
+    compensation      NominalCompensation { D_s, c }       (segment_maths)
 ```
 
 Splitting an integrable segment this way does not change the phase anywhere
@@ -467,7 +484,7 @@ renderChunk(block, active, firstSample, lastSample, out)
             raw   = sin(phase[i])
             dB    = amp[i] + rollOff(freq[i])
             acc  += raw * toLinear(dB)
-            phase[i] = wrap(phase[i] + (freq[i] + halfGradient[i]))
+            phase[i] = wrap(phase[i] + (freq[i] + phaseStepOffset[i]))
             freq[i] += gradient[i]
             amp[i]  += ampGradient[i]
         out[n] += acc
@@ -487,7 +504,8 @@ Block state, per partial, all `double`:
 | `phase` | Wrapped phase at the current sample, radians | every sample |
 | `freq` | Instantaneous frequency at the current sample, radians per sample | every sample |
 | `amp` | Nominal amplitude at the current sample, dB | every sample |
-| `gradient`, `halfGradient` | `g` and `g/2` of the render segment | per chunk |
+| `gradient` | `g` of the render segment | per chunk |
+| `phaseStepOffset` | `g/2 + c`: the exact-increment constant (§7.3) plus the compensation slope | per chunk |
 | `ampGradient` | `g_a` of the render segment, dB per sample | per chunk |
 
 ### 7.2 Anchoring
@@ -498,7 +516,7 @@ render segment, exactly, from the closed form:
 ```math
 \tau_a = (fs + n_a) - s_i
 \qquad
-\text{phase} = \text{wrap}(\varphi_s + \Phi(\tau_a) - \Phi(0))
+\text{phase} = \text{wrap}(\varphi_s + \Phi(\tau_a) - \Phi(0) + D_s + c\,\tau_a)
 \qquad
 \text{freq} = f_s + g\,\tau_a
 \qquad
@@ -533,7 +551,7 @@ For the linear segment this version has, `Φ(τ) = f_s τ + ½ g τ²`, so
 \Delta\varphi_n = f_s + g\,\tau_n + \tfrac{1}{2} g = \text{freq}_n + \tfrac{1}{2} g
 ```
 
-which is the `freq + halfGradient` in §7.1. This is *not* the instantaneous
+which is the `freq + phaseStepOffset` in §7.1, with `c = 0`. This is *not* the instantaneous
 frequency at the sample, which would be a forward-Euler step and would drift
 from the exact integral by `g/2` per sample — over one second of glide a
 visible phase jump when the next segment re-anchors. The exact increment
@@ -545,6 +563,14 @@ Under Doppler, a receiver sample consumes `dτ` of source time rather than 1,
 and the increment is `Φ(τ + dτ) − Φ(τ) = freq·dτ + ½ g dτ²`, with `dτ` the
 set's per-sample rate. The form is the same; the constant `½ g` becomes
 `½ g dτ²`, computed once per chunk if `dτ` is constant over it.
+
+**Phase compensation** (precomputation.md §6.8) adds `D(τ) = D_s + c τ`, a
+linear ramp, so its exact one-sample increment is the constant `c`. It is
+folded into the same per-chunk constant: `phaseStepOffset = g/2 + c`, and
+the loop is unchanged in cost. Under Doppler it becomes `c dτ`. The slope is
+not added to `freq`: it is a correction to the phase, not part of the
+nominal frequency, so the roll-off (§8.2) does not see it
+([ADR 0019](../../docs/adr/0019-phase-targets-are-met-by-linear-compensation-segments.md)).
 
 The phase is kept **wrapped** into `[−π, π]`, the range the schema gives
 for wrapped phase, by subtracting or adding 2π after each increment. A
@@ -760,7 +786,7 @@ defects with their node ids.
 | Exactly one `EngineConfig`, frame size resolvable and > 0, `sampleRate` non-NULL and > 0 | run | run fails |
 | `channelMode` is 0 | run | run fails: the other modes are not implemented |
 | The partial is aggregated by exactly one `PartialSet` | partial | partial fails |
-| The entry leads to one partial, one set, one segment and one amplitude point | partial | partial fails: it was not precomputed, or not for this frame |
+| The entry leads to one partial, one set, one segment, one amplitude point and one compensation segment | partial | partial fails: it was not precomputed, or not for this frame |
 | The entry segment covers `max(b₀, fs)`, and the entry point is at or before it | partial | partial fails: the entry is stale or on another partial's list |
 | The segments walked have no cycle, and are contiguous: each `end_time` equals the next `start_time`; the walk reaches `fe` or the list's end | partial | partial fails |
 | Every segment's `start_time`, `end_time`, `start_phase` and nominal frequency values are non-NULL and finite; `linear_component` true implies `linear_gradient` non-NULL | partial | partial fails |
@@ -768,6 +794,7 @@ defects with their node ids.
 | The amplitude points walked have no cycle; every `time` and `amplitude` is non-NULL and finite; `time` strictly increases; the walk reaches `fe` or the list's end | partial | partial fails |
 | Where the walk reaches the end of either list, it does so at `b_last` on both: the two timelines define the lifeline together (precomputation.md §7) | partial | partial fails |
 | Every point except the last has `amplitude_curve_type` = 0 | partial | partial fails |
+| The compensation segments walked have no cycle, are contiguous, and have non-NULL, finite times and deltas with `end_time > start_time`; the entry compensation segment covers `max(b₀, fs)`; where the walk reaches the end of the list, it does so at `b_last`, as the integrable segments do | partial | partial fails |
 
 **Lifeline equality is exact**, in `double`. Both values come from the same
 canonical state point through the same transformation, so they are the same
@@ -904,7 +931,7 @@ classDiagram
 
     class RenderKernel {
         <<raw arrays — render_kernel>>
-        +BlockState phase, freq, amp, gradient, halfGradient, ampGradient
+        +BlockState phase, freq, amp, gradient, phaseStepOffset, ampGradient
         +anchorPartial(BlockState, lane, Anchor)
         +renderChunk(BlockState, active, first, last, RollOffRaw, span~SampleValue~ out)
     }

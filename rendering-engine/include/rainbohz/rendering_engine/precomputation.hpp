@@ -9,15 +9,18 @@
 //   1. read its inputs into memory;
 //   2. gather boundaries -- every time at which an input changes;
 //   3. build one segment between each pair of consecutive boundaries;
-//   4. integrate through the segments with a phase accumulator, then write
-//      the result in one transaction.
+//   4. integrate through the segments with a phase accumulator, from the
+//      initial phase its phase timeline gives;
+//   5. build the phase compensation segments that make the phase meet every
+//      target on its phase timeline (§6.8), then write the result in one
+//      transaction.
 //
-// Stages 2 and 3, integration and frame scope are pure functions over
-// in-memory data and are declared here so that they can be tested without a
-// database. Reading and writing happen only inside precomputeAll().
+// Stages 2 to 5 and frame scope are pure functions over in-memory data and
+// are declared here so that they can be tested without a database. Reading
+// and writing happen only inside precomputeAll().
 //
-// This version handles the core frequency envelope only: linear curves, no
-// modulators, no phase control, no spatial position (§2). It also reads each
+// This version handles the core frequency envelope and phase control: linear
+// curves, no modulators, no spatial position (§2). It also reads each
 // partial's amplitude timeline, for its times only, so that it can write the
 // FrameEntry nodes rendering starts from (§6.7).
 
@@ -100,6 +103,64 @@ struct AmplitudePointRecord {
     std::optional<double> time;
 };
 
+/// A PhasePhysicalTimelinePoint exactly as read from engine-db, before any
+/// validation.
+struct PhasePointRecord {
+    /// PhasePhysicalTimelinePoint.id.
+    std::int64_t id = 0;
+
+    /// PhasePhysicalTimelinePoint.time, samples.
+    std::optional<double> time;
+
+    /// PhasePhysicalTimelinePoint.phase, wrapped radians. NULL is meaningful:
+    /// the partial runs free up to this point (§6.8).
+    std::optional<double> phase;
+};
+
+/// A validated point of a partial's phase timeline: a target the rendered
+/// phase must meet, or a point up to which it runs free.
+struct PhaseTarget {
+    /// When the target applies.
+    SampleTime time;
+
+    /// The phase to meet at `time`, wrapped radians in [-π, π]; nullopt for
+    /// "free-running up to here". Not "no knot here": a NULL point still
+    /// starts a new compensation segment.
+    std::optional<Phase> phase;
+};
+
+/// One phase compensation segment: the in-memory form of a
+/// PartialPhaseCompensationSegment (§6.8).
+///
+/// Covers `[startTime, endTime)`. Over it, the compensation added to the
+/// phase from the frequency envelope ramps linearly from `startDelta` to
+/// `endDelta`. The deltas are running totals and are never wrapped.
+struct CompensationSegment {
+    /// PartialPhaseCompensationSegment.start_time.
+    SampleTime startTime;
+
+    /// PartialPhaseCompensationSegment.end_time: the next segment's
+    /// startTime.
+    SampleTime endTime;
+
+    /// PartialPhaseCompensationSegment.start_phase_delta, radians.
+    Phase startDelta;
+
+    /// PartialPhaseCompensationSegment.end_phase_delta, radians.
+    Phase endDelta;
+};
+
+/// The compensation ramp of `segment`, re-based to `at` (§6.8).
+///
+/// The delta at `at` is interpolated from the stored start and end, so that it
+/// is exactly `startDelta` at the segment's start; the slope is
+/// `(endDelta − startDelta) / (endTime − startTime)`.
+///
+/// @param segment  A compensation segment; `endTime > startTime`.
+/// @param at       A time within it.
+/// @return The ramp from `at` onward.
+NominalCompensation compensationFrom(const CompensationSegment& segment, SampleTime at) noexcept;
+
 /// Where the rendering of one frame starts for one partial: the in-memory
 /// form of a FrameEntry node and its FRAME_ENTRY_PHYSICAL_TIMELINE edges (§6.7).
 struct FrameEntryTarget {
@@ -113,6 +174,10 @@ struct FrameEntryTarget {
     /// Index, into the partial's amplitude points, of the last point at or
     /// before that time: the start of the amplitude piece covering it.
     std::size_t point = 0;
+
+    /// Index, into the partial's compensation segments, of the one covering
+    /// the same time.
+    std::size_t compensation = 0;
 };
 
 /// One integrable segment: the in-memory form of a PartialIntegrableSegment
@@ -201,6 +266,22 @@ std::vector<FrequencyPoint> validateFrequencyEnvelope(std::span<const FrequencyP
 std::vector<SampleTime> validateAmplitudeTimes(
     std::span<const AmplitudePointRecord> points, std::span<const FrequencyPoint> envelope);
 
+/// Checks a partial's phase points against its frequency envelope, and
+/// converts them to typed values (§7, §6.8).
+///
+/// @param points    The points of the partial's PhasePhysicalTimeline, in
+///                  NEXT_POINT order.
+/// @param envelope  The partial's validated frequency envelope.
+/// @return One target per input point, in order, strictly increasing in time.
+/// @throws PartialPrecomputationError  If there are no points; a time is NULL
+///         or not finite; the first time is not the envelope's first time
+///         exactly; a time is not strictly later than the one before it; a
+///         time is after the envelope's last time; or a phase that is not
+///         NULL is not finite or is outside [-π, π]. The message names the
+///         point by its position in the list, counting from 0.
+std::vector<PhaseTarget> validatePhaseTimeline(
+    std::span<const PhasePointRecord> points, std::span<const FrequencyPoint> envelope);
+
 /// Stage 2: the sorted, distinct times at which any input changes (§6.3).
 ///
 /// In this version the frequency envelope is the only input, so the result is
@@ -233,17 +314,63 @@ std::vector<Segment> buildSegments(
 /// Stage 4: runs the phase accumulator through the segments, setting each
 /// one's start phase (§6.5).
 ///
-/// The accumulator starts at 0 at the first segment's start. Each segment's
+/// The accumulator starts at `initialPhase` at the first segment's start:
+/// 0 for the natural phase N₀ from which initialPhaseOf() works, φ₀ from it
+/// for the segments that are written. Each segment's
 /// startPhase is the accumulator's value at its start; the phase it gains is
 /// phaseIncrement() over its length, from its own stored parameters.
 ///
 /// @param[in,out] segments  Contiguous segments in time order. Each one's
 ///                          startPhase is overwritten.
+/// @param initialPhase      The phase at the first segment's start.
 /// @return The unwrapped phase at the end of the last segment, which is not
-///         stored anywhere; 0 when `segments` is empty.
+///         stored anywhere; `initialPhase` when `segments` is empty.
 /// @throws PartialPrecomputationError  If the phase stops being finite. The
 ///         segments before the one that overflowed have been updated.
-Phase integrate(std::span<Segment> segments);
+Phase integrate(std::span<Segment> segments, Phase initialPhase = Phase{0.0});
+
+/// The unwrapped phase the frequency envelope gives at `at` (§6.8).
+///
+/// `phaseAt()` on the integrable segment covering `at`, from its stored
+/// values: the same computation rendering makes there, so the two agree to
+/// the last bit. At the lifeline's end, the last segment evaluated at its
+/// length.
+///
+/// @param segments  Integrated segments, contiguous, in time order. Not empty.
+/// @param at        A time in `[b₀, b_last]`.
+/// @return N(at).
+/// @throws std::invalid_argument  If `at` is outside the segments.
+Phase naturalPhaseAt(std::span<const Segment> segments, SampleTime at);
+
+/// The partial's initial phase φ₀ (§6.8).
+///
+/// The first target's phase when it is not NULL. When it is NULL, φ₀ is
+/// worked backwards so that the partial, running free from `b₀`, meets the
+/// first target that is not NULL exactly:
+/// `φ₀ = wrapHalfOpen(θₖ − N₀(tₖ))`. With no target at all, 0.
+///
+/// @param fromZero  The segments, integrated from 0: N₀.
+/// @param targets   The validated phase timeline. Not empty.
+/// @return φ₀, in [-π, π].
+Phase initialPhaseOf(std::span<const Segment> fromZero, std::span<const PhaseTarget> targets);
+
+/// Stage 5: the phase compensation segments (§6.8).
+///
+/// The boundaries are `b₀`, every target time inside `(b₀, b_last)`, and
+/// `b_last`. A running delta D starts at 0 and is never wrapped. The target
+/// that set φ₀ -- the first that is not NULL -- and every point before it
+/// are met already, so their segments are flat at 0. After that, in time
+/// order, a target θᵢ at tᵢ moves D by `wrapHalfOpen(θᵢ − (N(tᵢ) + D))`
+/// and the segment ending at tᵢ ramps from the old D to the new one; a NULL
+/// point leaves D alone, so the segment ending there is flat. The segment
+/// after the last point, if it ends before `b_last`, is flat.
+///
+/// @param segments  The segments, integrated from φ₀: N. Not empty.
+/// @param targets   The validated phase timeline, the first at `b₀`.
+/// @return The compensation segments, contiguous, covering `[b₀, b_last)`.
+///         At least one.
+std::vector<CompensationSegment> buildCompensation(
+    std::span<const Segment> segments, std::span<const PhaseTarget> targets);
 
 /// The frames that a lifeline `[start, end)` overlaps (§6.6).
 ///
@@ -259,10 +386,10 @@ FrameRange frameScope(SampleTime start, SampleTime end, FrameSize size);
 ///
 /// For frame *k* the entry time is `t*ₖ = max(b₀, k·F)`, the frame's first
 /// instant inside the lifeline. The entry segment is the one with
-/// `start_time ≤ t*ₖ < end_time`; the entry point is the last amplitude point
-/// with `time ≤ t*ₖ`. Both exist for every frame in scope, because
-/// `t*ₖ ∈ [b₀, b_last)` there and the amplitude timeline starts and ends at
-/// `b₀` and `b_last`.
+/// `start_time ≤ t*ₖ < end_time`, and so is the entry compensation segment;
+/// the entry point is the last amplitude point with `time ≤ t*ₖ`. Both exist for every frame in
+/// scope, because `t*ₖ ∈ [b₀, b_last)` there and the amplitude timeline starts and ends at `b₀` and
+/// `b_last`.
 ///
 /// One forward pass over each list, advancing as the frame starts increase:
 /// the cost is the length of the lists plus the number of frames, not their
@@ -272,6 +399,8 @@ FrameRange frameScope(SampleTime start, SampleTime end, FrameSize size);
 ///                        covering `[b₀, b_last)`. Not empty.
 /// @param amplitudeTimes  The partial's amplitude point times, strictly
 ///                        increasing, from `b₀` to `b_last`. At least 2.
+/// @param compensation    The partial's compensation segments, contiguous,
+///                        covering `[b₀, b_last)`. Not empty.
 /// @param frames          The frames in scope, from frameScope() over the
 ///                        same lifeline.
 /// @param size            Frame size. Positive.
@@ -280,7 +409,8 @@ FrameRange frameScope(SampleTime start, SampleTime end, FrameSize size);
 /// @pre The lists satisfy the conditions above; `frames` was computed from
 ///      them. Not checked.
 std::vector<FrameEntryTarget> frameEntries(std::span<const Segment> segments,
-    std::span<const SampleTime> amplitudeTimes, FrameRange frames, FrameSize size);
+    std::span<const SampleTime> amplitudeTimes, std::span<const CompensationSegment> compensation,
+    FrameRange frames, FrameSize size);
 
 /// The frame size from EngineConfig: `frameSize`, or one second at
 /// `sampleRate` when `frameSize` is NULL.
@@ -308,6 +438,9 @@ struct PartialOutcome {
 
     /// How many segments were written. Zero on failure.
     std::size_t segmentCount = 0;
+
+    /// How many phase compensation segments were written. Zero on failure.
+    std::size_t compensationCount = 0;
 
     /// The frames it is in scope for; nullopt on failure.
     std::optional<FrameRange> frames;
@@ -342,8 +475,8 @@ struct PrecomputationReport {
 /// Reads the EngineConfig and every partial's inputs, then precomputes the
 /// partials one at a time, in Partial.id order, each in its own transaction.
 /// Any output a partial already has -- its PartialSegmentPhysicalTimeline, segments,
-/// their nominal frequencies, its PARTIAL_IN_FRAME edges and its FrameEntry
-/// nodes -- is deleted and rebuilt. Frame nodes are created as needed and
+/// their nominal frequencies, its compensation segments, its PARTIAL_IN_FRAME
+/// edges and its FrameEntry nodes -- is deleted and rebuilt. Frame nodes are created as needed and
 /// never deleted.
 ///
 /// A partial that fails is recorded in the report and the run carries on.

@@ -44,6 +44,7 @@ Non-obvious design choices are recorded here, per AGENTS.md, using the
 | [0016](0016-serve-rest-with-cpp-httplib-one-call-at-a-time.md) | Serve REST with cpp-httplib, one call at a time, holding one score | Accepted |
 | [0017](0017-rest-resources-under-v1-described-by-openapi-3-1.md) | REST resources under /v1, described by OpenAPI 3.1, with problem+json errors | Accepted |
 | [0018](0018-play-audio-with-miniaudio.md) | Play audio with miniaudio, on the default output device | Accepted |
+| [0019](0019-phase-targets-are-met-by-linear-compensation-segments.md) | Meet phase targets with linear compensation segments, computed in C++ by precomputation | Accepted |
 
 ## A note on the renames
 

@@ -16,8 +16,16 @@ disagreement localises to a sample.
 
 The score description uses the rendering model's units exactly as engine-db
 holds them: times in samples, frequencies in radians per sample, amplitudes
-in dB. Curves are linear; the format has no field for anything the first
-version does not render.
+in dB, phases in radians. Curves are linear; the format has no field for
+anything the engine does not render. A partial's "phase" is its phase
+timeline, [[time, radians or null], ...]; when it is absent the partial
+starts at phase 0 and runs free, which is the one-point timeline
+[[start, 0.0]].
+
+Phase control is evaluated from its definition (rendering-engine/docs/
+precomputation.md section 6.8), not from anything the engine stores: the
+initial phase, then a running adjustment at each target, linear between
+points.
 
     render_oracle.py --score score.json --frame 3 --wav frame-000003.wav
     render_oracle.py --score score.json --frame 3 --wav frame-000003.set-000001.wav --set 1
@@ -62,6 +70,7 @@ class Partial:
     partial_id: int
     frequency: np.ndarray  # shape (n, 2): time in samples, radians per sample
     amplitude: np.ndarray  # shape (m, 2): time in samples, dB
+    phase: list[tuple[float, float | None]]  # (time in samples, radians or None)
 
 
 @dataclass
@@ -106,6 +115,41 @@ def _timeline(points: list, what: str, partial_id: int) -> np.ndarray:
     return array
 
 
+def _phase_timeline(points: list | None, frequency: np.ndarray, partial_id: int):
+    """Convert and check a phase timeline.
+
+    Args:
+        points: A list of [time, radians or null] pairs from the JSON, or
+            None when the partial has no "phase" entry.
+        frequency: The partial's frequency timeline, for its lifeline.
+        partial_id: The partial's id, for messages.
+
+    Returns:
+        The points as (time, phase or None) tuples; [(start, 0.0)] when
+        `points` is None.
+
+    Raises:
+        OracleError: if there are no points, the first is not at the
+            lifeline's start, times do not strictly increase or pass its end,
+            or a phase is not finite or outside [-pi, pi].
+    """
+    start, end = float(frequency[0, 0]), float(frequency[-1, 0])
+    if points is None:
+        return [(start, 0.0)]
+    timeline = [(float(time), None if value is None else float(value)) for time, value in points]
+    if not timeline or timeline[0][0] != start:
+        raise OracleError(f"partial {partial_id}: phase must start with a point at {start}")
+    for (before, _), (time, _) in zip(timeline, timeline[1:]):
+        if not time > before:
+            raise OracleError(f"partial {partial_id}: phase times do not strictly increase")
+    for time, value in timeline:
+        if time > end:
+            raise OracleError(f"partial {partial_id}: phase point at {time} is after the lifeline")
+        if value is not None and not (math.isfinite(value) and -math.pi <= value <= math.pi):
+            raise OracleError(f"partial {partial_id}: phase {value} is not in [-pi, pi]")
+    return timeline
+
+
 def load_score(path: str) -> Score:
     """Read and validate a score description.
 
@@ -146,7 +190,8 @@ def load_score(path: str) -> Score:
                     f"partial {partial_id}: frequency and amplitude timelines must start and "
                     "end together"
                 )
-            partials.append(Partial(partial_id, frequency, amplitude))
+            phase = _phase_timeline(partial_raw.get("phase"), frequency, partial_id)
+            partials.append(Partial(partial_id, frequency, amplitude, phase))
         if set_id in partial_sets:
             raise OracleError(f"{path}: partial set {set_id} appears twice")
         partial_sets[set_id] = partials
@@ -270,13 +315,83 @@ def to_linear(decibels: np.ndarray) -> np.ndarray:
     return linear
 
 
+def wrap_half_open(phase: float) -> float:
+    """The same angle in [-pi, pi): an exact half cycle is -pi."""
+    reduced = math.remainder(phase, 2.0 * math.pi)
+    return reduced - 2.0 * math.pi if reduced >= math.pi else reduced
+
+
+def natural_phase(partial: Partial, t: np.ndarray) -> np.ndarray:
+    """The phase the frequency envelope alone gives, from 0 at the start.
+
+    The integral of the piecewise-linear frequency from the partial's start:
+    the sum of the exact integrals of the pieces before the one containing
+    `t`, plus the integral within it. Nothing is accumulated sample by sample.
+
+    Args:
+        partial: The partial.
+        t: Absolute times in samples within [start, end].
+
+    Returns:
+        The unwrapped phase at each time.
+    """
+    times = partial.frequency[:, 0]
+    freqs = partial.frequency[:, 1]
+    lengths = np.diff(times)
+    gradients = np.diff(freqs) / lengths
+    piece_phase = freqs[:-1] * lengths + 0.5 * gradients * lengths**2
+    start_phase = np.concatenate(([0.0], np.cumsum(piece_phase)[:-1]))
+    piece = np.clip(np.searchsorted(times, t, side="right") - 1, 0, len(lengths) - 1)
+    tau = t - times[piece]
+    return start_phase[piece] + freqs[piece] * tau + 0.5 * gradients[piece] * tau**2
+
+
+def phase_control(partial: Partial) -> tuple[float, np.ndarray, np.ndarray]:
+    """The initial phase and the compensation, from the phase timeline.
+
+    The initial phase is the first point's phase; if that is null, the one
+    from which running free meets the first point that has a phase. After
+    that point, each point with a phase moves a running adjustment by the
+    smallest change, in [-pi, pi), that meets it; a null point leaves it
+    alone. The adjustment is linear between points and holds after the last.
+
+    Args:
+        partial: The partial.
+
+    Returns:
+        (initial phase, knot times, adjustment at each knot), for linear
+        interpolation over the lifeline.
+    """
+    def natural0(time: float) -> float:
+        return float(natural_phase(partial, np.array([time]))[0])
+
+    timeline = partial.phase
+    anchor = next((i for i, (_, value) in enumerate(timeline) if value is not None), None)
+    if anchor is None:
+        initial = 0.0
+    elif anchor == 0:
+        initial = timeline[0][1]
+    else:
+        time, value = timeline[anchor]
+        initial = wrap_half_open(value - natural0(time))
+
+    knot_times = [timeline[0][0]]
+    knot_deltas = [0.0]
+    delta = 0.0
+    for i, (time, value) in enumerate(timeline[1:], start=1):
+        if anchor is not None and i > anchor and value is not None:
+            delta += wrap_half_open(value - (initial + natural0(time) + delta))
+        knot_times.append(time)
+        knot_deltas.append(delta)
+    return initial, np.array(knot_times), np.array(knot_deltas)
+
+
 def partial_samples(partial: Partial, t: np.ndarray, edges) -> np.ndarray:
     """One partial's samples at the instants `t`, from the closed form.
 
-    The phase at `t` is the integral of the piecewise-linear frequency from
-    the partial's start: the sum of the exact integrals of the pieces before
-    the one containing `t`, plus the integral within it. Nothing is
-    accumulated sample by sample.
+    The phase at `t` is the initial phase, plus the integral of the
+    piecewise-linear frequency from the partial's start (natural_phase()),
+    plus the phase compensation at `t` (phase_control()).
 
     Args:
         partial: The partial.
@@ -290,10 +405,6 @@ def partial_samples(partial: Partial, t: np.ndarray, edges) -> np.ndarray:
     freqs = partial.frequency[:, 1]
     lengths = np.diff(times)
     gradients = np.diff(freqs) / lengths
-    # Phase at the start of each piece: the exact integral over the pieces
-    # before it.
-    piece_phase = freqs[:-1] * lengths + 0.5 * gradients * lengths**2
-    start_phase = np.concatenate(([0.0], np.cumsum(piece_phase)[:-1]))
 
     alive = (t >= times[0]) & (t < times[-1])
     out = np.zeros_like(t)
@@ -305,7 +416,8 @@ def partial_samples(partial: Partial, t: np.ndarray, edges) -> np.ndarray:
     piece = np.clip(piece, 0, len(lengths) - 1)
     tau = ta - times[piece]
     frequency = freqs[piece] + gradients[piece] * tau
-    phase = start_phase[piece] + freqs[piece] * tau + 0.5 * gradients[piece] * tau**2
+    initial, knot_times, knot_deltas = phase_control(partial)
+    phase = initial + natural_phase(partial, ta) + np.interp(ta, knot_times, knot_deltas)
 
     a_times = partial.amplitude[:, 0]
     a_values = partial.amplitude[:, 1]

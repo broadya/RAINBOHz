@@ -45,16 +45,18 @@ inline double wrapRaw(double phase) noexcept {
 
 BlockState::BlockState(std::size_t partials)
     : phase(partials, 0.0), freq(partials, 0.0), amp(partials, 0.0), gradient(partials, 0.0),
-      halfGradient(partials, 0.0), ampGradient(partials, 0.0) {}
+      phaseStepOffset(partials, 0.0), ampGradient(partials, 0.0) {}
 
 void anchorPartial(BlockState& block, std::size_t lane, const Anchor& anchor) noexcept {
     const double g =
         anchor.nominal.linearGradient.has_value() ? anchor.nominal.linearGradient->value() : 0.0;
-    block.phase[lane] = wrap(phaseAt(anchor.startPhase, anchor.nominal, anchor.tau)).value();
+    block.phase[lane] = wrap(phaseAt(anchor.startPhase, anchor.nominal, anchor.tau) +
+                             compensationAt(anchor.compensation, anchor.tau))
+                            .value();
     block.freq[lane] = frequencyAt(anchor.nominal, anchor.tau).value();
     block.amp[lane] = amplitudeAt(anchor.amplitude, anchor.tau).value();
     block.gradient[lane] = g;
-    block.halfGradient[lane] = 0.5 * g;
+    block.phaseStepOffset[lane] = (0.5 * g) + anchor.compensation.slope.value();
     block.ampGradient[lane] = anchor.amplitude.gradient.value();
 }
 
@@ -64,7 +66,7 @@ void renderChunk(BlockState& block, std::span<const std::size_t> active, SampleI
     std::vector<double>& freq = block.freq;
     std::vector<double>& amp = block.amp;
     const std::vector<double>& gradient = block.gradient;
-    const std::vector<double>& halfGradient = block.halfGradient;
+    const std::vector<double>& phaseStepOffset = block.phaseStepOffset;
     const std::vector<double>& ampGradient = block.ampGradient;
 
     for (std::int32_t n = first.value(); n < last.value(); ++n) {
@@ -76,8 +78,9 @@ void renderChunk(BlockState& block, std::span<const std::size_t> active, SampleI
 
             // The exact phase gained over one sample of a linear segment:
             // Φ(τ+1) − Φ(τ) = f(τ) + g/2, not the forward-Euler f(τ). ADR 0007
-            // records why the g/2 is there; removing it is a regression.
-            phase[i] = wrapRaw(phase[i] + freq[i] + halfGradient[i]);
+            // records why the g/2 is there; removing it is a regression. The
+            // offset also carries the compensation's slope (ADR 0019).
+            phase[i] = wrapRaw(phase[i] + freq[i] + phaseStepOffset[i]);
             freq[i] += gradient[i];
             amp[i] += ampGradient[i];
         }

@@ -121,6 +121,15 @@ constexpr std::string_view kReadAmplitudeLinks =
     "MATCH (a:AmplitudePhysicalTimelinePoint)-[:NEXT_POINT]->(b:AmplitudePhysicalTimelinePoint) "
     "RETURN a.id, b.id;";
 
+constexpr std::string_view kReadExistingPhase =
+    "MATCH (p:Partial)-[:HAS_PHYSICAL_TIMELINE]->(t:PhasePhysicalTimeline) "
+    "OPTIONAL MATCH (t)-[:NEXT_POINT]->(f:PhasePhysicalTimelinePoint) "
+    "RETURN p.id, t.id, f.id;";
+
+constexpr std::string_view kReadPhaseLinks =
+    "MATCH (a:PhasePhysicalTimelinePoint)-[:NEXT_POINT]->(b:PhasePhysicalTimelinePoint) "
+    "RETURN a.id, b.id;";
+
 // Deleting a point removes its edges, including any FRAME_ENTRY_PHYSICAL_TIMELINE
 // edge from an earlier precomputation; precomputation rebuilds its entries.
 constexpr std::string_view kDeleteFrequencyPoints =
@@ -134,6 +143,21 @@ constexpr std::string_view kDeleteAmplitudePoints =
 
 constexpr std::string_view kDeleteAmplitudeTimeline =
     "MATCH (t:AmplitudePhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;";
+
+constexpr std::string_view kDeletePhasePoints =
+    "UNWIND $ids AS id MATCH (f:PhasePhysicalTimelinePoint {id: id}) DETACH DELETE f;";
+
+constexpr std::string_view kDeletePhaseTimeline =
+    "MATCH (t:PhasePhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;";
+
+// Interim, until the transform maps PartialState.phase (transform.md §2):
+// every partial gets the phase timeline precomputation requires, with the one
+// point it must have -- phase 0 at the start of the lifeline, which is what
+// precomputation did before phase control existed.
+constexpr std::string_view kCreateDefaultPhaseTimeline =
+    "MATCH (p:Partial) WHERE p.id = $partial "
+    "CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(:PhasePhysicalTimeline)"
+    "-[:NEXT_POINT]->(:PhasePhysicalTimelinePoint {time: $time, phase: 0.0}) RETURN p.id;";
 
 constexpr std::string_view kCreateFrequencyTimeline =
     "MATCH (p:Partial) WHERE p.id = $partial "
@@ -257,6 +281,8 @@ struct Inputs {
     IdMap frequencyNext;
     std::unordered_map<std::int64_t, std::vector<ExistingTimeline>> existingAmplitude;
     IdMap amplitudeNext;
+    std::unordered_map<std::int64_t, std::vector<ExistingTimeline>> existingPhase;
+    IdMap phaseNext;
 };
 
 /// Reads an id-to-id link table from a two-column query.
@@ -369,6 +395,11 @@ Inputs readInputs(EngineDb& db) {
             .timelineId = requireInt64(row.at(1)), .head = optionalInt64(row.at(2))});
     }
     inputs.amplitudeNext = readLinks(db, kReadAmplitudeLinks);
+    for (const DbRow& row : db.query(kReadExistingPhase)) {
+        inputs.existingPhase[requireInt64(row.at(0))].push_back(ExistingTimeline{
+            .timelineId = requireInt64(row.at(1)), .head = optionalInt64(row.at(2))});
+    }
+    inputs.phaseNext = readLinks(db, kReadPhaseLinks);
 
     return inputs;
 }
@@ -679,6 +710,7 @@ struct PartialOutput {
     /// Existing timelines to delete, each with its point ids.
     std::vector<std::pair<std::int64_t, std::vector<std::int64_t>>> staleFrequency;
     std::vector<std::pair<std::int64_t, std::vector<std::int64_t>>> staleAmplitude;
+    std::vector<std::pair<std::int64_t, std::vector<std::int64_t>>> stalePhase;
 
     /// The points to write, in physical units.
     std::vector<PhysicalPoint> frequency;
@@ -723,7 +755,8 @@ void writeChain(EngineDb& db, std::string_view createTimeline, std::string_view 
     }
 }
 
-/// Replaces a partial's two physical timelines in one transaction (§7).
+/// Replaces a partial's physical timelines in one transaction (§7): its two
+/// envelopes, and the interim default phase timeline.
 ///
 /// @param[in,out] db  Database to write. Modified only if every statement
 ///                    succeeds; otherwise the transaction is rolled back.
@@ -746,11 +779,19 @@ void writePartial(EngineDb& db, const PartialOutput& output) {
         }
         db.query(kDeleteAmplitudeTimeline, {{"timeline", timelineId}});
     }
+    for (const auto& [timelineId, pointIds] : output.stalePhase) {
+        if (!pointIds.empty()) {
+            db.query(kDeletePhasePoints, {{"ids", pointIds}});
+        }
+        db.query(kDeletePhaseTimeline, {{"timeline", timelineId}});
+    }
 
     writeChain(db, kCreateFrequencyTimeline, kCreateFirstFrequencyPoint, kCreateNextFrequencyPoint,
         output.partialId, output.frequency);
     writeChain(db, kCreateAmplitudeTimeline, kCreateFirstAmplitudePoint, kCreateNextAmplitudePoint,
         output.partialId, output.amplitude);
+    db.query(kCreateDefaultPhaseTimeline,
+        {{"partial", output.partialId}, {"time", output.frequency.front().time.value()}});
 
     transaction.commit();
 }
@@ -805,6 +846,7 @@ void transformPartial(EngineDb& db, const Inputs& inputs, const SetEnvelopes& en
     PartialOutput output{.partialId = partialId,
         .staleFrequency = {},
         .staleAmplitude = {},
+        .stalePhase = {},
         .frequency = placeKnots(frequencyKnots, envelopes.pointTimes),
         .amplitude = placeKnots(amplitudeKnots, envelopes.pointTimes)};
     if (output.frequency.size() < 2) {
@@ -832,6 +874,8 @@ void transformPartial(EngineDb& db, const Inputs& inputs, const SetEnvelopes& en
         inputs.existingFrequency, inputs.frequencyNext, "its existing FrequencyPhysicalTimeline");
     output.staleAmplitude = stale(
         inputs.existingAmplitude, inputs.amplitudeNext, "its existing AmplitudePhysicalTimeline");
+    output.stalePhase =
+        stale(inputs.existingPhase, inputs.phaseNext, "its existing PhasePhysicalTimeline");
 
     writePartial(db, output);
 

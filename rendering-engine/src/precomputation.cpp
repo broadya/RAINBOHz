@@ -5,7 +5,9 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <limits>
+#include <numbers>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -20,14 +22,17 @@
 /// @brief Precomputes every partial's integrable segments and frame scope.
 ///
 /// Implements the stages of docs/precomputation.md for the core frequency
-/// envelope: read the inputs, gather boundaries, build one segment per pair of
-/// consecutive boundaries, integrate phase through them, and write the result.
+/// envelope and phase control: read the inputs, gather boundaries, build one
+/// segment per pair of consecutive boundaries, integrate phase through them
+/// from the initial phase, build the phase compensation segments, and write
+/// the result.
 /// The file is organised in that order:
 ///
 ///   - fixed Cypher queries, prepared once by EngineDb and always bound with
 ///     parameters;
 ///   - a bulk read of every partial's inputs before any partial is processed,
-///     including the amplitude timelines the frame entries lead into;
+///     including the amplitude timelines the frame entries lead into, and the
+///     phase timelines;
 ///   - validation helpers;
 ///   - the per-partial write, which replaces earlier output in one
 ///     transaction, so a rerun is idempotent and a failure leaves the
@@ -86,16 +91,39 @@ constexpr std::string_view kReadAmplitudeLinks =
     "MATCH (a:AmplitudePhysicalTimelinePoint)-[:NEXT_POINT]->(b:AmplitudePhysicalTimelinePoint) "
     "RETURN a.id, b.id;";
 
+// The phase timeline: its targets, and the NULL points up to which the
+// partial runs free (§6.8).
+constexpr std::string_view kReadPhaseHeads =
+    "MATCH (p:Partial)-[:HAS_PHYSICAL_TIMELINE]->(t:PhasePhysicalTimeline) "
+    "OPTIONAL MATCH (t)-[:NEXT_POINT]->(f:PhasePhysicalTimelinePoint) "
+    "RETURN p.id, f.id;";
+
+constexpr std::string_view kReadPhasePoints =
+    "MATCH (f:PhasePhysicalTimelinePoint) RETURN f.id, f.time, f.phase;";
+
+constexpr std::string_view kReadPhaseLinks =
+    "MATCH (a:PhasePhysicalTimelinePoint)-[:NEXT_POINT]->(b:PhasePhysicalTimelinePoint) "
+    "RETURN a.id, b.id;";
+
 // Output from an earlier run, which is deleted before the new output is
-// written.
+// written. A PartialSegmentPhysicalTimeline heads two lists: its integrable
+// segments and its compensation segments.
 constexpr std::string_view kReadExistingPhysicalTimelines =
     "MATCH (p:Partial)-[:HAS_PHYSICAL_TIMELINE]->(t:PartialSegmentPhysicalTimeline) "
     "OPTIONAL MATCH (t)-[:NEXT_POINT]->(s:PartialIntegrableSegment) "
-    "RETURN p.id, t.id, s.id;";
+    "OPTIONAL MATCH (t)-[:NEXT_POINT]->(c:PartialPhaseCompensationSegment) "
+    "RETURN p.id, t.id, s.id, c.id;";
 
 constexpr std::string_view kReadSegmentLinks =
     "MATCH (a:PartialIntegrableSegment)-[:NEXT_POINT]->(b:PartialIntegrableSegment) "
     "RETURN a.id, b.id;";
+
+constexpr std::string_view kReadCompensationLinks =
+    "MATCH (a:PartialPhaseCompensationSegment)-[:NEXT_POINT]->(b:PartialPhaseCompensationSegment) "
+    "RETURN a.id, b.id;";
+
+constexpr std::string_view kDeleteCompensation =
+    "UNWIND $ids AS id MATCH (c:PartialPhaseCompensationSegment {id: id}) DETACH DELETE c;";
 
 constexpr std::string_view kDeleteNominalOfSegment =
     "MATCH (s:PartialIntegrableSegment)-[:SEGMENT_TO_FREQUENCY_NOMINAL]->"
@@ -127,18 +155,33 @@ constexpr std::string_view kCreateFrameScope = "MATCH (p:Partial) WHERE p.id = $
                                                "MERGE (f:Frame {frame_number: CAST(k AS INT32)}) "
                                                "CREATE (p)-[:PARTIAL_IN_FRAME]->(f);";
 
-// One FrameEntry with its four edges, from the frame number and the ids of
-// the two list nodes it leads to (§6.7). One statement per frame; UNWIND over
-// a list parameter is the batching path if the count ever shows in a profile
-// (§10). The Frame node exists: kCreateFrameScope has just merged it.
+// One FrameEntry with its five edges, from the frame number and the ids of
+// the three list nodes it leads to (§6.7). One statement per frame; UNWIND
+// over a list parameter is the batching path if the count ever shows in a
+// profile (§10). The Frame node exists: kCreateFrameScope has just merged it.
 constexpr std::string_view kCreateFrameEntry =
     "MATCH (f:Frame), (p:Partial), (s:PartialIntegrableSegment), "
-    "(a:AmplitudePhysicalTimelinePoint) "
+    "(a:AmplitudePhysicalTimelinePoint), (c:PartialPhaseCompensationSegment) "
     "WHERE f.frame_number = CAST($frame AS INT32) AND p.id = $partial "
-    "AND s.id = $segment AND a.id = $point "
+    "AND s.id = $segment AND a.id = $point AND c.id = $compensation "
     "CREATE (f)-[:FRAME_ENTRY]->(e:FrameEntry)-[:FRAME_ENTRY_PARTIAL]->(p), "
-    "(e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(s), (e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(a) "
+    "(e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(s), (e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(a), "
+    "(e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(c) "
     "RETURN e.id;";
+
+// One compensation segment, linked from the PartialSegmentPhysicalTimeline
+// (the first) or from the previous compensation segment (§6.8).
+constexpr std::string_view kCreateFirstCompensation =
+    "MATCH (prev:PartialSegmentPhysicalTimeline) WHERE prev.id = $previous "
+    "CREATE (prev)-[:NEXT_POINT]->(c:PartialPhaseCompensationSegment {"
+    "start_time: $startTime, end_time: $endTime, "
+    "start_phase_delta: $startDelta, end_phase_delta: $endDelta}) RETURN c.id;";
+
+constexpr std::string_view kCreateNextCompensation =
+    "MATCH (prev:PartialPhaseCompensationSegment) WHERE prev.id = $previous "
+    "CREATE (prev)-[:NEXT_POINT]->(c:PartialPhaseCompensationSegment {"
+    "start_time: $startTime, end_time: $endTime, "
+    "start_phase_delta: $startDelta, end_phase_delta: $endDelta}) RETURN c.id;";
 
 /// The statement that creates one segment and its nominal frequency, linked
 /// from the node before it in the chain.
@@ -190,6 +233,9 @@ struct ExistingPhysicalTimeline {
 
     /// Id of its first segment; nullopt when it has none.
     std::optional<std::int64_t> headSegment;
+
+    /// Id of its first compensation segment; nullopt when it has none.
+    std::optional<std::int64_t> headCompensation;
 };
 
 /// Everything precomputation reads, for every partial at once.
@@ -223,11 +269,24 @@ struct Inputs {
     /// AmplitudePhysicalTimelinePoint NEXT_POINT links: id to next id.
     std::unordered_map<std::int64_t, std::int64_t> amplitudeNext;
 
+    /// For each partial with a PhasePhysicalTimeline, the head of each of its
+    /// PhasePhysicalTimelines' point lists (nullopt for an empty one).
+    std::unordered_map<std::int64_t, std::vector<std::optional<std::int64_t>>> phaseHeads;
+
+    /// Every PhasePhysicalTimelinePoint, by id.
+    std::unordered_map<std::int64_t, PhasePointRecord> phasePoints;
+
+    /// PhasePhysicalTimelinePoint NEXT_POINT links: id to next id.
+    std::unordered_map<std::int64_t, std::int64_t> phaseNext;
+
     /// For each partial with output from an earlier run, its timelines.
     std::unordered_map<std::int64_t, std::vector<ExistingPhysicalTimeline>> existing;
 
     /// PartialIntegrableSegment NEXT_POINT links: id to next id.
     std::unordered_map<std::int64_t, std::int64_t> segmentNext;
+
+    /// PartialPhaseCompensationSegment NEXT_POINT links: id to next id.
+    std::unordered_map<std::int64_t, std::int64_t> compensationNext;
 };
 
 /// Reads an id-to-id link table from a two-column query.
@@ -290,14 +349,31 @@ Inputs readInputs(EngineDb& db) {
 
     inputs.amplitudeNext = readLinks(db, kReadAmplitudeLinks);
 
+    for (const DbRow& row : db.query(kReadPhaseHeads)) {
+        inputs.phaseHeads[requireInt64(row.at(0))].push_back(optionalInt64(row.at(1)));
+    }
+
+    for (const DbRow& row : db.query(kReadPhasePoints)) {
+        const PhasePointRecord point{
+            .id = requireInt64(row.at(0)),
+            .time = optionalDouble(row.at(1)),
+            .phase = optionalDouble(row.at(2)),
+        };
+        inputs.phasePoints.emplace(point.id, point);
+    }
+
+    inputs.phaseNext = readLinks(db, kReadPhaseLinks);
+
     for (const DbRow& row : db.query(kReadExistingPhysicalTimelines)) {
         inputs.existing[requireInt64(row.at(0))].push_back(ExistingPhysicalTimeline{
             .physicalTimelineId = requireInt64(row.at(1)),
             .headSegment = optionalInt64(row.at(2)),
+            .headCompensation = optionalInt64(row.at(3)),
         });
     }
 
     inputs.segmentNext = readLinks(db, kReadSegmentLinks);
+    inputs.compensationNext = readLinks(db, kReadCompensationLinks);
 
     return inputs;
 }
@@ -352,22 +428,38 @@ double requireFinite(const std::optional<double>& value, std::string_view timeli
 
 constexpr std::string_view kFrequencyList = "FrequencyPhysicalTimeline";
 constexpr std::string_view kAmplitudeList = "AmplitudePhysicalTimeline";
+constexpr std::string_view kPhaseList = "PhasePhysicalTimeline";
 
 // ---------------------------------------------------------------------------
 // Writing
 // ---------------------------------------------------------------------------
+
+/// A PartialSegmentPhysicalTimeline from an earlier run, with the ids of the
+/// two lists it heads, to be deleted.
+struct StalePhysicalTimeline {
+    /// PartialSegmentPhysicalTimeline.id.
+    std::int64_t physicalTimelineId = 0;
+
+    /// Its PartialIntegrableSegment ids, in chain order.
+    std::vector<std::int64_t> segmentIds;
+
+    /// Its PartialPhaseCompensationSegment ids, in chain order.
+    std::vector<std::int64_t> compensationIds;
+};
 
 /// Everything to be written for one partial.
 struct PartialOutput {
     /// Partial.id.
     std::int64_t partialId = 0;
 
-    /// Timelines from an earlier run to delete, each with its segment ids in
-    /// chain order.
-    std::vector<std::pair<std::int64_t, std::vector<std::int64_t>>> stale;
+    /// Timelines from an earlier run to delete.
+    std::vector<StalePhysicalTimeline> stale;
 
     /// The segments to write, integrated.
     std::vector<Segment> segments;
+
+    /// The compensation segments to write.
+    std::vector<CompensationSegment> compensation;
 
     /// The frames the partial is in scope for.
     FrameRange frames;
@@ -383,10 +475,11 @@ struct PartialOutput {
 /// Replaces a partial's output in one transaction (§6.2, stage 4; §9).
 ///
 /// Deletes the partial's FrameEntry nodes, the stale timelines, their
-/// segments and their nominal frequencies, and the partial's PARTIAL_IN_FRAME
-/// edges; then creates the new timeline, segment chain and nominal
-/// frequencies, any missing Frame nodes, the new frame scope edges, and one
-/// FrameEntry per frame in scope with its four edges.
+/// segments, nominal frequencies and compensation segments, and the partial's
+/// PARTIAL_IN_FRAME edges; then creates the new timeline, segment chain and
+/// nominal frequencies, compensation chain, any missing Frame nodes, the new
+/// frame scope edges, and one FrameEntry per frame in scope with its five
+/// edges.
 ///
 /// @param[in,out] db  Database to write. Modified only if every statement
 ///                    succeeds; otherwise the transaction is rolled back.
@@ -398,12 +491,15 @@ void writePartial(EngineDb& db, const PartialOutput& output) {
     Transaction transaction{db};
 
     db.query(kDeleteFrameEntries, {{"partial", output.partialId}});
-    for (const auto& [physicalTimelineId, segmentIds] : output.stale) {
-        for (const std::int64_t segmentId : segmentIds) {
+    for (const StalePhysicalTimeline& stale : output.stale) {
+        for (const std::int64_t segmentId : stale.segmentIds) {
             db.query(kDeleteNominalOfSegment, {{"segment", segmentId}});
             db.query(kDeleteSegment, {{"segment", segmentId}});
         }
-        db.query(kDeletePhysicalTimeline, {{"physicalTimeline", physicalTimelineId}});
+        if (!stale.compensationIds.empty()) {
+            db.query(kDeleteCompensation, {{"ids", stale.compensationIds}});
+        }
+        db.query(kDeletePhysicalTimeline, {{"physicalTimeline", stale.physicalTimelineId}});
     }
     db.query(kDeleteFrameScope, {{"partial", output.partialId}});
 
@@ -412,7 +508,8 @@ void writePartial(EngineDb& db, const PartialOutput& output) {
     if (created.size() != 1) {
         throw PartialPrecomputationError{"the partial disappeared while it was being precomputed"};
     }
-    std::int64_t previous = requireInt64(created.front().at(0));
+    const std::int64_t physicalTimelineId = requireInt64(created.front().at(0));
+    std::int64_t previous = physicalTimelineId;
 
     std::vector<std::int64_t> segmentIds;
     segmentIds.reserve(output.segments.size());
@@ -440,6 +537,27 @@ void writePartial(EngineDb& db, const PartialOutput& output) {
         first = false;
     }
 
+    std::vector<std::int64_t> compensationIds;
+    compensationIds.reserve(output.compensation.size());
+    previous = physicalTimelineId;
+    for (const CompensationSegment& segment : output.compensation) {
+        const std::vector<DbRow> rows =
+            db.query(compensationIds.empty() ? kCreateFirstCompensation : kCreateNextCompensation,
+                {
+                    {"previous", previous},
+                    {"startTime", segment.startTime.value()},
+                    {"endTime", segment.endTime.value()},
+                    {"startDelta", segment.startDelta.value()},
+                    {"endDelta", segment.endDelta.value()},
+                });
+        if (rows.size() != 1) {
+            throw EngineDbError{"creating a PartialPhaseCompensationSegment returned " +
+                                std::to_string(rows.size()) + " rows, not 1"};
+        }
+        previous = requireInt64(rows.front().at(0));
+        compensationIds.push_back(previous);
+    }
+
     db.query(
         kCreateFrameScope, {
                                {"partial", output.partialId},
@@ -454,6 +572,7 @@ void writePartial(EngineDb& db, const PartialOutput& output) {
                                    {"partial", output.partialId},
                                    {"segment", segmentIds.at(entry.segment)},
                                    {"point", output.amplitudePointIds.at(entry.point)},
+                                   {"compensation", compensationIds.at(entry.compensation)},
                                });
         if (rows.size() != 1) {
             throw EngineDbError{
@@ -470,8 +589,9 @@ void writePartial(EngineDb& db, const PartialOutput& output) {
 /// @param inputs        Everything read for the run.
 /// @param partialId     Partial.id of the partial to precompute.
 /// @param frameSize     Frame size for its frame scope.
-/// @param[out] outcome  On success, its segmentCount, frames and entryCount
-///                      are set. Its error is left alone.
+/// @param[out] outcome  On success, its segmentCount, compensationCount,
+///                      frames and entryCount are set. Its error is left
+///                      alone.
 /// @throws PartialPrecomputationError  If the partial's inputs are invalid,
 ///         or it disappears while being written. Nothing has been written.
 /// @throws EngineDbError  If writing fails. Nothing has been written.
@@ -508,31 +628,50 @@ void precomputePartial(EngineDb& db, const Inputs& inputs, std::int64_t partialI
     const std::vector<SampleTime> amplitudeTimes =
         validateAmplitudeTimes(amplitudeRecords, envelope);
 
-    // Stages 2 to 4, frame scope and frame entries: pure computation.
+    std::vector<PhasePointRecord> phaseRecords;
+    for (const std::int64_t pointId :
+        walkChain(oneHead(inputs.phaseHeads, kPhaseList), inputs.phaseNext, kPhaseList)) {
+        phaseRecords.push_back(inputs.phasePoints.at(pointId));
+    }
+    const std::vector<PhaseTarget> targets = validatePhaseTimeline(phaseRecords, envelope);
+
+    // Stages 2 to 5, frame scope and frame entries: pure computation.
     const std::vector<SampleTime> boundaries = gatherBoundaries(envelope);
 
     PartialOutput output{
         .partialId = partialId,
         .stale = {},
         .segments = buildSegments(boundaries, envelope),
+        .compensation = {},
         .frames = frameScope(boundaries.front(), boundaries.back(), frameSize),
         .amplitudePointIds = std::move(amplitudePointIds),
         .entries = {},
     };
+    // φ₀ may depend on the natural phase N₀, so the segments are integrated
+    // from 0 first, then again from φ₀: what is written is a straight
+    // integration from φ₀, exactly as if φ₀ had been known (§6.8).
     integrate(output.segments);
-    output.entries = frameEntries(output.segments, amplitudeTimes, output.frames, frameSize);
+    integrate(output.segments, initialPhaseOf(output.segments, targets));
+    output.compensation = buildCompensation(output.segments, targets);
+    output.entries = frameEntries(
+        output.segments, amplitudeTimes, output.compensation, output.frames, frameSize);
 
     if (const auto existing = inputs.existing.find(partialId); existing != inputs.existing.end()) {
         for (const ExistingPhysicalTimeline& physicalTimeline : existing->second) {
-            output.stale.emplace_back(physicalTimeline.physicalTimelineId,
-                walkChain(physicalTimeline.headSegment, inputs.segmentNext,
-                    "existing PartialSegmentPhysicalTimeline"));
+            output.stale.push_back(StalePhysicalTimeline{
+                .physicalTimelineId = physicalTimeline.physicalTimelineId,
+                .segmentIds = walkChain(physicalTimeline.headSegment, inputs.segmentNext,
+                    "existing PartialSegmentPhysicalTimeline"),
+                .compensationIds = walkChain(physicalTimeline.headCompensation,
+                    inputs.compensationNext, "existing PartialPhaseCompensationSegment list"),
+            });
         }
     }
 
     writePartial(db, output);
 
     outcome.segmentCount = output.segments.size();
+    outcome.compensationCount = output.compensation.size();
     outcome.frames = output.frames;
     outcome.entryCount = output.entries.size();
 }
@@ -638,6 +777,54 @@ std::vector<SampleTime> validateAmplitudeTimes(
     return times;
 }
 
+std::vector<PhaseTarget> validatePhaseTimeline(
+    std::span<const PhasePointRecord> points, std::span<const FrequencyPoint> envelope) {
+    if (points.empty()) {
+        throw PartialPrecomputationError{
+            "its PhasePhysicalTimeline has no points; at least 1 is required, at the start of "
+            "its lifeline"};
+    }
+
+    std::vector<PhaseTarget> targets;
+    targets.reserve(points.size());
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        const PhasePointRecord& record = points[i];
+        const SampleTime time{requireFinite(record.time, kPhaseList, i, "time")};
+        if (i == 0 && time != envelope.front().time) {
+            failAtPoint(kPhaseList, i,
+                "time " + formatNumber(time.value()) +
+                    " differs from the first FrequencyPhysicalTimeline point's time " +
+                    formatNumber(envelope.front().time.value()) +
+                    "; the phase timeline must start with the lifeline");
+        }
+        if (i > 0 && !(time > targets.back().time)) {
+            failAtPoint(kPhaseList, i,
+                "time " + formatNumber(time.value()) + " is not after the previous point's time " +
+                    formatNumber(targets.back().time.value()));
+        }
+        if (time > envelope.back().time) {
+            failAtPoint(kPhaseList, i,
+                "time " + formatNumber(time.value()) +
+                    " is after the last FrequencyPhysicalTimeline point's time " +
+                    formatNumber(envelope.back().time.value()) + ", the end of the lifeline");
+        }
+
+        // NULL is a value here, not an absence: free-running up to this point.
+        std::optional<Phase> phase;
+        if (record.phase.has_value()) {
+            const double radians = requireFinite(record.phase, kPhaseList, i, "phase");
+            if (radians < -std::numbers::pi || radians > std::numbers::pi) {
+                failAtPoint(kPhaseList, i,
+                    "phase " + formatNumber(radians) +
+                        " is outside [-π, π]; it is wrapped radians");
+            }
+            phase = Phase{radians};
+        }
+        targets.push_back(PhaseTarget{.time = time, .phase = phase});
+    }
+    return targets;
+}
+
 std::vector<SampleTime> gatherBoundaries(std::span<const FrequencyPoint> envelope) {
     std::vector<SampleTime> boundaries;
     boundaries.reserve(envelope.size());
@@ -700,8 +887,8 @@ std::vector<Segment> buildSegments(
     return segments;
 }
 
-Phase integrate(std::span<Segment> segments) {
-    Phase accumulator{0.0};
+Phase integrate(std::span<Segment> segments, Phase initialPhase) {
+    Phase accumulator = initialPhase;
     for (std::size_t i = 0; i < segments.size(); ++i) {
         Segment& segment = segments[i];
         segment.startPhase = accumulator;
@@ -713,6 +900,77 @@ Phase integrate(std::span<Segment> segments) {
         }
     }
     return accumulator;
+}
+
+Phase naturalPhaseAt(std::span<const Segment> segments, SampleTime at) {
+    if (segments.empty() || at < segments.front().startTime || at > segments.back().endTime) {
+        throw std::invalid_argument{"naturalPhaseAt: the time is outside the segments"};
+    }
+    // The segment with startTime ≤ at < endTime; at the lifeline's end, the
+    // last one. A binary search, since targets are few and segments may be many.
+    const auto after = std::ranges::upper_bound(
+        segments, at, std::ranges::less{}, [](const Segment& s) { return s.startTime; });
+    const Segment& covering = *std::prev(after);
+    return phaseAt(covering.startPhase, covering.nominal, at - covering.startTime);
+}
+
+Phase initialPhaseOf(std::span<const Segment> fromZero, std::span<const PhaseTarget> targets) {
+    // The anchor is the first target with a phase.
+    for (std::size_t i = 0; i < targets.size(); ++i) {
+        if (const std::optional<Phase>& phase = targets[i].phase) {
+            if (i == 0) {
+                return *phase;
+            }
+            // Running free from b₀ must arrive at the anchor's phase exactly:
+            // start where the anchor's phase is, less what the envelope adds
+            // on the way.
+            return wrapHalfOpen(*phase - naturalPhaseAt(fromZero, targets[i].time));
+        }
+    }
+    return Phase{0.0};
+}
+
+std::vector<CompensationSegment> buildCompensation(
+    std::span<const Segment> segments, std::span<const PhaseTarget> targets) {
+    const SampleTime lifelineEnd = segments.back().endTime;
+
+    // The anchor -- the first target with a phase -- was met by φ₀, so it and
+    // everything before it need no compensation.
+    const auto anchor =
+        std::ranges::find_if(targets, [](const PhaseTarget& t) { return t.phase.has_value(); });
+
+    std::vector<CompensationSegment> result;
+    result.reserve(targets.size());
+    Phase delta{0.0};
+    for (auto target = std::next(targets.begin()); target != targets.end(); ++target) {
+        const Phase before = delta;
+        if (target > anchor && target->phase.has_value()) {
+            const Phase actual = naturalPhaseAt(segments, target->time) + delta;
+            delta += wrapHalfOpen(*target->phase - actual);
+        }
+        result.push_back(CompensationSegment{.startTime = std::prev(target)->time,
+            .endTime = target->time,
+            .startDelta = before,
+            .endDelta = delta});
+    }
+    if (targets.back().time < lifelineEnd) {
+        result.push_back(CompensationSegment{.startTime = targets.back().time,
+            .endTime = lifelineEnd,
+            .startDelta = delta,
+            .endDelta = delta});
+    }
+    return result;
+}
+
+NominalCompensation compensationFrom(const CompensationSegment& segment, SampleTime at) noexcept {
+    const Phase rise = segment.endDelta - segment.startDelta;
+    const SampleDuration length = segment.endTime - segment.startTime;
+    // Interpolated rather than startDelta + slope·τ, so that the start is
+    // exactly startDelta and a later re-basing does not accumulate rounding.
+    return NominalCompensation{
+        .startDelta = segment.startDelta + rise * ((at - segment.startTime) / length),
+        .slope = rise / length,
+    };
 }
 
 FrameRange frameScope(SampleTime start, SampleTime end, FrameSize size) {
@@ -728,13 +986,15 @@ FrameRange frameScope(SampleTime start, SampleTime end, FrameSize size) {
 }
 
 std::vector<FrameEntryTarget> frameEntries(std::span<const Segment> segments,
-    std::span<const SampleTime> amplitudeTimes, FrameRange frames, FrameSize size) {
+    std::span<const SampleTime> amplitudeTimes, std::span<const CompensationSegment> compensation,
+    FrameRange frames, FrameSize size) {
     std::vector<FrameEntryTarget> entries;
     const SampleTime lifelineStart = segments.front().startTime;
 
-    // Both cursors only ever move forward, because the frame starts increase.
+    // The cursors only ever move forward, because the frame starts increase.
     std::size_t segment = 0;
     std::size_t point = 0;
+    std::size_t ramp = 0;
     for (std::int32_t k = frames.first.value(); k <= frames.last.value(); ++k) {
         const FrameNumber frame{k};
         const SampleTime entryTime = std::max(lifelineStart, frameStart(frame, size));
@@ -745,7 +1005,11 @@ std::vector<FrameEntryTarget> frameEntries(std::span<const Segment> segments,
         while (point + 1 < amplitudeTimes.size() && amplitudeTimes[point + 1] <= entryTime) {
             ++point;
         }
-        entries.push_back(FrameEntryTarget{.frame = frame, .segment = segment, .point = point});
+        while (ramp + 1 < compensation.size() && compensation[ramp].endTime <= entryTime) {
+            ++ramp;
+        }
+        entries.push_back(FrameEntryTarget{
+            .frame = frame, .segment = segment, .point = point, .compensation = ramp});
     }
     return entries;
 }
@@ -802,6 +1066,7 @@ PrecomputationReport precomputeAll(EngineDb& db) {
             .partialName = partialName,
             .error = std::nullopt,
             .segmentCount = 0,
+            .compensationCount = 0,
             .frames = std::nullopt,
             .entryCount = 0,
         };

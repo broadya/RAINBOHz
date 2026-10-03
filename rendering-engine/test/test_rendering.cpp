@@ -22,6 +22,8 @@
 #include <cstdint>
 #include <filesystem>
 #include <limits>
+#include <numbers>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -68,6 +70,9 @@ std::string literal(double value) {
 
 /// A (time, value) pair of a timeline.
 using Point = std::pair<double, double>;
+
+/// A (time, phase) point of a phase timeline; a nullopt phase is NULL.
+using PhasePoint = std::pair<double, std::optional<double>>;
 
 /// Checks that `whole` is the sample-wise sum of `a` and `b`, at a stride.
 ///
@@ -124,15 +129,18 @@ protected:
         db.execute("CREATE (:PartialSet {name: '" + name + "'});");
     }
 
-    /// Adds a partial with both timelines to a set.
+    /// Adds a partial with its three timelines to a set.
     ///
     /// @param set        Name of an existing PartialSet.
     /// @param name       Partial.name, unique in the test.
     /// @param frequency  (time, radians per sample) points, at least two.
     /// @param amplitude  (time, dB) points, at least two, spanning the same
     ///                   times.
+    /// @param phase      (time, radians or NULL) points; when empty, one
+    ///                   point at the first frequency time, phase 0.
     void addPartial(const std::string& set, const std::string& name,
-        const std::vector<Point>& frequency, const std::vector<Point>& amplitude) {
+        const std::vector<Point>& frequency, const std::vector<Point>& amplitude,
+        const std::vector<PhasePoint>& phase = {}) {
         db.execute("MATCH (s:PartialSet {name: '" + set +
                    "'}) CREATE (s)-[:HAS_PARTIAL]->"
                    "(:Partial {name: '" +
@@ -152,6 +160,16 @@ protected:
         for (const auto& [time, decibels] : amplitude) {
             cypher += "-[:NEXT_POINT]->(:AmplitudePhysicalTimelinePoint {time: " + literal(time) +
                       ", amplitude: " + literal(decibels) + ", amplitude_curve_type: 0})";
+        }
+        db.execute(cypher + ";");
+        cypher = "MATCH (p:Partial {name: '" + name +
+                 "'}) CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:PhasePhysicalTimeline) WITH t "
+                 "CREATE (t)";
+        const std::vector<PhasePoint> points =
+            phase.empty() ? std::vector<PhasePoint>{{frequency.front().first, 0.0}} : phase;
+        for (const auto& [time, radians] : points) {
+            cypher += "-[:NEXT_POINT]->(:PhasePhysicalTimelinePoint {time: " + literal(time) +
+                      ", phase: " + (radians.has_value() ? literal(*radians) : "NULL") + "})";
         }
         db.execute(cypher + ";");
     }
@@ -360,6 +378,54 @@ TEST_F(RenderingDb, AnEntryWithoutAnAmplitudePointIsRefused) {
     const RenderingReport report = render({0});
     ASSERT_FALSE(report.frames[0].ok());
     EXPECT_NE(report.frames[0].newFailures[0].reason.find("0 amplitude point"), std::string::npos);
+}
+
+TEST_F(RenderingDb, AnEntryWithoutACompensationSegmentIsRefused) {
+    addSet("S");
+    addPartial("S", "p", {{0.0, 0.1}, {1000.0, 0.1}}, {{0.0, -6.0}, {1000.0, -6.0}});
+    precompute();
+    db.execute(
+        "MATCH (:FrameEntry)-[r:FRAME_ENTRY_PHYSICAL_TIMELINE]->(:PartialPhaseCompensationSegment) "
+        "DELETE r;");
+
+    const RenderingReport report = render({0});
+    ASSERT_FALSE(report.frames[0].ok());
+    EXPECT_NE(report.frames[0].newFailures[0].reason.find("0 phase compensation segment"),
+        std::string::npos);
+}
+
+// The phase meets its target, with the ramp's change of slope in the middle
+// of a frame. Closed form: N(t) = 0.1 t from phase 0; the target of 1.0 rad
+// at 1500 is reached by a linear ramp from 0 at 0 to the smallest
+// adjustment, which then holds.
+TEST_F(RenderingDb, ThePhaseMeetsItsTarget) {
+    db.execute("MATCH (c:EngineConfig) SET c.frameSize = 1000;");
+    addSet("S");
+    addPartial("S", "p", {{0.0, 0.1}, {3000.0, 0.1}}, {{0.0, -6.0}, {3000.0, -6.0}},
+        {{0.0, 0.0}, {1500.0, 1.0}});
+    precompute();
+
+    const RenderingReport report = render({0, 1, 2});
+    ASSERT_TRUE(report.ok()) << *report.frames[0].error;
+
+    double adjustment = std::remainder(1.0 - (0.1 * 1500.0), 2.0 * std::numbers::pi);
+    if (adjustment >= std::numbers::pi) {
+        adjustment -= 2.0 * std::numbers::pi;
+    }
+    const double linear = std::pow(10.0, -6.0 / 20.0);
+    std::vector<SampleValue> out;
+    for (const FrameOutcome& frame : report.frames) {
+        const std::vector<SampleValue> samples = readFloatWav(frame.file).samples;
+        out.insert(out.end(), samples.begin(), samples.end());
+    }
+    ASSERT_EQ(out.size(), 3000U);
+    for (const std::size_t t : {0U, 1U, 999U, 1000U, 1250U, 1499U, 1500U, 1501U, 2000U, 2999U}) {
+        const auto time = static_cast<double>(t);
+        const double delta = time < 1500.0 ? adjustment * time / 1500.0 : adjustment;
+        EXPECT_NEAR(out[t], std::sin((0.1 * time) + delta) * linear, 2e-6) << "sample " << t;
+    }
+    // At the target itself the phase is the target.
+    EXPECT_NEAR(out[1500], std::sin(1.0) * linear, 2e-6);
 }
 
 TEST_F(RenderingDb, PerSetFilesSumToTheFrame) {

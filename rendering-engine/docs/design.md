@@ -167,9 +167,11 @@ What the harness does **not** yet have, in the order it will need it:
 - **Label selection.** A request's labels are checked for existence and
   then ignored: every partial in a frame's scope is rendered
   (rendering.md §2, §13).
-- §1's responsibility 4, and the rest of 3, 5 and 6 -- phase
-  compensation, and the features the first versions leave out
-  (transform.md §2, precomputation.md §2, rendering.md §2).
+- §1's responsibility 4, and the rest of 3, 5 and 6 -- the features the
+  first versions leave out (transform.md §2, precomputation.md §2,
+  rendering.md §2). Phase compensation is done for physical timelines
+  (precomputation.md §6.8); the transform does not yet map the canonical
+  model's phase to them.
 - **The production egress.** Files in a directory are the test harness's
   egress; `object-storage` is not written (rendering.md §13).
 
@@ -299,8 +301,11 @@ Carried from overview.md §10, plus those specific to this component.
   chosen are not specified.~~ Specified in
   [precomputation.md](precomputation.md) §6.3–6.4: boundaries are the merged
   change points of every input, and segments run between consecutive ones.
-- **Phase compensation placement.** Whether it is expressed as OpenCypher against
-  `engine-db` or as C++ over extracted values is not settled.
+- ~~**Phase compensation placement.** Whether it is expressed as OpenCypher against
+  `engine-db` or as C++ over extracted values is not settled.~~ Settled
+  2026-10-03: C++, in precomputation
+  ([precomputation.md](precomputation.md) §6.8,
+  [ADR 0019](../../docs/adr/0019-phase-targets-are-met-by-linear-compensation-segments.md)).
 - **Job lifecycle and backpressure.** At target scale (1M+ partials) an instance
   has a great deal of concurrent work in flight. What limits it, and how partial
   failure is handled, are not designed. Idempotency makes retry safe in
