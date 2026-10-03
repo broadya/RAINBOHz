@@ -1,5 +1,15 @@
 %% RAINBOHz reference implementation - playback sequence
+%% Referenced from: overview.md, section "Render and delivery pipeline"
 %% The playback subsystem: architecture/overview.md section 5.3
+%%
+%% An initial idea of how playback would work, kept as system-level design
+%% context. Moved here from playback/docs/ on 2026-10-03. It is being made
+%% concrete, with many changes, component by component: the first
+%% playback-client (playback-client/docs/design.md) asks for one frame at a
+%% time and receives each frame's URL, rather than one request for a range
+%% answered with a URL array, and it talks to rendering-engine directly until
+%% playback-server exists. Where this diagram and a component's design
+%% document disagree, the design document describes what is built.
 %%
 %% Design intent, unchanged from the first draft of this diagram:
 %% No concept of locking from the playback-client perspective.

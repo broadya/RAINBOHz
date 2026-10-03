@@ -2,7 +2,12 @@
 
 **Status:** working draft
 **Describes:** the target architecture. This document does **not** describe the current state of the code.
-**Version:** 0.4, 2026-09-22
+**Version:** 0.5, 2026-10-03
+
+**Changed in 0.5.** `playback-server` is described more fully: besides summing across the
+`rendering-engine` instances, it presents a REST interface close to `rendering-engine`'s, carries
+API-gateway features such as rate limiting, and serves audio or URLs to it. The playback sequence
+diagram moved here from `playback/`, as `05-playback-sequence.mmd`.
 
 **Changed in 0.4.** `rendering-db/` is retired. `engine-db` is not one of two models any more: it is
 the engine's whole database, holding everything in the canonical model plus everything needed to
@@ -214,7 +219,13 @@ checks `object-storage` and the latest known source version, and either serves w
 or asks for the missing work via `message-bus`.
 
 It also performs **summing**: merging the per-shard objects into the audio the client asked for.
+In distributed mode that means summing across many `rendering-engine` instances, one per shard.
 Summing is expected to be a tree, and the tree is not expected to be deep.
+
+Its REST interface is expected to be very close to `rendering-engine`'s, so that a client written
+against one needs little change to use the other. It is also where the API-gateway concerns live,
+such as rate limiting. It serves either the audio itself or URLs to it, which `object-storage` then
+serves; which of the two is open. All of this is work in progress.
 
 #### `playback-client`
 A simple client of `playback-server` for use outside a DAW, and during development.
@@ -254,7 +265,9 @@ reads and writes the same store, so it never serialises the score to move it.
 
 ## 7. Render and delivery pipeline
 
-See `04-render-pipeline.mmd`.
+See `04-render-pipeline.mmd`, and `05-playback-sequence.mmd` for a first sketch of the same flow from
+`playback-client`'s side. That sketch predates the current design in places, and its header says
+where.
 
 Rendering is performed in response to playback requests. That has always been a core concept in this
 system: nothing renders speculatively.

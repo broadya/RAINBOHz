@@ -216,7 +216,8 @@ Four subsystems: compilation, rendering, playback, and orchestration.
    - **`engine-db`** — LadybugDB (embedded), the one physical database in the system, sharded by partial set.
    - **Object storage** — WAV objects addressed by URL.
 3. **Playback** — merging the shards on demand and serving them.
-   - **`playback-server`** — receives client requests, sums the per-shard objects, serves audio.
+   - **`playback-server`** — receives client requests, sums the per-shard objects (across many `rendering-engine` instances in distributed mode), serves audio or URLs to it. Its REST interface is expected to be close to `rendering-engine`'s, with API-gateway features such as rate limiting. Not built; work in progress (`architecture/overview.md` §5.3).
+   - **`playback-client`** — C++. A CLI that loops a range of the score through the default audio device, rendering every loop afresh, kept as a demonstration and a test component. Implemented in its first version in [`playback-client/`](playback-client/): until `playback-server` exists it talks to `rendering-engine`'s REST service directly, through an interface named for the API (`PlaybackApi`) so that the swap is a change of server URL; it fetches each rendered frame's `file://` object into one of two buffer lanes while the other plays. The lane protocol and the races it closes are in `playback-client/docs/design.md`; audio output is miniaudio (ADR 0018).
    - **Playback library** — C++.
    - **DAW plugin** — C++ (CLAP/ARA 3.x), wrapping the playback library.
 4. **Orchestration** — the message bus gluing the other three together. Kafka is the current intention. This subsystem is at a considerably earlier stage than the rest.
@@ -237,7 +238,7 @@ disagree, that one wins.
 | `engine-db/` | `engine-db` — **the implementation** | Cypher DDL | Under construction; rendering concepts, plus the canonical tempo map and partial-set timelines the transform reads |
 | `canonical-db/` | Canonical model — **design artefact** | Cypher DDL | Loads cleanly; not the implementation |
 | `rendering-engine/` | `rendering-engine` | C++20 | Hosts and loads `engine-db`; transforms musical time to physical time (first version: one tempo map, frequency and amplitude); precomputes; renders frames to WAV files (first version: mono, linear curves, labels ignored); `batch` and `server` (REST) modes |
-| `playback/` | `playback-client` / `playback-plugin` | C++ | Docs only |
+| `playback-client/` | `playback-client` | C++20 | First version: loops a range through the default audio device over `rendering-engine`'s REST service, two buffer lanes, mono; `--output-wav` for tests |
 
 Component directory names match the canonical component identifiers from
 `architecture/overview.md` §2. Do not introduce synonyms.
@@ -412,11 +413,35 @@ Databases (built from the schema DDL, which is the source of truth):
   (resources under `/v1`, problem+json errors). Change it with the code: CTest
   `server.openapi` validates it, and the `server.*` tests check live responses
   against it, when PyYAML, jsonschema and openapi-spec-validator are installed.
+  A Postman collection of the same calls,
+  `rendering-engine/test/postman/rendering-engine.postman_collection.json`,
+  is generated from the document by `make_postman_collection.py` beside it;
+  regenerate it when the document changes, and never edit the JSON by hand.
   The server includes its own cpp-httplib under a renamed namespace because
   Ladybug links an older copy; see ADR 0016 before bumping either.
 - `make format-rendering-engine` — apply `.clang-format` in place.
 - `make tidy-rendering-engine` — run `clang-tidy`.
 - `make clean-rendering-engine` — remove the build tree.
+
+`playback-client` (C++), built with the same presets and conventions:
+
+- `make playback-client` — configure and build. `PC_PRESET` defaults to
+  `RE_PRESET`.
+- `make test-playback-client` — build the client and `rendering-engine`, then
+  run the client's tests under CTest: GoogleTest unit tests that drive the
+  two threads over a scripted fake API, and `playback.e2e`, which plays three
+  loops from a real server to `--output-wav` and checks every sample against
+  the server's frames. The end-to-end test is skipped when the engine is not
+  built for the same preset.
+- `make run-playback-client` — play `PC_START` to `PC_END` (default `0:0` to
+  `4:0`), `PC_LOOPS` times, from the server at `PC_SERVER` (default the
+  address of `make run-rendering-engine-server`, with `/v1`). The client does
+  not load a score: `PUT /v1/score` first. Extra options go in `PC_ARGS`,
+  e.g. `PC_ARGS="--debug --keep-buffer"`.
+- `make format-playback-client`, `make tidy-playback-client` (currently
+  clean), `make api-docs-playback-client`, `make clean-playback-client` — as
+  for the engine. The component has its own `.clang-format`, `.clang-tidy`
+  and `.clangd`, copied from the engine's.
 
 `hzl-compiler` (Python):
 
@@ -435,7 +460,8 @@ Databases (built from the schema DDL, which is the source of truth):
 - `make clean-hzl-compiler` — remove `hzl-compiler/build` and the venv.
 
 Aggregates: `make build`, `make test`, `make clean`. `make test` runs the
-compiler's tests before the engine's, and the oracle check after.
+compiler's tests before the engine's, then the playback client's, and the
+oracle check after.
 
 The build configuration is selected with `RE_PRESET`, which defaults to
 `macos-debug` on Darwin and `linux-debug` elsewhere:
@@ -472,7 +498,7 @@ list.
 These apply to `rendering-engine` and to C++ components added later.
 
 - C++20, per README.md. Ladybug is C++20; going higher buys nothing until a C++23 feature is actually needed and would narrow the usable compiler set on the Linux and Windows targets.
-- C++ Core Guidelines, enforced as far as the `cppcoreguidelines-*` set in `.clang-tidy` reaches. `make tidy-rendering-engine` is currently clean; keep it that way.
+- C++ Core Guidelines, enforced as far as the `cppcoreguidelines-*` set in `.clang-tidy` reaches. `make tidy-rendering-engine` and `make tidy-playback-client` are currently clean; keep them that way.
 - Types `PascalCase`, functions and variables `camelCase`, private members trailing `_`, constants `kPascalCase`. Encoded in `.clang-tidy` as `readability-identifier-naming` options.
 - **Physical quantities and identifiers get their own unit types**, never
   bare primitives and never plain aliases. A time in samples, a phase, a

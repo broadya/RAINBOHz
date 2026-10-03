@@ -1,0 +1,30 @@
+# clangd configuration for playback-client.
+#
+# Build trees are per-preset (build/<preset>/), which is not one of the
+# locations clangd searches by default, so the compilation database has to be
+# named explicitly. Configure that preset at least once before expecting the
+# editor to resolve the dependencies' headers:
+#
+#   make configure-playback-client
+#
+# To point the editor at a different configuration, change the path below, or
+# override it in a personal `.clangd` further down the tree.
+
+CompileFlags:
+  CompilationDatabase: build/macos-debug
+
+Diagnostics:
+  # As in rendering-engine: include-cleaner's suggestions here are
+  # noise rather than signal.
+  UnusedIncludes: None
+  MissingIncludes: None
+  ClangTidy:
+    # The .clang-tidy file in this directory is authoritative. Only the checks
+    # too slow for interactive use are dropped here.
+    Remove:
+      - clang-analyzer-*
+
+InlayHints:
+  Enabled: true
+  ParameterNames: true
+  DeducedTypes: true

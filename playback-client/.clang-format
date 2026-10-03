@@ -1,0 +1,38 @@
+---
+# Formatting for playback-client: a copy of rendering-engine's, so that the
+# repository's C++ reads the same everywhere. rendering-engine's is
+# deliberately close to Ladybug's own .clang-format.
+#
+# Apply with `make format-playback-client` from the repository root.
+Language: Cpp
+BasedOnStyle: LLVM
+
+ColumnLimit: 100
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+AccessModifierOffset: -4
+NamespaceIndentation: None
+
+AlignAfterOpenBracket: DontAlign
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+AlwaysBreakTemplateDeclarations: Yes
+BreakBeforeBraces: Attach
+BreakConstructorInitializers: BeforeColon
+BreakInheritanceList: BeforeColon
+Cpp11BracedListStyle: true
+DerivePointerAlignment: false
+PointerAlignment: Left
+FixNamespaceComments: true
+IndentCaseLabels: false
+MaxEmptyLinesToKeep: 1
+SpaceBeforeParens: ControlStatements
+Standard: c++20
+
+SortIncludes: CaseSensitive
+IncludeBlocks: Preserve
+...

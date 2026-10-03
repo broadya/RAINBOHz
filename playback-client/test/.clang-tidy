@@ -1,0 +1,25 @@
+# Static analysis for playback-client's tests: the component's configuration,
+# less what misfires on GoogleTest idiom. As rendering-engine/test/.clang-tidy,
+# plus one.
+#
+#   bugprone-unchecked-optional-access -- a test establishes that an optional
+#     holds a value with ASSERT_TRUE(x.has_value()), which returns from the
+#     test on failure. The analyser cannot see through the macro.
+#   cppcoreguidelines-non-private-member-variables-in-classes -- a fixture
+#     shares state with its TEST_F bodies through protected members, and the
+#     fakes in test_support.hpp are scripted through public ones.
+#   readability-function-cognitive-complexity, macros ignored -- every
+#     EXPECT_* expands into branches, so a plain list of expectations scores
+#     as complex as nested logic.
+#
+# Everything else applies to tests exactly as it does to the component.
+
+InheritParentConfig: true
+
+Checks: >
+  -bugprone-unchecked-optional-access,
+  -cppcoreguidelines-non-private-member-variables-in-classes
+
+CheckOptions:
+  - key: readability-function-cognitive-complexity.IgnoreMacros
+    value: true

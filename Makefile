@@ -2,7 +2,8 @@
 #
 # Conventional Makefile, run from the repository root. This is the
 # software-engineering build: documentation, and compilation of the components
-# (the C++ rendering engine, and the Python HzL compiler and its tests).
+# (the C++ rendering engine and playback client, and the Python HzL compiler
+# and its tests).
 # It is distinct from the DSL/content compilation pipeline described in
 # AGENTS.md, which is Ninja-based and not yet implemented.
 #
@@ -110,7 +111,31 @@ RE_DOXYGEN_OUT  := $(RE_DIR)/build/doxygen
 RE_DOC_SOURCES  := $(filter-out $(RE_DIR)/test/%,$(RE_SOURCES)) \
 	$(RE_DIR)/README.md $(RE_DIR)/Doxyfile
 
-.PHONY: all docs clean-docs api-docs-rendering-engine \
+# playback-client (C++). Same presets and tools as rendering-engine; its own
+# build tree, so neither component's build disturbs the other's.
+PC_DIR    := playback-client
+PC_PRESET ?= $(RE_PRESET)
+PC_BUILD  := $(PC_DIR)/build/$(PC_PRESET)
+
+# What `make run-playback-client` plays: a range of the score loaded in the
+# server at PC_SERVER, which `make run-rendering-engine-server` starts at the
+# default address. The client does not load a score; do that first with
+# PUT /v1/score (rendering-engine/docs/server.md §6).
+#   make run-playback-client PC_START=0:0 PC_END=4:0 PC_LOOPS=3 PC_ARGS=--debug
+PC_SERVER ?= http://$(RE_HOST):$(RE_PORT)/v1
+PC_START  ?= 0:0
+PC_END    ?= 4:0
+PC_LOOPS  ?= 1
+# Extra client options, e.g. PC_ARGS="--debug --keep-buffer".
+PC_ARGS   ?=
+
+PC_SOURCES := $(shell find $(PC_DIR)/src $(PC_DIR)/include $(PC_DIR)/test \
+	-name '*.cpp' -o -name '*.hpp' 2>/dev/null)
+PC_DOXYGEN_OUT := $(PC_DIR)/build/doxygen
+PC_DOC_SOURCES := $(filter-out $(PC_DIR)/test/%,$(PC_SOURCES)) \
+	$(PC_DIR)/README.md $(PC_DIR)/Doxyfile $(wildcard $(PC_DIR)/docs/*.md)
+
+.PHONY: all docs clean-docs api-docs-rendering-engine api-docs-playback-client \
         validate-schemas validate-engine-schema validate-canonical-schema \
         init-engine-db init-canonical-db \
         reset-engine-db reset-canonical-db \
@@ -118,6 +143,9 @@ RE_DOC_SOURCES  := $(filter-out $(RE_DIR)/test/%,$(RE_SOURCES)) \
         run-rendering-engine run-rendering-engine-server \
         format-rendering-engine tidy-rendering-engine \
         clean-rendering-engine \
+        playback-client configure-playback-client test-playback-client \
+        run-playback-client format-playback-client tidy-playback-client \
+        clean-playback-client \
         hzl-compiler hzl-compile test-hzl-compiler test-hzl-oracle run-hzl-score \
         clean-hzl-compiler build test clean help
 
@@ -133,7 +161,7 @@ help:
 # ---------------------------------------------------------------------------
 
 ## docs: regenerate schema Mermaid diagrams and Doxygen API documentation
-docs: $(DIAGRAMS) api-docs-rendering-engine
+docs: $(DIAGRAMS) api-docs-rendering-engine api-docs-playback-client
 
 engine-db/docs/engine-schema.mmd: engine-db/schema/engine-schema.cypher $(SCHEMA_TOOL)
 	@mkdir -p $(@D)
@@ -156,10 +184,19 @@ $(RE_DOXYGEN_OUT)/html/index.html: $(RE_DOC_SOURCES)
 	cd $(RE_DIR) && RE_DOXYGEN_OUT=$(abspath $(RE_DOXYGEN_OUT)) $(DOXYGEN) Doxyfile
 	@touch $@
 
+## api-docs-playback-client: generate playback-client Doxygen HTML
+api-docs-playback-client: $(PC_DOXYGEN_OUT)/html/index.html
+
+$(PC_DOXYGEN_OUT)/html/index.html: $(PC_DOC_SOURCES)
+	@command -v $(DOXYGEN) >/dev/null || { echo "doxygen not found; brew install doxygen"; exit 1; }
+	@mkdir -p $(PC_DOXYGEN_OUT)
+	cd $(PC_DIR) && PC_DOXYGEN_OUT=$(abspath $(PC_DOXYGEN_OUT)) $(DOXYGEN) Doxyfile
+	@touch $@
+
 ## clean-docs: remove generated diagrams and API documentation
 clean-docs:
 	rm -f $(DIAGRAMS)
-	rm -rf $(RE_DOXYGEN_OUT)
+	rm -rf $(RE_DOXYGEN_OUT) $(PC_DOXYGEN_OUT)
 
 # ---------------------------------------------------------------------------
 # Schema validation
@@ -275,6 +312,50 @@ clean-rendering-engine:
 	rm -rf $(RE_DIR)/build
 
 # ---------------------------------------------------------------------------
+# playback-client (C++)
+# ---------------------------------------------------------------------------
+#
+# A CLI that loops a range of the score loaded in rendering-engine's REST
+# service through the default audio device (playback-client/docs/design.md).
+
+## configure-playback-client: run CMake configure only
+configure-playback-client:
+	cd $(PC_DIR) && cmake --preset $(PC_PRESET)
+
+$(PC_BUILD)/CMakeCache.txt:
+	cd $(PC_DIR) && cmake --preset $(PC_PRESET)
+
+## playback-client: build the playback client
+playback-client: $(PC_BUILD)/CMakeCache.txt
+	cd $(PC_DIR) && cmake --build --preset $(PC_PRESET)
+
+# The end-to-end test serves with rendering-engine's binary for the same
+# preset, so the engine is built first.
+
+## test-playback-client: build the client and the engine, then run the client's tests
+test-playback-client: playback-client rendering-engine
+	cd $(PC_DIR) && ctest --preset $(PC_PRESET)
+
+## run-playback-client: play $(PC_START) to $(PC_END), $(PC_LOOPS) loop(s), from the server at $(PC_SERVER)
+run-playback-client: playback-client
+	$(PC_BUILD)/bin/playback-client --server $(PC_SERVER) \
+	    --start $(PC_START) --end $(PC_END) --loops $(PC_LOOPS) $(PC_ARGS)
+
+## format-playback-client: apply .clang-format in place
+format-playback-client:
+	@test -n "$(CLANG_FORMAT)" || { echo "clang-format not found"; exit 1; }
+	$(CLANG_FORMAT) -i $(PC_SOURCES)
+
+## tidy-playback-client: run clang-tidy (requires a configured preset)
+tidy-playback-client: $(PC_BUILD)/CMakeCache.txt
+	@test -n "$(CLANG_TIDY)" || { echo "clang-tidy not found; brew install llvm"; exit 1; }
+	$(CLANG_TIDY) -p $(PC_BUILD) $(CLANG_TIDY_ARGS) $(filter %.cpp,$(PC_SOURCES))
+
+## clean-playback-client: remove the playback-client build tree
+clean-playback-client:
+	rm -rf $(PC_DIR)/build
+
+# ---------------------------------------------------------------------------
 # hzl-compiler (Python)
 # ---------------------------------------------------------------------------
 #
@@ -343,13 +424,13 @@ clean-hzl-compiler:
 # ---------------------------------------------------------------------------
 
 ## build: build every compiled component
-build: rendering-engine hzl-compiler
+build: rendering-engine playback-client hzl-compiler
 
 # Schema validation first: it is seconds rather than minutes, needs no
 # compiler, and a schema that does not load makes the rest moot.
 
 ## test: run every component's tests
-test: validate-schemas test-hzl-compiler test-rendering-engine test-hzl-oracle
+test: validate-schemas test-hzl-compiler test-rendering-engine test-playback-client test-hzl-oracle
 
 ## clean: remove all generated artefacts
-clean: clean-docs clean-rendering-engine clean-hzl-compiler
+clean: clean-docs clean-rendering-engine clean-playback-client clean-hzl-compiler

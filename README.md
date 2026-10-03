@@ -60,7 +60,7 @@ This project is currently moving from its proof-of-concept phase towards a scala
 | `engine-db/` | Schema of `engine-db`, the engine's database and the only one — under construction |
 | `canonical-db/` | Canonical (composer-facing) model — design artefact, not the implementation |
 | `rendering-engine/` | Rendering engine, C++ — loads, transforms, precomputes and renders; first version |
-| `playback/` | Playback component and plug-in — documentation only |
+| `playback-client/` | Playback client, C++ — loops a range of a score through the default audio device; first version |
 | `docs/adr/` | Architecture Decision Records |
 | `scripts/` | Schema loading and shared DDL machinery |
 | `tools/` | Developer tooling |

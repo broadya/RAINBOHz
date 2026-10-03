@@ -1,0 +1,59 @@
+# Doxygen configuration for playback-client, modelled on rendering-engine's.
+#
+# Only settings that differ from Doxygen's defaults are listed; everything else
+# is the default. `doxygen -x Doxyfile` shows the difference against the
+# installed version, and `doxygen -g` writes a fully commented reference file.
+#
+# Run from this directory -- paths are relative to it. Normally invoked by
+# `make api-docs-playback-client` from the repository root, which also sets
+# PC_DOXYGEN_OUT. The documentation convention it checks is in AGENTS.md
+# (Documentation Comments).
+
+PROJECT_NAME           = "RAINBOHz playback-client"
+PROJECT_BRIEF          = "Loops a range of the score through the default audio device"
+
+# Generated output is a build artefact, kept under the gitignored build tree.
+OUTPUT_DIRECTORY       = $(PC_DOXYGEN_OUT)
+
+INPUT                  = README.md docs include src
+RECURSIVE              = YES
+FILE_PATTERNS          = *.hpp *.cpp *.md
+USE_MDFILE_AS_MAINPAGE = README.md
+STRIP_FROM_PATH        = .
+STRIP_FROM_INC_PATH    = include
+
+# The convention requires a comment block on every function, internal ones
+# included, so internal functions are extracted and checked too. This is
+# developer documentation, not a published API reference.
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+EXTRACT_ANON_NSPACES   = YES
+EXTRACT_LOCAL_CLASSES  = YES
+
+BUILTIN_STL_SUPPORT    = YES
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+
+# Warnings are how the convention is enforced. WARN_NO_PARAMDOC reports a
+# function with some documentation but a missing @param or @return.
+# WARN_AS_ERROR stays NO until the existing code has been brought up to the
+# convention; after that it should become FAIL_ON_WARNINGS.
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_IF_INCOMPLETE_DOC = YES
+WARN_NO_PARAMDOC       = YES
+WARN_AS_ERROR          = NO
+WARN_FORMAT            = "$file:$line: $text"
+
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+HTML_COLORSTYLE        = AUTO_LIGHT
+GENERATE_TREEVIEW      = YES
+SEARCHENGINE           = YES
+GENERATE_LATEX         = NO
+
+# Graphviz is optional: no include or collaboration graphs, and no extra
+# dependency for `make docs`.
+HAVE_DOT               = NO
