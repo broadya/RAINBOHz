@@ -53,7 +53,7 @@ The system is an end-to-end pipeline with multiple stages. This initial phase im
 - **Graph database:** LadybugDB (embedded, linked via Python bindings)
 - **Query language:** OpenCypher
 - **Rendering request handler:** TypeScript (Node.js)
-- **Renderer (future):** C++23 with Google Highway SIMD
+- **Renderer (future):** C++20 with Google Highway SIMD
 - **DAW integration (future):** CLAP/ARA 3.x thin client
 - **Containerisation:** Docker (multi-arch arm64)
 - **Cloud (future):** AWS Lambda (Graviton), ENA networking
@@ -497,7 +497,7 @@ list.
 
 These apply to `rendering-engine` and to C++ components added later.
 
-- C++20, per README.md. Ladybug is C++20; going higher buys nothing until a C++23 feature is actually needed and would narrow the usable compiler set on the Linux and Windows targets.
+- C++20, per README.md. Ladybug is C++20; going higher buys nothing until a C++23 feature is actually needed and would narrow the usable compiler set on the Linux and Windows targets. For parallelism and SIMD the trigger to revisit is C++26 (`std::simd`, `std::execution`) once it ships in all three toolchains; until then SIMD comes from Highway, which needs only C++17.
 - C++ Core Guidelines, enforced as far as the `cppcoreguidelines-*` set in `.clang-tidy` reaches. `make tidy-rendering-engine` and `make tidy-playback-client` are currently clean; keep them that way.
 - Types `PascalCase`, functions and variables `camelCase`, private members trailing `_`, constants `kPascalCase`. Encoded in `.clang-tidy` as `readability-identifier-naming` options.
 - **Physical quantities and identifiers get their own unit types**, never
