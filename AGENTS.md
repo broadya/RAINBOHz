@@ -8,7 +8,9 @@ intentionally contains only a pointer here.
 
 This is a PhD project in computer music: "macro-scale additive synthesis." The system decouples additive synthesis partials from symbolic notes, merging composition and sound design across long time scales. Architecture is inspired by Pixar USD/Hydra.
 
-This repo contains the production implementation. The `proof-of-concept/` directory contains archived PoC code — do not modify or extend it, though it may be referenced for design context.
+This repo contains the production implementation. The `proof-of-concept/` directory contains archived PoC code — do not modify or extend it, though it may be referenced for design context — and, alongside it, active PoCs for new features (see below).
+
+**Ignore `lab-book/`.** It is the author's private notes, not a maintained project history. Do not read it, cite it, or treat it as a source of truth.
 
 ## Architecture
 
@@ -286,9 +288,16 @@ It is a source `engine-db` draws on. Do not treat it as the implementation, and
 do not try to merge it into `engine-db` yourself — see the schema prohibition
 below.
 
-`proof-of-concept/` is archived reference material from an earlier phase. It is
-kept for historical purposes only: do not modify it, do not extend it, and do
-not wire it into any build.
+`proof-of-concept/` holds proofs of concept, none of them wired into any build.
+The earlier-phase sub-directories (`audio-rendering/`, `hzl-language/`,
+`maths/`) are archived reference material, kept for historical purposes only:
+do not modify or extend them. New, active PoCs sit alongside them, each in its
+own sub-directory:
+
+- `spatial-audio/` — Python 3.12 / NumPy. Virtual microphones (coincident,
+  direction-only gain) for multi-channel and spatial output: mono, M/S and
+  stereo, Blumlein, FOA A- and B-format (AmbiX). It is the oracle for a C++20
+  PoC that follows, before integration into `rendering-engine`.
 
 ## Graph Schema (Canonical Object Model)
 
@@ -491,7 +500,7 @@ list.
 - Schema changes are DDL files, not ad-hoc queries.
 - During early development, schema migration = drop and recreate from DDL + full rebuild from source YAML.
 - Architecture Decision Records (ADRs) in `docs/adr/` for non-obvious design choices, following the [MADR](https://adr.github.io/madr/) convention. Start from `docs/adr/adr-template.md`; see `docs/adr/README.md` for numbering and status rules. ADRs record the current situation and are edited in place when it changes; git holds the history. A decision replaced outright is marked superseded by its successor.
-- The `proof-of-concept/` directory is archived reference material, kept for historical purposes. Do not modify it, extend it, or add it to any build.
+- The archived sub-directories of `proof-of-concept/` (`audio-rendering/`, `hzl-language/`, `maths/`) are reference material, kept for historical purposes. Do not modify or extend them. No PoC is added to any build.
 
 ### C++ Conventions
 
@@ -556,7 +565,7 @@ These apply to `rendering-engine` and to C++ components added later.
 ### Documentation Comments
 
 Every function has a comment block immediately before it that explains it.
-This applies to all languages in the repository except `proof-of-concept/`. The block
+This applies to all languages in the repository except the archived sub-directories of `proof-of-concept/`. The block
 can be short when the function is simple, but it must cover:
 
 1. **Purpose.** The first line is a one-sentence summary of what the function
