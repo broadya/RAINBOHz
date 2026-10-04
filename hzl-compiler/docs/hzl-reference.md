@@ -308,11 +308,13 @@ order and lets time yield (ADR 0014); the compiler does not check for it.
 | --- | --- | --- |
 | `phase: 90` | a **target**: the partial is at 90° here | `phase: 90.0, phase_free_run: false` |
 | `phase: free` | **free-running**: no target here; the span up to here is left as the frequency makes it | `phase_free_run: true` |
-| left out | the **default**: this state plays no role in phase | neither |
+| left out, or `phase: null` | the **default**: this state plays no role in phase | neither |
 
-`phase: null` is refused, with a pointer to `free`: the proof of concept
-wrote `null` for a free-running phase, and taking it for the default would
-change the sound without a word.
+`phase: null` is the default, as if left out, just as `null` is for every
+other property; it maps to NULL in both columns. Note that the proof of
+concept used `null` for free-running; here that is `free`. Under `Update`
+(§7.3) `null`, like a missing `phase`, leaves an earlier transform's phase as
+it was; to clear a target in the same stage, write `free`.
 
 A target is met by a linear adjustment over the span from the previous
 target or free-running point, wherever that is; default states in between do

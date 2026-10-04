@@ -149,19 +149,17 @@ def check_phase(value: float, where: Where) -> float:
 def optional_phase(node: Node, key: str = "phase") -> Phase:
     """Reads a phase: degrees for a target, `free` for a free-running point.
 
-    An absent key is the default (None). An explicit `null` is refused rather
-    than read as the default: the proof of concept wrote `null` for a
-    free-running phase, and the two must not be confused silently.
+    An absent key, or `null`, is the default (None), as for every other
+    property. (The proof of concept wrote `null` for a free-running phase;
+    here that is `free`.)
 
     Raises:
-        HzlError: if the value is null, a string other than `free`, or a
-            number out of range.
+        HzlError: if the value is a string other than `free`, or a number out
+            of range.
     """
-    if not node.has(key):
-        return None
     value = node.optional(key, "scalar")
     if value is None:
-        raise node.error(f"{key} may not be null; write 'free' for a free-running phase, or leave it out", key)
+        return None
     if isinstance(value, str):
         if value != FREE_RUN.value:
             raise node.error(f"{key} must be degrees or 'free', got {value!r}", key)

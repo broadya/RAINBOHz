@@ -135,7 +135,7 @@ def test_spatial_properties_are_not_in_this_version(tree):
         resolve(tree, {"state_sets/p": p}, "state_sets/p")
 
 
-def test_phase_is_a_target_in_degrees_free_or_absent(tree):
+def test_phase_is_a_target_in_degrees_free_or_the_default(tree):
     p = hzl(
         "partial_state_set",
         "state_sets/p",
@@ -145,16 +145,16 @@ def test_phase_is_a_target_in_degrees_free_or_absent(tree):
           - partial_state: {identifier: b, phase: -180.0}
           - partial_state: {identifier: c, phase: free}
           - partial_state: {identifier: d}
+          - partial_state: {identifier: e, phase: null}
         """,
     )
-    assert [s.phase for s in resolve(tree, {"state_sets/p": p}, "state_sets/p").states] == [90.0, -180.0, FREE_RUN, None]
+    assert [s.phase for s in resolve(tree, {"state_sets/p": p}, "state_sets/p").states] == [90.0, -180.0, FREE_RUN, None, None]
 
 
 @pytest.mark.parametrize(
     ("value", "message"),
     [
         ("180.5", r"partial_state.phase: phase is in degrees and must lie in \[-180, 180\]"),
-        ("null", "phase may not be null; write 'free'"),
         ("natural", "phase must be degrees or 'free', got 'natural'"),
         ("true", "expected scalar for 'phase', got boolean True"),
     ],
