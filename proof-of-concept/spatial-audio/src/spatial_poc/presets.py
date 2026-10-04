@@ -14,7 +14,7 @@ from collections.abc import Callable
 import numpy as np
 
 from .mics import Mic, MicArray
-from .patterns import cardioid, figure_8, omni
+from .patterns import CARDIOID, cardioid, figure_8, first_order, omni
 
 # Elevation of the tetrahedron's vertices: asin(1/√3) ≈ 35.26°.
 TETRA_ELEVATION_DEG = math.degrees(math.asin(1.0 / math.sqrt(3.0)))
@@ -71,6 +71,31 @@ def ms_theoretical() -> MicArray:
     return MicArray("ms_theoretical", raw.mics, ("L", "R"), MS_OMNI_TO_LR)
 
 
+def xy(half_angle_deg: float = 45.0, a: float = CARDIOID) -> MicArray:
+    """An X/Y pair: two coincident first-order mics angled left and right, output directly as L/R.
+
+    The default is the classic pair of cardioids at ±45° (90° between them),
+    modelled as perfect first-order cardioids: 0.5 + 0.5·cos θ. Real cardioids
+    narrow at high frequencies; a perfect one does not, which is what keeps the
+    maths easy and the gain continuous everywhere.
+
+    Args:
+        half_angle_deg: Angle of each mic off the front, in degrees; L points
+            at +half_angle_deg, R at −half_angle_deg.
+        a: First-order shape parameter of both mics, in [0, 1]; the default
+            is cardioid. Smaller values (super- or hypercardioid) narrow the
+            pattern and add a reversed-polarity rear lobe.
+
+    Returns:
+        The array, named "xy".
+
+    Raises:
+        ValueError: if `a` is outside [0, 1].
+    """
+    mics = (Mic("L", first_order(a, half_angle_deg)), Mic("R", first_order(a, -half_angle_deg)))
+    return MicArray("xy", mics, ("L", "R"))
+
+
 def blumlein() -> MicArray:
     """A Blumlein pair: figure-8s at +45° (L) and −45° (R), output directly as L/R."""
     return MicArray("blumlein", (Mic("L", figure_8(45.0)), Mic("R", figure_8(-45.0))), ("L", "R"))
@@ -114,6 +139,7 @@ PRESETS: dict[str, Callable[[], MicArray]] = {
     "mono": mono,
     "ms_theoretical_raw": ms_theoretical_raw,
     "ms_theoretical": ms_theoretical,
+    "xy": xy,
     "blumlein": blumlein,
     "blumlein_rotated_raw": blumlein_rotated_raw,
     "blumlein_rotated": blumlein_rotated,

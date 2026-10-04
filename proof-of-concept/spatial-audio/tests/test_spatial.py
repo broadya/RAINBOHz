@@ -15,6 +15,7 @@ from spatial_poc.presets import (
     foa_b_direct,
     foa_b_from_a,
     mono,
+    xy,
     ms_theoretical,
     ms_theoretical_raw,
 )
@@ -187,6 +188,43 @@ def test_ms_theoretical_is_continuous_everywhere():
     for az in np.arange(-180.0, 180.0, 15.0):
         col = np.array([gains(array, az, el) for el in np.arange(-90.0, 90.0 + step, step)])
         assert np.max(np.abs(np.diff(col, axis=0))) <= bound
+
+
+# ---- X/Y ----------------------------------------------------------------------
+
+
+def test_xy_cardioids_at_45():
+    c45 = 0.5 + 0.5 * math.cos(math.radians(45.0))
+    c135 = 0.5 + 0.5 * math.cos(math.radians(135.0))
+    np.testing.assert_allclose(gains(xy(), 0.0), [c45, c45])  # centre: −1.38 dB each
+    np.testing.assert_allclose(gains(xy(), 45.0), [1.0, 0.5])  # on the L axis; R is 90° off
+    np.testing.assert_allclose(gains(xy(), -45.0), [0.5, 1.0])
+    np.testing.assert_allclose(gains(xy(), 180.0), [c135, c135])
+    np.testing.assert_allclose(gains(xy(), -135.0), [0.0, 0.5], atol=1e-12)  # L's null; R is 90° off
+
+
+def test_xy_cardioids_never_reverse_polarity():
+    for p in random_positions(500):
+        assert np.all(xy().output_gains(p) >= -1e-12)
+
+
+def test_xy_is_left_right_symmetric():
+    for p in random_positions(100):
+        mirror = SourcePosition(-p.azimuth_deg, p.elevation_deg)
+        np.testing.assert_allclose(xy().output_gains(p), xy().output_gains(mirror)[::-1], atol=1e-12)
+
+
+def test_xy_overhead_is_centred():
+    # Straight up both cardioids are 90° off axis: 0.5 each, whatever the azimuth.
+    for az in range(-180, 180, 30):
+        np.testing.assert_allclose(gains(xy(), az, 90.0), [0.5, 0.5], atol=1e-12)
+
+
+def test_xy_parameters():
+    left, right = gains(xy(half_angle_deg=60.0, a=0.25), 60.0)
+    assert left == pytest.approx(1.0)
+    assert right == pytest.approx(0.25 + 0.75 * math.cos(math.radians(120.0)))  # hypercardioid rear lobe: < 0
+    assert right < 0.0
 
 
 # ---- Blumlein ----------------------------------------------------------------

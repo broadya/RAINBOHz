@@ -859,8 +859,8 @@ CREATE REL TABLE HAS_LABEL (
 // ============================================================
 CREATE NODE TABLE SpatialPositionState (
     id          SERIAL,
-    azimuth      FLOAT,
-    elevation    FLOAT,
+    azimuth      DOUBLE,
+    elevation    DOUBLE,
     distance     FLOAT,
     PRIMARY KEY (id)
 );
@@ -1662,10 +1662,13 @@ CREATE REL TABLE POINT_AT (
 //
 // Channel mode, INT8:
 // 0 mono
-// 1 stereo (derived from an "M/S recording" then decoded to stero channels)
-// 2 M/S (actually closer to native for this system, but less useful as typical output)
-// 3 FOA A-format
-// 4 FOA B-format
+// 1 stereo, derived from M/S
+// 2 stereo, dervied from X/Y pair
+// 3 M/S
+// 4 Blumlein classic
+// 5 Blumlein rotated 45 degrees
+// 6 FOA A-format
+// 7 FOA B-format
 // ============================================================
 CREATE NODE TABLE EngineConfig (
     id          SERIAL,

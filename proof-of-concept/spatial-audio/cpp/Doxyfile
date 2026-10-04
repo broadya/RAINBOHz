@@ -1,0 +1,39 @@
+# Doxygen configuration for the spatial-audio C++ PoC, modelled on
+# rendering-engine/Doxyfile. Only settings that differ from Doxygen's defaults
+# are listed. Run `doxygen` from this directory; output goes under the
+# gitignored build tree. Tests are not documented.
+
+PROJECT_NAME           = "RAINBOHz spatial-audio PoC"
+PROJECT_BRIEF          = "Virtual microphone gains for the engine's channel modes"
+
+OUTPUT_DIRECTORY       = build/doxygen
+
+INPUT                  = include src
+RECURSIVE              = YES
+FILE_PATTERNS          = *.hpp *.cpp
+STRIP_FROM_PATH        = .
+STRIP_FROM_INC_PATH    = include
+
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+EXTRACT_ANON_NSPACES   = YES
+EXTRACT_LOCAL_CLASSES  = YES
+
+BUILTIN_STL_SUPPORT    = YES
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_IF_INCOMPLETE_DOC = YES
+WARN_NO_PARAMDOC       = YES
+WARN_AS_ERROR          = NO
+WARN_FORMAT            = "$file:$line: $text"
+
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+GENERATE_TREEVIEW      = YES
+GENERATE_LATEX         = NO
+HAVE_DOT               = NO

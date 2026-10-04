@@ -297,8 +297,11 @@ for design context, and are not to be modified. Current PoCs:
 
 - `spatial-audio/` — Python 3.12 / NumPy. Virtual microphones (coincident,
   direction-only gain) for multi-channel and spatial output: mono, M/S and
-  stereo, Blumlein, FOA A- and B-format (AmbiX). It is the oracle for a C++20
-  PoC that follows, before integration into `rendering-engine`.
+  stereo, X/Y, Blumlein, FOA A- and B-format (AmbiX). It is the oracle for
+  the C++20 port in `spatial-audio/cpp/`: per-channel gains for each
+  `EngineConfig.channelMode` (0–7) from a position, standalone CMake with its
+  own unit types and GoogleTest, checked against a golden CSV exported from
+  the Python. Integration into `rendering-engine` follows.
 
 ## Graph Schema (Canonical Object Model)
 

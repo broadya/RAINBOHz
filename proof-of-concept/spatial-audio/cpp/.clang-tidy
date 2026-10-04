@@ -1,0 +1,93 @@
+# Static analysis for the spatial-audio C++ PoC, copied from rendering-engine.
+#
+# README.md commits this project to the C++ Core Guidelines, so the
+# cppcoreguidelines-* set is the backbone here rather than an optional extra.
+#
+# Run clang-tidy -p build/<preset> over src/*.cpp and test/*.cpp. It needs a
+# compile_commands.json, so configure a preset first.
+#
+# Third-party sources (Ladybug, GoogleTest) are excluded via HeaderFilterRegex:
+# they have their own standards and their diagnostics would drown ours.
+
+Checks: >
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  concurrency-*,
+  cppcoreguidelines-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -misc-include-cleaner,
+  -misc-non-private-member-variables-in-classes,
+  -modernize-use-nodiscard,
+  -modernize-use-trailing-return-type,
+  -portability-avoid-pragma-once,
+  -readability-identifier-length,
+  -readability-magic-numbers
+
+# Notes on the disabled checks that are not simply noise:
+#   cppcoreguidelines-pro-bounds-avoid-unchecked-container-access -- fires on
+#     every `s[i]` in the Cypher statement splitter, which is a character-level
+#     scanner and indexes a string on nearly every line. The suggested `.at()`
+#     turns a logic error into a thrown exception rather than preventing it,
+#     and costs a bounds check per character on the hot path of loading a
+#     schema. The loop conditions are the bounds check. Sibling of
+#     pro-bounds-constant-array-index, disabled just below for the same reason.
+#   portability-avoid-pragma-once -- `#pragma once` is supported by every
+#     compiler this project targets, and Ladybug uses it throughout. Include
+#     guards would buy nothing and diverge from the code we read alongside ours.
+#   misc-include-cleaner -- too aggressive against Ladybug's umbrella headers.
+#   modernize-use-nodiscard -- wants [[nodiscard]] on every const member
+#     function returning a value. The project reserves it for returns where
+#     discarding is a real hazard; see AGENTS.md, C++ Conventions.
+#   cppcoreguidelines/readability-magic-numbers -- will be revisited once there
+#     is real numeric code; blanket-enabled they would flag test fixtures.
+
+# Guidance, not a gate, until the component actually exists. Flip to a list of
+# checks that must never regress once there is code worth defending.
+WarningsAsErrors: ''
+
+# Only our own headers.
+HeaderFilterRegex: 'spatial-audio/cpp/(include|src|test)/.*\.(hpp|h)$'
+
+CheckOptions:
+  # Types are PascalCase, functions and variables camelCase, members carry a
+  # trailing underscore, constants are kPascalCase. This matches the existing
+  # C++ in the repository and Ladybug's own conventions.
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.FunctionCase
+    value: camelBack
+  - key: readability-identifier-naming.VariableCase
+    value: camelBack
+  - key: readability-identifier-naming.ParameterCase
+    value: camelBack
+  - key: readability-identifier-naming.PrivateMemberCase
+    value: camelBack
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: '_'
+  - key: readability-identifier-naming.ConstexprVariableCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConstexprVariablePrefix
+    value: 'k'
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.GlobalConstantPrefix
+    value: 'k'
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE
