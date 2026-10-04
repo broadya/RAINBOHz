@@ -5,6 +5,7 @@
 // with small canonical-model scores built here.
 
 #include "rainbohz/rendering_engine/engine_db.hpp"
+#include "rainbohz/rendering_engine/precomputation.hpp"
 #include "rainbohz/rendering_engine/script_loader.hpp"
 #include "rainbohz/rendering_engine/transform/transform.hpp"
 
@@ -36,8 +37,11 @@ using rainbohz::rendering_engine::loadCypherFile;
 using rainbohz::rendering_engine::optionalDouble;
 using rainbohz::rendering_engine::optionalInt64;
 using rainbohz::rendering_engine::Phase;
+using rainbohz::rendering_engine::PrecomputationReport;
+using rainbohz::rendering_engine::precomputeAll;
 using rainbohz::rendering_engine::requireInt64;
 using rainbohz::rendering_engine::SampleTime;
+using rainbohz::rendering_engine::wrapHalfOpen;
 using rainbohz::rendering_engine::transform::collapseFreeRuns;
 using rainbohz::rendering_engine::transform::fitToLifeline;
 using rainbohz::rendering_engine::transform::Knot;
@@ -398,8 +402,120 @@ PartialTransformOutcome outcomeOf(const TransformReport& report, const std::stri
     return {};
 }
 
+/// The start_phase of each PartialIntegrableSegment after precomputation:
+/// the natural phase at each segment's start, unwrapped, from φ₀.
+///
+/// @param db       Database to query.
+/// @param partial  Partial.name.
+/// @return The phases, radians, ordered by start time.
+std::vector<double> startPhases(EngineDb& db, const std::string& partial) {
+    const std::vector<DbRow> rows =
+        db.query("MATCH (:Partial {name: $name})-[:HAS_PHYSICAL_TIMELINE]->"
+                 "(:PartialSegmentPhysicalTimeline)-[:NEXT_POINT*1..30]->"
+                 "(s:PartialIntegrableSegment) RETURN s.start_phase ORDER BY s.start_time;",
+            {{"name", partial}});
+    std::vector<double> phases;
+    phases.reserve(rows.size());
+    for (const DbRow& row : rows) {
+        phases.push_back(optionalDouble(row.at(0)).value());
+    }
+    return phases;
+}
+
+/// The partial's initial phase φ₀ after precomputation: the first segment's
+/// start_phase.
+///
+/// @param db       Database to query.
+/// @param partial  Partial.name.
+/// @return φ₀, radians.
+double initialPhase(EngineDb& db, const std::string& partial) {
+    return startPhases(db, partial).at(0);
+}
+
+/// One PartialPhaseCompensationSegment, as written by precomputation.
+struct CompensationRow {
+    /// start_time and end_time, samples.
+    double start = 0.0;
+    double end = 0.0;
+
+    /// start_phase_delta and end_phase_delta, radians.
+    double startDelta = 0.0;
+    double endDelta = 0.0;
+};
+
+/// A partial's PartialPhaseCompensationSegments after precomputation.
+///
+/// @param db       Database to query.
+/// @param partial  Partial.name.
+/// @return The segments, ordered by start time.
+std::vector<CompensationRow> compensation(EngineDb& db, const std::string& partial) {
+    const std::vector<DbRow> rows =
+        db.query("MATCH (:Partial {name: $name})-[:HAS_PHYSICAL_TIMELINE]->"
+                 "(:PartialSegmentPhysicalTimeline)-[:NEXT_POINT*1..30]->"
+                 "(c:PartialPhaseCompensationSegment) RETURN c.start_time, c.end_time, "
+                 "c.start_phase_delta, c.end_phase_delta ORDER BY c.start_time;",
+            {{"name", partial}});
+    std::vector<CompensationRow> result;
+    result.reserve(rows.size());
+    for (const DbRow& row : rows) {
+        result.push_back(CompensationRow{.start = optionalDouble(row.at(0)).value(),
+            .end = optionalDouble(row.at(1)).value(),
+            .startDelta = optionalDouble(row.at(2)).value(),
+            .endDelta = optionalDouble(row.at(3)).value()});
+    }
+    return result;
+}
+
+/// Expects flat, zero compensation segments between consecutive boundaries:
+/// every span free-running, or already met by φ₀.
+///
+/// @param rows        What compensation() returned.
+/// @param boundaries  The expected segment boundaries, samples, in order.
+void expectNoAdjustment(
+    const std::vector<CompensationRow>& rows, const std::vector<double>& boundaries) {
+    ASSERT_EQ(rows.size(), boundaries.size() - 1);
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+        EXPECT_EQ(rows[i].start, boundaries[i]) << "segment " << i;
+        EXPECT_EQ(rows[i].end, boundaries[i + 1]) << "segment " << i;
+        EXPECT_EQ(rows[i].startDelta, 0.0) << "segment " << i;
+        EXPECT_EQ(rows[i].endDelta, 0.0) << "segment " << i;
+    }
+}
+
+/// Runs the transform and then precomputation, as a load does.
+///
+/// @param db  Database holding a score.
+/// @return Whether both succeeded; on failure, the first error as the message.
+::testing::AssertionResult transformAndPrecompute(EngineDb& db) {
+    const TransformReport transformed = transformAll(db);
+    if (!transformed.ok()) {
+        for (const PartialSetTransformOutcome& set : transformed.sets) {
+            for (const PartialTransformOutcome& partial : set.partials) {
+                if (!partial.ok()) {
+                    return ::testing::AssertionFailure()
+                           << "transform: " << partial.error.value_or("");
+                }
+            }
+        }
+        return ::testing::AssertionFailure() << "transform failed";
+    }
+    const PrecomputationReport precomputed = precomputeAll(db);
+    if (!precomputed.ok()) {
+        return ::testing::AssertionFailure()
+               << "precomputation: "
+               << (precomputed.partials.empty() ? std::string{}
+                                                : precomputed.partials[0].error.value_or(""));
+    }
+    return ::testing::AssertionSuccess();
+}
+
 /// 440 Hz in radians per sample at 48 kHz.
 constexpr double kA440 = 2.0 * std::numbers::pi * 440.0 / 48000.0;
+
+/// 441 Hz in radians per sample at 48 kHz. Unlike 440 Hz, it does not make a
+/// whole number of cycles in a quarter of a second, so a phase computed at
+/// the wrong time is visibly wrong.
+constexpr double kA441 = 2.0 * std::numbers::pi * 441.0 / 48000.0;
 
 /// An in-memory engine-db with the real schema and a 48 kHz EngineConfig.
 class TransformDb : public ::testing::Test {
@@ -1110,6 +1226,178 @@ TEST_F(TransformDb, InvalidPhaseCombinationsFailOnlyThatPartial) {
             << partial;
     }
     EXPECT_EQ(report.failureCount(), 3U);
+}
+
+// ---------------------------------------------------------------------------
+// Phase through the transform and precomputation
+//
+// Offsets can pull a later phase state onto or before an earlier one, even
+// onto the partial's first state. The squash (§6.3) settles that in the
+// transform, and only then does precomputation choose the anchor -- the first
+// target left -- and work the initial phase φ₀ from it (precomputation.md
+// §6.8). These run both stages to show that φ₀ comes from the squashed
+// timeline: the anchor's placed time, never its computed one.
+//
+// 120 BPM and 960 ticks per beat: 960 ticks is 0.5 s, 24000 samples.
+// ---------------------------------------------------------------------------
+
+TEST_F(TransformDb, ALaterTargetPulledBeforeTheStartBecomesTheInitialPhase) {
+    addScore(db);
+    // The start's phase is left undefined, and 180 degrees is asked for 4.5 s
+    // later, with an offset that computes to 12000 samples: before the
+    // lifeline begins at 24000. It collides with the NULL point of the
+    // default first state and replaces it at 24000, so it is the anchor at
+    // the start and φ₀ is exactly π. Had φ₀ been worked back from the
+    // target's own time it would be π + 12000·ω, and that time is not even
+    // inside the lifeline.
+    addMusicalSet(db, "P", {"A"},
+        {
+            MusicalPoint{.sync = 960, .states = {state("A", 441.0, -6.0)}},
+            MusicalPoint{.sync = 9600,
+                .offset = -4.75,
+                .states = {state("A", std::nullopt, std::nullopt, 180.0)}},
+            MusicalPoint{.sync = 19200, .states = {state("A", 441.0, -12.0)}},
+        });
+    ASSERT_TRUE(transformAndPrecompute(db));
+    EXPECT_EQ(phasePoints(db, "A"),
+        (std::vector<std::pair<double, std::optional<double>>>{{24000.0, std::numbers::pi}}));
+    EXPECT_EQ(initialPhase(db, "A"), std::numbers::pi);
+    expectNoAdjustment(compensation(db, "A"), {24000.0, 480000.0});
+}
+
+TEST_F(TransformDb, ALaterTargetPulledOntoTheStartOverridesTheFirstTarget) {
+    addScore(db);
+    // The first state asks for 0 degrees. A later one asks for 90 degrees
+    // with an offset that computes to 0, the same time: an equal time is a
+    // collision, and the later state wins. The 0 degree target is gone, φ₀
+    // is π/2, and the 180 degree target at the end is met by a ramp over the
+    // whole lifeline from π/2, not from 0.
+    addMusicalSet(db, "P", {"A"},
+        {
+            MusicalPoint{.sync = 0, .states = {state("A", 441.0, -6.0, 0.0)}},
+            MusicalPoint{.sync = 1920,
+                .offset = -1.0,
+                .states = {state("A", std::nullopt, std::nullopt, 90.0)}},
+            MusicalPoint{.sync = 3840, .states = {state("A", 441.0, -12.0, 180.0)}},
+        });
+    ASSERT_TRUE(transformAndPrecompute(db));
+    EXPECT_EQ(
+        phasePoints(db, "A"), (std::vector<std::pair<double, std::optional<double>>>{
+                                  {0.0, std::numbers::pi / 2.0}, {96000.0, std::numbers::pi}}));
+    EXPECT_EQ(initialPhase(db, "A"), std::numbers::pi / 2.0);
+    const std::vector<CompensationRow> rows = compensation(db, "A");
+    ASSERT_EQ(rows.size(), 1U);
+    EXPECT_EQ(rows[0].start, 0.0);
+    EXPECT_EQ(rows[0].end, 96000.0);
+    EXPECT_EQ(rows[0].startDelta, 0.0);
+    const Phase arriving = Phase{std::numbers::pi / 2.0} + Phase{kA441 * 96000.0};
+    EXPECT_NEAR(rows[0].endDelta, wrapHalfOpen(Phase{std::numbers::pi} - arriving).value(), 1e-9);
+}
+
+TEST_F(TransformDb, OfARunOfStatesPulledBeforeTheStartTheLastWins) {
+    addScore(db);
+    // Two later targets step backwards, each before the one before it, and
+    // both before the lifeline begins at 24000: 90 degrees at 12000, then
+    // 180 degrees at 6000. The run collapses to its last state, which
+    // replaces the start's NULL point. The 90 degree target, though it
+    // computed nearer to the start, plays no part.
+    addMusicalSet(db, "P", {"A"},
+        {
+            MusicalPoint{.sync = 960, .states = {state("A", 441.0, -6.0)}},
+            MusicalPoint{.sync = 1920,
+                .offset = -0.75,
+                .states = {state("A", std::nullopt, std::nullopt, 90.0)}},
+            MusicalPoint{.sync = 1920,
+                .offset = -0.875,
+                .states = {state("A", std::nullopt, std::nullopt, 180.0)}},
+            MusicalPoint{.sync = 3840, .states = {state("A", 441.0, -12.0)}},
+        });
+    ASSERT_TRUE(transformAndPrecompute(db));
+    EXPECT_EQ(phasePoints(db, "A"),
+        (std::vector<std::pair<double, std::optional<double>>>{{24000.0, std::numbers::pi}}));
+    EXPECT_EQ(initialPhase(db, "A"), std::numbers::pi);
+    expectNoAdjustment(compensation(db, "A"), {24000.0, 96000.0});
+}
+
+TEST_F(TransformDb, AFreeRunningStatePulledOntoTheAnchorHandsTheAnchorOn) {
+    addScore(db);
+    // The start is undefined and the first target, 90 degrees at 24000,
+    // would be the anchor. A later free-running state collides with it and,
+    // being later, replaces it: "free-running up to here" wins over the
+    // target. The anchor passes to the 180 degree target at the end, φ₀ is
+    // worked back from that, and nothing is adjusted anywhere.
+    addMusicalSet(db, "P", {"A"},
+        {
+            MusicalPoint{.sync = 0, .states = {state("A", 441.0, -6.0)}},
+            MusicalPoint{.sync = 960, .states = {state("A", std::nullopt, std::nullopt, 90.0)}},
+            MusicalPoint{.sync = 1920,
+                .offset = -0.5,
+                .states = {freeState("A", std::nullopt, std::nullopt)}},
+            MusicalPoint{.sync = 2880, .states = {state("A", 441.0, -12.0, 180.0)}},
+        });
+    ASSERT_TRUE(transformAndPrecompute(db));
+    EXPECT_EQ(phasePoints(db, "A"),
+        (std::vector<std::pair<double, std::optional<double>>>{
+            {0.0, std::nullopt}, {24000.0, std::nullopt}, {72000.0, std::numbers::pi}}));
+    EXPECT_NEAR(initialPhase(db, "A"),
+        wrapHalfOpen(Phase{std::numbers::pi} - Phase{kA441 * 72000.0}).value(), 1e-9);
+    expectNoAdjustment(compensation(db, "A"), {0.0, 24000.0, 72000.0});
+}
+
+TEST_F(TransformDb, TheInitialPhaseIsWorkedBackFromTheAnchorsCompressedTime) {
+    addScore(db);
+    // The first target is moved by compression, not by a collision. The
+    // phase points compute to 0 (the default start), 48000 and 24000 (both
+    // free-running), 36000 (180 degrees) and 72000 (free-running). 24000
+    // collides with 48000 and takes its place, so the stretch up to the next
+    // later point, 72000, is compressed from [24000, 72000] onto [48000,
+    // 72000]: the target, a quarter of the way along, is placed at 54000.
+    // φ₀ is worked back from 54000. From 36000 it would differ by three
+    // eighths of a cycle: 441 Hz · 0.375 s = 165.375 cycles.
+    addMusicalSet(db, "P", {"A"},
+        {
+            MusicalPoint{.sync = 0, .states = {state("A", 441.0, -6.0)}},
+            MusicalPoint{.sync = 1920, .states = {freeState("A", std::nullopt, std::nullopt)}},
+            MusicalPoint{.sync = 1920,
+                .offset = -0.5,
+                .states = {freeState("A", std::nullopt, std::nullopt)}},
+            MusicalPoint{.sync = 1920,
+                .offset = -0.25,
+                .states = {state("A", std::nullopt, std::nullopt, 180.0)}},
+            MusicalPoint{.sync = 2880, .states = {freeState("A", 441.0, -12.0)}},
+        });
+    ASSERT_TRUE(transformAndPrecompute(db));
+    EXPECT_EQ(phasePoints(db, "A"),
+        (std::vector<std::pair<double, std::optional<double>>>{{0.0, std::nullopt},
+            {48000.0, std::nullopt}, {54000.0, std::numbers::pi}, {72000.0, std::nullopt}}));
+    EXPECT_NEAR(initialPhase(db, "A"),
+        wrapHalfOpen(Phase{std::numbers::pi} - Phase{kA441 * 54000.0}).value(), 1e-9);
+    expectNoAdjustment(compensation(db, "A"), {0.0, 48000.0, 54000.0, 72000.0});
+}
+
+TEST_F(TransformDb, TheInitialPhaseMeetsATargetAtAnyFrequency) {
+    addScore(db);
+    // The partial falls from 441 Hz to 55 Hz over 2 s, with the start's
+    // phase undefined and 180 degrees asked for at the bottom of the fall.
+    // φ₀ is a constant added to the whole phase path, not a shift in time,
+    // so the frequencies at the start and at the target play no part: the
+    // phase there is φ₀ + N₀(t), whatever the envelope did on the way, and
+    // a change of φ₀ within half a cycle meets any target. The envelope is
+    // untouched and nothing is adjusted. The second segment starts at the
+    // target, so its start_phase is the phase there.
+    addMusicalSet(db, "P", {"A"},
+        {
+            MusicalPoint{.sync = 0, .states = {state("A", 441.0, -6.0)}},
+            MusicalPoint{.sync = 3840, .states = {state("A", 55.0, -6.0, 180.0)}},
+            MusicalPoint{.sync = 5760, .states = {state("A", 55.0, -12.0)}},
+        });
+    ASSERT_TRUE(transformAndPrecompute(db));
+    const std::vector<double> phases = startPhases(db, "A");
+    ASSERT_EQ(phases.size(), 2U);
+    EXPECT_GE(phases[0], -std::numbers::pi);
+    EXPECT_LT(phases[0], std::numbers::pi);
+    EXPECT_NEAR(wrapHalfOpen(Phase{phases[1]} - Phase{std::numbers::pi}).value(), 0.0, 1e-9);
+    expectNoAdjustment(compensation(db, "A"), {0.0, 96000.0, 144000.0});
 }
 
 } // namespace
