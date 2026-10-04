@@ -14,7 +14,7 @@ from dataclasses import replace
 import sympy
 
 from ..errors import HzlError, Where
-from ..hzl.common import MIN_AMPLITUDE_DB, check_amplitude, check_frequency
+from ..hzl.common import FREE_RUN, MIN_AMPLITUDE_DB, Phase, check_amplitude, check_frequency, check_phase
 from ..hzl.harmonic_series import HarmonicSeries, parse_harmonic_series
 from ..hzl.partial_state_set import PartialStateSet, PartialStateSpec, parse_partial_state_set
 from ..hzl.scale import Scale, parse_scale
@@ -85,7 +85,9 @@ def evaluate_expression(text: str, harmonic_index: int, where: Where) -> float:
 def lower_scale(scale: Scale) -> PartialStateSet:
     """Makes one partial per note. Identifier is the note's index; label its name."""
     states = tuple(
-        PartialStateSpec(identifier=str(index), labels=(note.note,), frequency=note.frequency, amplitude=note.amplitude)
+        PartialStateSpec(
+            identifier=str(index), labels=(note.note,), frequency=note.frequency, amplitude=note.amplitude, phase=note.phase
+        )
         for index, note in enumerate(scale.notes)
     )
     return PartialStateSet(scale.header, states)
@@ -111,8 +113,33 @@ def lower_harmonic_series(series: HarmonicSeries, where: Where) -> PartialStateS
         if series.amplitude_expression is not None:
             value = evaluate_expression(series.amplitude_expression, h, where.at("amplitude_expression"))
             amplitude = check_amplitude(value, where.at("amplitude_expression"))
-        states.append(PartialStateSpec(identifier=str(h), labels=(f"harmonic {h}",), frequency=frequency, amplitude=amplitude))
+        phase = series.phase
+        if series.phase_expression is not None:
+            value = evaluate_expression(series.phase_expression, h, where.at("phase_expression"))
+            phase = check_phase(value, where.at("phase_expression"))
+        states.append(
+            PartialStateSpec(identifier=str(h), labels=(f"harmonic {h}",), frequency=frequency, amplitude=amplitude, phase=phase)
+        )
     return PartialStateSet(series.header, tuple(states))
+
+
+def combine_phase(a: Phase, b: Phase) -> Phase:
+    """Combines two partials' phases in a flattened cartesian product.
+
+    The author's rule (2026-10-03): two targets give their arithmetic mean,
+    which is not wrapped and so stays in [-180, 180]; a target with anything
+    else gives the target; free-running with free-running or the default
+    gives free-running; two defaults give the default.
+    """
+    if isinstance(a, float) and isinstance(b, float):
+        return (a + b) / 2.0
+    if isinstance(a, float):
+        return a
+    if isinstance(b, float):
+        return b
+    if a is FREE_RUN or b is FREE_RUN:
+        return FREE_RUN
+    return None
 
 
 def flattened_cartesian_product(
@@ -123,6 +150,7 @@ def flattened_cartesian_product(
     The PoC's rules, in dB: frequencies multiply, amplitudes add (the dB form
     of a linear product) and are floored at -144 dB, since quieter than
     silence is silence; a property only one side has is taken from that side.
+    Phase follows `combine_phase`.
     Labels are the union of the two partials', `a`'s first. The identifier is
     `<a>*<b>`. The set's labels are the union of the virtual set's, the
     transformation's, `a`'s and `b`'s.
@@ -140,7 +168,13 @@ def flattened_cartesian_product(
                 amplitude = sa.amplitude if sa.amplitude is not None else sb.amplitude
             labels = sa.labels + tuple(label for label in sb.labels if label not in sa.labels)
             states.append(
-                PartialStateSpec(identifier=f"{sa.identifier}*{sb.identifier}", labels=labels, frequency=frequency, amplitude=amplitude)
+                PartialStateSpec(
+                    identifier=f"{sa.identifier}*{sb.identifier}",
+                    labels=labels,
+                    frequency=frequency,
+                    amplitude=amplitude,
+                    phase=combine_phase(sa.phase, sb.phase),
+                )
             )
     labels: list[str] = []
     for source in (virtual.header.labels, transformation.header.labels, a.header.labels, b.header.labels):

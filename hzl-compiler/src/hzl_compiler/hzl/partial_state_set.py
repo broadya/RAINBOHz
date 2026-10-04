@@ -14,8 +14,10 @@ from ..source import SourceTree
 from .common import (
     HEADER_KEYS,
     Header,
+    Phase,
     check_amplitude,
     check_frequency,
+    optional_phase,
     parse_header,
     parse_identifier,
     reject_not_in_this_version,
@@ -32,12 +34,14 @@ class PartialStateSpec:
         labels: The partial's own labels.
         frequency: Hz, or None when the set says nothing about frequency.
         amplitude: dB in [-144, 0], or None when the set says nothing about it.
+        phase: A target in degrees, `FREE_RUN`, or None for the default.
     """
 
     identifier: str
     labels: tuple[str, ...]
     frequency: float | None
     amplitude: float | None
+    phase: Phase = None
 
 
 @dataclass(frozen=True)
@@ -66,7 +70,7 @@ def parse_partial_state(node: Node) -> PartialStateSpec:
             unknown key, or a property this version does not carry.
     """
     reject_not_in_this_version(node)
-    node.only("identifier", "labels", "frequency", "amplitude")
+    node.only("identifier", "labels", "frequency", "amplitude", "phase")
     frequency = node.optional("frequency", "float")
     amplitude = node.optional("amplitude", "float")
     return PartialStateSpec(
@@ -74,6 +78,7 @@ def parse_partial_state(node: Node) -> PartialStateSpec:
         labels=node.labels(),
         frequency=None if frequency is None else check_frequency(frequency, node.where.at("frequency")),
         amplitude=None if amplitude is None else check_amplitude(amplitude, node.where.at("amplitude")),
+        phase=optional_phase(node),
     )
 
 

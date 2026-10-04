@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..errors import Where
+from ..hzl.common import Phase
 from ..hzl.envelope import LINEAR, CurveSpec, Envelope
 from ..hzl.transformation import TransformationType, load_transformation
 from ..source import SourceTree
@@ -39,10 +40,18 @@ class PartialSpec:
 
 @dataclass(frozen=True)
 class StateValues:
-    """A partial's values at one point; None means no knot for that property."""
+    """A partial's values at one point.
+
+    Attributes:
+        frequency: Hz, or None for no knot here.
+        amplitude: dB, or None for no knot here.
+        phase: A target in degrees, `FREE_RUN`, or None for the default,
+            which plays no role in phase.
+    """
 
     frequency: float | None
     amplitude: float | None
+    phase: Phase = None
 
 
 @dataclass(frozen=True)
@@ -87,7 +96,9 @@ def lower_envelope(envelope: Envelope, tree: SourceTree, resolver: StateSetResol
     Each stage's `Update` transformations are applied in order: a partial the
     filter selects, whose identifier the source set has a state for, takes
     that state's present values at the stage's point. A later transformation
-    overrides an earlier one property by property. Partials the stage leaves
+    overrides an earlier one property by property; for phase, a target or
+    `free` overrides, and an absent phase leaves an earlier one as it was.
+    Partials the stage leaves
     alone have no state at its point, and so continue to their next knot.
 
     A stage's curve describes the path through the stage, which the model
@@ -121,7 +132,7 @@ def lower_envelope(envelope: Envelope, tree: SourceTree, resolver: StateSetResol
                 f"every partial needs both at the start of an envelope"
             )
         partials.append(PartialSpec(spec.identifier, f"{initial.header.namespace}#{spec.identifier}", spec.labels))
-        first[spec.identifier] = StateValues(spec.frequency, spec.amplitude)
+        first[spec.identifier] = StateValues(spec.frequency, spec.amplitude, spec.phase)
 
     # The curve of stage k is stored on point k, where the stage starts.
     curves = [(stage.frequency_curve, stage.amplitude_curve) for stage in envelope.stages] + [(LINEAR, LINEAR)]
@@ -149,6 +160,7 @@ def lower_envelope(envelope: Envelope, tree: SourceTree, resolver: StateSetResol
                 states[partial.identifier] = StateValues(
                     spec.frequency if spec.frequency is not None else current.frequency,
                     spec.amplitude if spec.amplitude is not None else current.amplitude,
+                    spec.phase if spec.phase is not None else current.phase,
                 )
         ordered = {p.identifier: states[p.identifier] for p in partials if p.identifier in states}
         points.append(TimelinePoint(elapsed, stage.offset_seconds, curves[index + 1][0], curves[index + 1][1], ordered))

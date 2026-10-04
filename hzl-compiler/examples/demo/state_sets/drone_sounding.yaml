@@ -1,3 +1,4 @@
+# The high partial runs free to each point this set is applied at.
 partial_state_set:
   hzl_version: "0.1.0"
   hzl_type: partial_state_set
@@ -11,3 +12,4 @@ partial_state_set:
     - partial_state:
         identifier: high
         amplitude: -24.0
+        phase: free

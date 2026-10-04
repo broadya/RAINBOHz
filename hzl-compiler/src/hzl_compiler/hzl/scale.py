@@ -7,7 +7,16 @@ from dataclasses import dataclass
 from ..nodes import Node
 from ..ref import Ref
 from ..source import SourceTree
-from .common import HEADER_KEYS, Header, check_amplitude, check_frequency, parse_header, reject_not_in_this_version
+from .common import (
+    HEADER_KEYS,
+    Header,
+    Phase,
+    check_amplitude,
+    check_frequency,
+    optional_phase,
+    parse_header,
+    reject_not_in_this_version,
+)
 
 
 @dataclass(frozen=True)
@@ -19,11 +28,13 @@ class Note:
             the scale.
         frequency: Hz, or None.
         amplitude: dB, or None.
+        phase: A target in degrees, `FREE_RUN`, or None for the default.
     """
 
     note: str
     frequency: float | None
     amplitude: float | None
+    phase: Phase = None
 
 
 @dataclass(frozen=True)
@@ -60,7 +71,7 @@ def parse_scale(node: Node) -> Scale:
             raise where.error("each note is a mapping with at least a 'note' key")
         note_node = Node(item, where)
         reject_not_in_this_version(note_node)
-        note_node.only("note", "frequency", "amplitude")
+        note_node.only("note", "frequency", "amplitude", "phase")
         name = str(note_node.require("note", "scalar"))
         if name in names:
             raise note_node.error(f"note {name!r} is repeated", "note")
@@ -72,6 +83,7 @@ def parse_scale(node: Node) -> Scale:
                 note=name,
                 frequency=None if frequency is None else check_frequency(frequency, where.at("frequency")),
                 amplitude=None if amplitude is None else check_amplitude(amplitude, where.at("amplitude")),
+                phase=optional_phase(note_node),
             )
         )
     return Scale(header, tuple(notes))

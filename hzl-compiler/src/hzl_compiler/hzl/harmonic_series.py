@@ -13,19 +13,28 @@ from dataclasses import dataclass
 from ..nodes import Node
 from ..ref import Ref
 from ..source import SourceTree
-from .common import HEADER_KEYS, Header, check_amplitude, check_frequency, parse_header, reject_not_in_this_version
+from .common import (
+    HEADER_KEYS,
+    Header,
+    Phase,
+    check_amplitude,
+    check_frequency,
+    optional_phase,
+    parse_header,
+    reject_not_in_this_version,
+)
 
 # The properties a series can give, each as `<name>` (constant) or
 # `<name>_expression`.
-PROPERTIES = ("frequency", "amplitude")
+PROPERTIES = ("frequency", "amplitude", "phase")
 
 
 @dataclass(frozen=True)
 class HarmonicSeries:
     """A parsed `harmonic_series` file.
 
-    Exactly one of `frequency`/`frequency_expression` may be given, and the
-    same for amplitude; either property may be absent altogether.
+    At most one of `frequency`/`frequency_expression` may be given, and the
+    same for amplitude and phase; any property may be absent altogether.
 
     Attributes:
         header: The file's header.
@@ -37,6 +46,9 @@ class HarmonicSeries:
         frequency_expression: Expression in `harmonic_index`, or None.
         amplitude: Constant dB for every harmonic, or None.
         amplitude_expression: Expression in `harmonic_index` giving dB, or None.
+        phase: Constant target in degrees, `FREE_RUN`, or None for the default.
+        phase_expression: Expression in `harmonic_index` giving a target in
+            degrees, or None.
     """
 
     header: Header
@@ -46,6 +58,8 @@ class HarmonicSeries:
     frequency_expression: str | None
     amplitude: float | None
     amplitude_expression: str | None
+    phase: Phase = None
+    phase_expression: str | None = None
 
 
 def parse_harmonic_series(node: Node) -> HarmonicSeries:
@@ -57,7 +71,7 @@ def parse_harmonic_series(node: Node) -> HarmonicSeries:
             of range, or a key is unknown or not in this version.
     """
     reject_not_in_this_version(node)
-    for key in ("phase_expression", "azimuth_expression", "elevation_expression", "distance_expression"):
+    for key in ("azimuth_expression", "elevation_expression", "distance_expression"):
         node.reject(key, f"{key.split('_')[0]} is not in this version of the compiler; leave it out")
     node.only(
         *HEADER_KEYS,
@@ -85,6 +99,8 @@ def parse_harmonic_series(node: Node) -> HarmonicSeries:
         frequency_expression=node.optional("frequency_expression", "str"),
         amplitude=None if amplitude is None else check_amplitude(amplitude, node.where.at("amplitude")),
         amplitude_expression=node.optional("amplitude_expression", "str"),
+        phase=optional_phase(node),
+        phase_expression=node.optional("phase_expression", "str"),
     )
 
 

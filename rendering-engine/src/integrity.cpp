@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <iterator>
 #include <map>
+#include <numbers>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -134,10 +135,15 @@ struct RangeRule {
 /// free-running point or plays no role, as phase_free_run says, which
 /// checkPartialStatePhase() checks).
 ///
+/// The phase timeline's points are read by precomputation since phase control
+/// (docs/precomputation.md section 6.8): time as for the other physical
+/// points, and phase NULL (free-running) or in [−π, π] radians, which is what
+/// the transform writes (it clamps ±180° to exactly ±π).
+///
 /// @return The rules, in the order their checks are reported. Valid for the
 ///         whole program.
-const std::array<RangeRule, 21>& rangeRules() {
-    static const std::array<RangeRule, 21> kRules{{
+const std::array<RangeRule, 23>& rangeRules() {
+    static const std::array<RangeRule, 23> kRules{{
         {.table = "EngineConfig",
             .column = "frameSize",
             .nullable = true,
@@ -193,6 +199,16 @@ const std::array<RangeRule, 21>& rangeRules() {
             .nullable = false,
             .min = Bound{.value = 0.0, .inclusive = true},
             .max = Bound{.value = 1.0, .inclusive = true}},
+        {.table = "PhasePhysicalTimelinePoint",
+            .column = "time",
+            .nullable = false,
+            .min = Bound{.value = 0.0, .inclusive = true},
+            .max = std::nullopt},
+        {.table = "PhasePhysicalTimelinePoint",
+            .column = "phase",
+            .nullable = true,
+            .min = Bound{.value = -std::numbers::pi, .inclusive = true},
+            .max = Bound{.value = std::numbers::pi, .inclusive = true}},
         {.table = "TempoMap",
             .column = "ticks_per_beat",
             .nullable = false,

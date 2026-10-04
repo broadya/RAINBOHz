@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <numbers>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -182,9 +183,9 @@ TEST(FindListDefects, AMergeIntoAListNoTimelineReaches) {
 TEST_F(IntegrityDb, ASoundScorePasses) {
     const IntegrityReport report = checkIntegrity(db);
     EXPECT_TRUE(report.ok()) << failures(report);
-    // One EngineConfig check, 21 range rules, set membership, lifeline
+    // One EngineConfig check, 23 range rules, set membership, lifeline
     // equality, six musical-time checks, and two per NEXT_POINT list type.
-    EXPECT_EQ(report.checks.size(), 1U + 21U + 2U + 6U + (2U * 14U));
+    EXPECT_EQ(report.checks.size(), 1U + 23U + 2U + 6U + (2U * 14U));
 }
 
 TEST(Integrity, TheExampleScorePasses) {
@@ -343,6 +344,24 @@ TEST_F(IntegrityDb, AmplitudeTimeMustNotBeNegative) {
     db.execute("MATCH (a:AmplitudePhysicalTimelinePoint) WHERE a.time = 0.0 SET a.time = -1.0;");
     EXPECT_EQ(
         find(checkIntegrity(db), "AmplitudePhysicalTimelinePoint.time is").violationCount, 1U);
+}
+
+TEST_F(IntegrityDb, PhasePointsMayBeFreeButMustBeInRadiansAndTime) {
+    // A free-running (NULL) point and one at exactly -pi pass; a phase beyond
+    // pi and a negative time are one violation each.
+    db.query("MATCH (p:Partial {name: 'A'}) CREATE "
+             "(p)-[:HAS_PHYSICAL_TIMELINE]->(:PhasePhysicalTimeline)"
+             "-[:NEXT_POINT]->(:PhasePhysicalTimelinePoint {time: 0.0})"
+             "-[:NEXT_POINT]->(:PhasePhysicalTimelinePoint {time: 5.0, phase: $minusPi})"
+             "-[:NEXT_POINT]->(:PhasePhysicalTimelinePoint {time: 10.0, phase: 3.2})"
+             "-[:NEXT_POINT]->(:PhasePhysicalTimelinePoint {time: -1.0, phase: 0.0});",
+        {{"minusPi", -std::numbers::pi}});
+    const IntegrityReport report = checkIntegrity(db);
+    const IntegrityCheck phase = find(report, "PhasePhysicalTimelinePoint.phase is");
+    ASSERT_EQ(phase.violationCount, 1U);
+    EXPECT_NE(phase.violations[0].find("3.2"), std::string::npos) << phase.violations[0];
+    EXPECT_EQ(find(report, "PhasePhysicalTimelinePoint.time is").violationCount, 1U);
+    EXPECT_EQ(report.violationCount(), 2U) << failures(report);
 }
 
 TEST_F(IntegrityDb, ChannelModeMustBeAKnownMode) {

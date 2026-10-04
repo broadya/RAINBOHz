@@ -82,6 +82,8 @@ the schema documents a range for it.
 | `AmplitudePhysicalTimelinePoint.amplitude` | no | ≤ 0 | schema; an amplitude above 0 dB is an **error** (decided 2026-09-23): the schema's "values above 0dB will be clipped" is the renderer's defence against bad data, not permission to store it |
 | `AmplitudePhysicalTimelinePoint.amplitude_curve_type` | no | 0 to 4 | schema's enumeration |
 | `AmplitudePhysicalTimelinePoint.amplitude_curve_amount` | no | 0 to 1 | schema: 0 linear, 1 curve |
+| `PhasePhysicalTimelinePoint.time` | no | ≥ 0 | as for frequency points |
+| `PhasePhysicalTimelinePoint.phase` | **allowed**: a free-running point | −π to π radians | [precomputation.md](precomputation.md) §7; the transform clamps ±180° to exactly ±π |
 
 | `TempoMap.ticks_per_beat` | no | > 0 | schema |
 | `TempoMapPoint.position` | no | ≥ 0 | ticks from the map's start ([transform.md](transform.md) §6.1) |
@@ -94,7 +96,10 @@ the schema documents a range for it.
 
 The `EngineConfig.channelMode` and `AmplitudePhysicalTimelinePoint` rows arrived
 with rendering ([rendering.md](rendering.md) §9, decided 2026-09-24,
-implemented 2026-09-25). The `TempoMap`, `TempoMapPoint`,
+implemented 2026-09-25). The `PhasePhysicalTimelinePoint` rows were added on
+2026-10-03, with the HzL compiler's phase support: precomputation has read
+those columns since phase control (precomputation.md §6.8), and the rule above says a
+feature brings its columns' rules with it. The `TempoMap`, `TempoMapPoint`,
 `PartialSetMusicalTimelinePoint` and `PartialState` rows arrived with the
 transform ([transform.md](transform.md) §9, 2026-10-02), and
 `PartialState.phase` with the transform's phase mapping (2026-10-03).
@@ -203,7 +208,7 @@ a cycle, is not a defect under this check.
 ## 5. Output
 
 ```
-  integrity: 51 of 54 check(s) passed, 3 violation(s)
+  integrity: 57 of 60 check(s) passed, 3 violation(s)
 ```
 
 Every violation gets a `FAILED` line in the layout the loader uses, prefixed

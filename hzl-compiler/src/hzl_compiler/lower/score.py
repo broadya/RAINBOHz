@@ -26,6 +26,7 @@ from ..canonical.model import (
     TempoMapRow,
 )
 from ..errors import Where
+from ..hzl.common import FREE_RUN, Phase
 from ..hzl.envelope import load_envelope
 from ..hzl.score import Score, load_score
 from ..hzl.sound_entity import load_sound_entity
@@ -164,6 +165,20 @@ def _add_timeline(model: Model, source_key: NodeKey, map_key: NodeKey, timeline:
         set_key_at_point = model.add(PartialStateSetRow())
         model.link("POINT_STATE", point_key, set_key_at_point)
         for identifier, values in point.states.items():
-            state_key = model.add(PartialStateRow(values.frequency, values.amplitude))
+            phase, free_run = _phase_columns(values.phase)
+            state_key = model.add(PartialStateRow(values.frequency, values.amplitude, phase, free_run))
             model.link("MEMBER_OF_SET_MANY_ONE", state_key, set_key_at_point)
             model.link("STATE_OF", state_key, partial_keys[identifier])
+
+
+def _phase_columns(phase: Phase) -> tuple[float | None, bool | None]:
+    """Spells an HzL phase as `PartialState.phase` and `phase_free_run`.
+
+    A target is (degrees, False), free-running is (None, True) and the
+    default is (None, None): the three combinations the schema allows.
+    """
+    if phase is None:
+        return None, None
+    if phase is FREE_RUN:
+        return None, True
+    return phase, False

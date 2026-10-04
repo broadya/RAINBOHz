@@ -24,7 +24,7 @@ emits is exactly what the hand-written scores already were.
 | In this version | Not yet |
 | --- | --- |
 | `score`, `sound_entity`, `sound_source`, `tempo_map`, `envelope`, `partial_state_set`, `scale`, `harmonic_series`, `virtual_partial_state_set`, `partial_state_set_transformation` | Anything else |
-| Frequency (Hz) and amplitude (dB) | Phase, spatial position, modulators: refused where written |
+| Frequency (Hz), amplitude (dB) and phase (degrees, `free`) | Spatial position, modulators: refused where written |
 | One tempo map per score | Several maps and synchronisation points |
 | `Update` in envelope stages; the flattened cartesian product in virtual sets | A product inside a stage (partials born mid-timeline) |
 | Each envelope placed once per score | Instancing, which needs an instance-qualified partial name |
@@ -89,6 +89,7 @@ in HzL terms, rather than left for the engine to refuse: amplitude in
 | initial state set | the partials (`Partial`, `HAS_PARTIAL`) and the first `PartialSetMusicalTimelinePoint`, with a state for every partial |
 | each stage | the next point; cumulative duration → `POINT_AT.sync_point`; `offset_seconds` → `POINT_AT.offset_seconds` |
 | `Update` in a stage | a `PartialStateSet` with a `PartialState` (`MEMBER_OF_SET_MANY_ONE`, `STATE_OF`) for each partial the stage touched |
+| `phase` on a state | `PartialState.phase` and `phase_free_run` (§5.5) |
 | stage curve | `*_curve_type`, `*_curve_amount` on the point the stage starts from (§5.3) |
 | labels | `Label`, `HAS_LABEL` from `Partial` and `Score` |
 
@@ -128,6 +129,36 @@ Objects are named for a reader of the database, not looked up by name:
 their file's `namespace/name`; a `Partial` carries the proof of concept's
 `<initial set's namespace>#<identifier>`. The compiler never emits a
 `MATCH`, so no name needs an index.
+
+### 5.5 Phase
+
+Added 2026-10-03, after the transform's phase support. HzL has three phase
+kinds and the canonical model spells each with two columns
+(`hzl-reference.md` §7.7):
+
+| HzL | `phase` | `phase_free_run` |
+| --- | --- | --- |
+| `phase: <degrees>`, a target | the degrees | false |
+| `phase: free` | NULL | true |
+| absent, the default | NULL | NULL |
+
+The compiler carries the kind as `Phase` (`hzl/common.py`: a float,
+`FREE_RUN` or None) through every level and spells it out only in L0
+(`_phase_columns` in `lower/score.py`). The schema's other combinations are
+invalid, and the compiler cannot produce them. Ranges are checked where
+written: degrees in [-180, 180], including each value a `phase_expression`
+gives; an out-of-range value is an error, not wrapped, as for amplitude.
+
+Under `Update` a phase is a property like the others: absent means "not
+given", so a later transform's absent phase keeps an earlier one's. The
+product rule for two phases is the author's (`combine_phase` in
+`lower/state_sets.py`): the mean of two targets, otherwise the stronger
+kind, target over `free` over the default.
+
+Nothing is filled in. A partial whose first state is the default gets its
+NULL point at the lifeline's start from the transform (`rendering-engine/docs/transform.md` §6.6), not from
+the compiler, so a score that says nothing about phase compiles to default
+states only and sounds as it did before phase existed.
 
 ## 6. The lowest level: tables
 
@@ -175,14 +206,11 @@ not started; its trigger is a score the single clause cannot carry.
   score (`rendering-engine/docs/rendering.md` §11.1). Agreement proves the
   compiled route and the test route give the same audio. The oracle runner
   takes `--state` and `--score` separately, so nothing there changed.
-- `examples/demo` compiles, loads with `--validate-db` (54 integrity checks)
+- `examples/demo` compiles, loads with `--validate-db` (60 integrity checks)
   and renders.
 
 ## 9. Not yet, and what each needs
 
-- **Phase.** HzL `phase` and the canonical `PartialState.phase` (degrees,
-  nullable: "free") wait for the transform's phase support. Refused now so
-  that a composer who writes one is told.
 - **Spatial position.** Belongs on `sound_source`, where
   `SpatialPositionMusicalTimeline` hangs in the schema. Refused now.
 - **Several tempo maps.** The transform converts through one map per score;

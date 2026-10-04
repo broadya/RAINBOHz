@@ -68,8 +68,9 @@ docs/hzl-reference.md           the language, this version
 
 ## Status
 
-First version, 2026-10-02. Frequency and amplitude; one tempo map per score;
-envelope stages apply `Update` only; `beats:ticks` time; amplitude in dB.
-Phase, spatial position, modulators, labels as selection, layers as an
+First version, 2026-10-02; phase added 2026-10-03. Frequency, amplitude and
+phase; one tempo map per score; envelope stages apply `Update` only;
+`beats:ticks` time; amplitude in dB; phase in degrees or `free`. Spatial
+position, modulators, labels as selection, layers as an
 ordering, several tempo maps and the Ninja build are not in this version.
 See `docs/design.md` §9 for the list and what each needs.

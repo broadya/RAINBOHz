@@ -64,13 +64,15 @@ The one time written in seconds is `offset_seconds` on an envelope stage (§7.6)
 | --- | --- | --- | --- |
 | `frequency` | Hz | any finite value; outside the audible range is not rendered | partial states, notes, series |
 | `amplitude` | dB | [-144, 0]; -144 is silence | partial states, notes, series |
+| `phase` | degrees, or `free` | [-180, 180] | partial states, notes, series |
 | `tempo` | BPM | [1, 1000] | tempo map points |
 | `ticks_per_beat` | ticks | 1 or more | tempo map |
 | `offset_seconds` | s | finite | envelope stages |
 | `curve_amount` | — | [0, 1] | envelope stages |
 
-`phase`, `azimuth`, `elevation`, `distance` and `pan`, which the proof of
-concept had, are refused with "not in this version" wherever they appear.
+`azimuth`, `elevation`, `distance` and `pan`, which the proof of concept
+had, are refused with "not in this version" wherever they appear. `phase` is
+described in §7.7.
 
 ## 4. The hierarchy: `score`, `sound_entity`, `sound_source`
 
@@ -144,6 +146,7 @@ partial_state_set:
         labels: [lead]           # optional
         frequency: 440.0         # optional
         amplitude: -6.0          # optional
+        phase: 90.0              # optional; degrees, or `free` (§7.7)
 ```
 
 A property left out means "this set says nothing about it" (§7.4).
@@ -157,6 +160,7 @@ scale:
     - note: C4                   # required; unique; becomes the partial's label
       frequency: 261.63          # optional
       amplitude: -6.0            # optional
+      phase: 0.0                 # optional; degrees, or `free`
 ```
 
 Lowers to a `partial_state_set` with one partial per note, identifier `0`,
@@ -171,6 +175,7 @@ harmonic_series:
   number_of_harmonics: 16                    # required, 1 or more
   frequency_expression: "harmonic_index"     # or a constant: frequency: 440.0
   amplitude_expression: "-20*log10(harmonic_index)"   # or a constant: amplitude: -6.0
+  phase_expression: "-60*(harmonic_index - 1)"        # optional; degrees, or a constant: phase: 0.0 or phase: free
 ```
 
 One partial per harmonic, `harmonic_index` from 1; identifier `"1"`, `"2"`, ...
@@ -193,7 +198,11 @@ virtual_partial_state_set:
 
 Every partial of the first with every partial of the second. Frequencies
 multiply; amplitudes add (the dB form of a linear product) and are floored at
--144; a property only one side has is taken from that side. The identifier is
+-144; a property only one side has is taken from that side. Phase (author,
+2026-10-03): two targets give their arithmetic mean, not wrapped, so
+`170` and `-170` give `0`; a target with `free` or nothing gives the target;
+`free` with `free` or nothing gives `free`; nothing with nothing gives
+nothing. The identifier is
 `<first>*<second>`, the labels the union of the two partials', and the set's
 labels the union of the virtual set's, the transformation's and both
 sources'. A chain of references that returns to itself is an error.
@@ -255,7 +264,9 @@ Within a stage, each transform is applied in order. A partial is *selected*
 when the filter is absent, or matches any of its labels (`re.search`). For
 each selected partial whose identifier the source set has a state for, the
 state's present values become the partial's values at this point. A later
-transform overrides an earlier one property by property. A source state
+transform overrides an earlier one property by property; for phase, a
+target or `free` overrides, and a state without `phase` leaves an earlier
+transform's phase as it was. A source state
 whose identifier is not a partial of this set is ignored.
 
 ### 7.4 What a stage leaves alone
@@ -288,6 +299,27 @@ quarter of a second after the previous one whatever the tempo. When offsets
 make points collide in physical time the transform keeps the composer's
 order and lets time yield (ADR 0014); the compiler does not check for it.
 
+### 7.7 Phase
+
+`phase` on a state is one of three things (author, 2026-10-03;
+`rendering-engine/docs/transform.md` §6.6):
+
+| HzL | Meaning | `PartialState` |
+| --- | --- | --- |
+| `phase: 90` | a **target**: the partial is at 90° here | `phase: 90.0, phase_free_run: false` |
+| `phase: free` | **free-running**: no target here; the span up to here is left as the frequency makes it | `phase_free_run: true` |
+| left out | the **default**: this state plays no role in phase | neither |
+
+`phase: null` is refused, with a pointer to `free`: the proof of concept
+wrote `null` for a free-running phase, and taking it for the default would
+change the sound without a word.
+
+A target is met by a linear adjustment over the span from the previous
+target or free-running point, wherever that is; default states in between do
+not break the span. A partial whose first state gives no phase runs free to
+its first target. Phase is optional at both ends of the envelope: unlike
+frequency and amplitude, the first and last points need none.
+
 ## 8. Layers and namespaces
 
 Both are parsed and carried on every file and nothing is enforced about
@@ -305,5 +337,5 @@ the `SoundEntity`/`SoundSource`/`PartialSet`/`Partial` hierarchy; per
 envelope a `PartialSetMusicalTimeline`, its points each with a `POINT_AT`
 (`sync_point` in ticks, `offset_seconds`), and at each point with states a
 `PartialStateSet` of `PartialState`s. `HAS_LABEL` is emitted for partials
-and the score only, which is what the schema declares. `phase` is NULL
-everywhere; `phase_lock` false. See `docs/design.md`.
+and the score only, which is what the schema declares. Each state's phase is
+written as `phase` and `phase_free_run` (§7.7). See `docs/design.md`.

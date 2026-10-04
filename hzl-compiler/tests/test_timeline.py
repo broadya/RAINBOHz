@@ -2,6 +2,7 @@ import pytest
 
 from conftest import BASE, hzl
 from hzl_compiler.errors import HzlError
+from hzl_compiler.hzl.common import FREE_RUN
 from hzl_compiler.hzl.envelope import Curve, load_envelope
 from hzl_compiler.lower.state_sets import StateSetResolver
 from hzl_compiler.lower.timeline import lower_envelope
@@ -106,6 +107,21 @@ def test_later_transform_overrides_earlier_property_by_property(tree):
     tl = lower(tree, {"state_sets/middle": MIDDLE, "state_sets/louder": louder, "envelopes/env": envelope(stage + UPDATE_END)})
     assert tl.points[1].states["a"].amplitude == -12.0
     assert tl.points[1].states["b"].frequency == 330.0
+
+
+def test_phase_is_carried_and_a_later_transform_overrides_it_only_where_given(tree):
+    start = BASE["state_sets/start"].replace("amplitude: -6.0, labels: [lead", "amplitude: -6.0, phase: 45, labels: [lead")
+    target = MIDDLE.replace("state_sets/middle", "state_sets/target").replace("name: middle", "name: target").replace("{identifier: a, amplitude: -12.0}", "{identifier: a, phase: 90}")
+    target = target.replace("{identifier: b, frequency: 330.0}", "{identifier: b, phase: 10}")
+    free = MIDDLE.replace("{identifier: b, frequency: 330.0}", "{identifier: b, phase: free}")
+    # first transform gives `target` to everything, second `middle` (a: no phase, b: free)
+    stage = FILTERED.replace('filter: "^lea"', 'filter: "."').replace('filter: "pad"', 'filter: "."')
+    stage = stage.replace("name: middle}", "name: target}", 1)
+    tl = lower(tree, {"state_sets/start": start, "state_sets/middle": free, "state_sets/target": target, "envelopes/env": envelope(stage + UPDATE_END)})
+    assert [tl.points[0].states[i].phase for i in "ab"] == [45.0, None]
+    assert tl.points[1].states["a"].phase == 90.0
+    assert tl.points[1].states["b"].phase is FREE_RUN
+    assert [tl.points[2].states[i].phase for i in "ab"] == [None, None]
 
 
 def test_every_partial_needs_both_values_at_the_last_point(tree):

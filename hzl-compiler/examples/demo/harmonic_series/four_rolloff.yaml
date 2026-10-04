@@ -1,4 +1,6 @@
-# Four harmonics of a unit fundamental, each 6 dB quieter than the last.
+# Four harmonics of a unit fundamental, each 6 dB quieter than the last,
+# each starting 60 degrees behind the one before. The scale gives no phase,
+# so its product keeps these targets.
 # base_frequency is 1, so the frequencies are the harmonic numbers; the
 # product with a scale puts them in Hz.
 harmonic_series:
@@ -11,3 +13,4 @@ harmonic_series:
   number_of_harmonics: 4
   frequency_expression: "harmonic_index"
   amplitude_expression: "-12 - 6*(harmonic_index - 1)"
+  phase_expression: "-60*(harmonic_index - 1)"

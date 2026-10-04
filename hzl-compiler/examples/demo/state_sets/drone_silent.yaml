@@ -1,4 +1,6 @@
 # Two partials an octave apart, silent. Used for the drone's start and end.
+# The low partial starts and ends on a phase target of 0 degrees; the high
+# one says nothing about phase.
 partial_state_set:
   hzl_version: "0.1.0"
   hzl_type: partial_state_set
@@ -11,6 +13,7 @@ partial_state_set:
         labels: [drone]
         frequency: 55.0
         amplitude: -144.0
+        phase: 0
     - partial_state:
         identifier: high
         labels: [drone]

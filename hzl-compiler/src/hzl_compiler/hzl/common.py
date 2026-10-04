@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from enum import Enum
 
 from ..errors import Where
 from ..nodes import Node
@@ -24,11 +25,29 @@ HEADER_KEYS = ("hzl_version", "hzl_type", "name", "namespace", "layer", "labels"
 MIN_AMPLITUDE_DB = -144.0
 MAX_AMPLITUDE_DB = 0.0
 
+# PartialState.phase is a target in degrees in [-180, 180].
+MIN_PHASE_DEG = -180.0
+MAX_PHASE_DEG = 180.0
+
+
+class FreeRun(Enum):
+    """The one HzL phase that is not a number: `phase: free`."""
+
+    FREE = "free"
+
+
+# A free-running point: the partial accumulates phase up to here without a
+# target (rendering-engine/docs/transform.md §6.6).
+FREE_RUN = FreeRun.FREE
+
+# A partial's phase as HzL gives it: a target in degrees, `FREE_RUN`, or None
+# for the default, which plays no role in phase.
+Phase = float | FreeRun | None
+
 # Properties the PoC had and this version does not carry. Each is refused
 # with a message rather than dropped, so that a composer who writes one is
 # told it had no effect. The reason text follows the key.
 NOT_IN_THIS_VERSION = {
-    "phase": "phase is not in this version of the compiler; leave it out",
     "azimuth": "spatial position is not in this version of the compiler; leave it out",
     "elevation": "spatial position is not in this version of the compiler; leave it out",
     "distance": "spatial position is not in this version of the compiler; leave it out",
@@ -112,6 +131,42 @@ def check_amplitude(value: float, where: Where) -> float:
             f"amplitude is in dB and must lie in [{MIN_AMPLITUDE_DB:g}, {MAX_AMPLITUDE_DB:g}], got {value!r}"
         )
     return value
+
+
+def check_phase(value: float, where: Where) -> float:
+    """Checks a phase target is finite degrees within [-180, 180].
+
+    Raises:
+        HzlError: if the value is outside the range or not finite.
+    """
+    if not (math.isfinite(value) and MIN_PHASE_DEG <= value <= MAX_PHASE_DEG):
+        raise where.error(
+            f"phase is in degrees and must lie in [{MIN_PHASE_DEG:g}, {MAX_PHASE_DEG:g}], got {value!r}"
+        )
+    return value
+
+
+def optional_phase(node: Node, key: str = "phase") -> Phase:
+    """Reads a phase: degrees for a target, `free` for a free-running point.
+
+    An absent key is the default (None). An explicit `null` is refused rather
+    than read as the default: the proof of concept wrote `null` for a
+    free-running phase, and the two must not be confused silently.
+
+    Raises:
+        HzlError: if the value is null, a string other than `free`, or a
+            number out of range.
+    """
+    if not node.has(key):
+        return None
+    value = node.optional(key, "scalar")
+    if value is None:
+        raise node.error(f"{key} may not be null; write 'free' for a free-running phase, or leave it out", key)
+    if isinstance(value, str):
+        if value != FREE_RUN.value:
+            raise node.error(f"{key} must be degrees or 'free', got {value!r}", key)
+        return FREE_RUN
+    return check_phase(float(value), node.where.at(key))
 
 
 def parse_identifier(value: object, where: Where) -> str:

@@ -26,10 +26,10 @@ CREATE (score0:Score {name: "scores/tempo_map_score"}),
 // PartialSetMusicalTimeline: 1
        (partialSetMusicalTimeline0:PartialSetMusicalTimeline),
 // PartialSetMusicalTimelinePoint: 4
-       (partialSetMusicalTimelinePoint0:PartialSetMusicalTimelinePoint {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0, phase_lock: false}),
-       (partialSetMusicalTimelinePoint1:PartialSetMusicalTimelinePoint {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0, phase_lock: false}),
-       (partialSetMusicalTimelinePoint2:PartialSetMusicalTimelinePoint {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0, phase_lock: false}),
-       (partialSetMusicalTimelinePoint3:PartialSetMusicalTimelinePoint {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0, phase_lock: false}),
+       (partialSetMusicalTimelinePoint0:PartialSetMusicalTimelinePoint {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0}),
+       (partialSetMusicalTimelinePoint1:PartialSetMusicalTimelinePoint {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0}),
+       (partialSetMusicalTimelinePoint2:PartialSetMusicalTimelinePoint {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0}),
+       (partialSetMusicalTimelinePoint3:PartialSetMusicalTimelinePoint {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0}),
 // PartialStateSet: 4
        (partialStateSet0:PartialStateSet),
        (partialStateSet1:PartialStateSet),

@@ -135,8 +135,7 @@ class PartialSetMusicalTimelinePointRow(Row):
     """A `PartialSetMusicalTimelinePoint`: the curves out of this point.
 
     The curve on a point describes the path from it to the next point
-    (rendering-engine/docs/precomputation.md §4). `phase_lock` is always
-    False in this version.
+    (rendering-engine/docs/precomputation.md §4).
     """
 
     TABLE: ClassVar[str] = "PartialSetMusicalTimelinePoint"
@@ -144,7 +143,6 @@ class PartialSetMusicalTimelinePointRow(Row):
     frequency_curve_amount: float
     amplitude_curve_type: int
     amplitude_curve_amount: float
-    phase_lock: bool = False
 
 
 @dataclass(frozen=True)
@@ -156,11 +154,18 @@ class PartialStateSetRow(Row):
 
 @dataclass(frozen=True)
 class PartialStateRow(Row):
-    """A `PartialState`: Hz and dB, either NULL for "no knot here"."""
+    """A `PartialState`: Hz and dB, either NULL for "no knot here", and phase.
+
+    `phase` (degrees) and `phase_free_run` are one of three combinations
+    (the schema's comment on `PartialState`): a target (phase, False),
+    free-running (None, True) or the default (None, None).
+    """
 
     TABLE: ClassVar[str] = "PartialState"
     frequency: float | None
     amplitude: float | None
+    phase: float | None = None
+    phase_free_run: bool | None = None
 
 
 @dataclass(frozen=True)

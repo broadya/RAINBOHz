@@ -39,6 +39,18 @@ def test_placements_add_up_in_ticks_and_rows_are_linked(tree):
     assert model.rows["PartialState"][2].properties() == {"frequency": 220.0, "amplitude": -144.0}
 
 
+def test_phase_kinds_become_phase_and_phase_free_run(tree):
+    start = BASE["state_sets/start"].replace("amplitude: -6.0, labels: [lead", "amplitude: -6.0, phase: -90, labels: [lead")
+    end = BASE["state_sets/end"].replace("{identifier: b, frequency: 330.0, amplitude: -144.0}", "{identifier: b, frequency: 330.0, amplitude: -144.0, phase: free}")
+    model = compile_(tree, {"state_sets/start": start, "state_sets/end": end})
+    assert [s.properties() for s in model.rows["PartialState"]] == [
+        {"frequency": 440.0, "amplitude": -6.0, "phase": -90.0, "phase_free_run": False},
+        {"frequency": 660.0, "amplitude": -6.0},
+        {"frequency": 220.0, "amplitude": -144.0},
+        {"frequency": 330.0, "amplitude": -144.0, "phase_free_run": True},
+    ]
+
+
 def test_labels_are_shared_rows_linked_from_partials_and_score(tree):
     model = compile_(tree)
     assert sorted(label.name for label in model.rows["Label"]) == ["demo", "lead", "pad", "x"]

@@ -2,7 +2,8 @@ import pytest
 
 from conftest import BASE, hzl
 from hzl_compiler.errors import HzlError, Where
-from hzl_compiler.lower.state_sets import StateSetResolver, evaluate_expression
+from hzl_compiler.hzl.common import FREE_RUN
+from hzl_compiler.lower.state_sets import StateSetResolver, combine_phase, evaluate_expression
 from hzl_compiler.ref import Ref
 
 W = Where(None, "")
@@ -128,10 +129,88 @@ def test_a_non_state_set_reference_is_refused(tree):
         resolve(tree, {}, "tempo_maps/main")
 
 
-def test_phase_and_spatial_properties_are_not_in_this_version(tree):
-    p = hzl("partial_state_set", "state_sets/p", "partial_states:\n  - partial_state: {identifier: a, frequency: 1.0, phase: 0.0}")
-    with pytest.raises(HzlError, match="phase is not in this version"):
+def test_spatial_properties_are_not_in_this_version(tree):
+    p = hzl("partial_state_set", "state_sets/p", "partial_states:\n  - partial_state: {identifier: a, frequency: 1.0, azimuth: 0.0}")
+    with pytest.raises(HzlError, match="spatial position is not in this version"):
         resolve(tree, {"state_sets/p": p}, "state_sets/p")
+
+
+def test_phase_is_a_target_in_degrees_free_or_absent(tree):
+    p = hzl(
+        "partial_state_set",
+        "state_sets/p",
+        """
+        partial_states:
+          - partial_state: {identifier: a, phase: 90}
+          - partial_state: {identifier: b, phase: -180.0}
+          - partial_state: {identifier: c, phase: free}
+          - partial_state: {identifier: d}
+        """,
+    )
+    assert [s.phase for s in resolve(tree, {"state_sets/p": p}, "state_sets/p").states] == [90.0, -180.0, FREE_RUN, None]
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("180.5", r"partial_state.phase: phase is in degrees and must lie in \[-180, 180\]"),
+        ("null", "phase may not be null; write 'free'"),
+        ("natural", "phase must be degrees or 'free', got 'natural'"),
+        ("true", "expected scalar for 'phase', got boolean True"),
+    ],
+)
+def test_bad_phases_are_refused_where_written(tree, value, message):
+    p = hzl("partial_state_set", "state_sets/p", f"partial_states:\n  - partial_state: {{identifier: a, phase: {value}}}")
+    with pytest.raises(HzlError, match=message):
+        resolve(tree, {"state_sets/p": p}, "state_sets/p")
+
+
+def test_scale_notes_carry_phase(tree):
+    scale = SCALE.replace("frequency: 261.63", "frequency: 261.63\n      phase: 45").replace("amplitude: -3.0", "amplitude: -3.0\n      phase: free")
+    assert [p.phase for p in resolve(tree, {"scales/c": scale}, "scales/c").states] == [45.0, FREE_RUN]
+
+
+def test_harmonic_series_phase_is_a_constant_or_an_expression(tree):
+    constant = HARMONICS.replace('amplitude_expression: "-20*log10(harmonic_index)"', "phase: free")
+    assert {p.phase for p in resolve(tree, {"series/h": constant}, "series/h").states} == {FREE_RUN}
+    expression = HARMONICS.replace('amplitude_expression: "-20*log10(harmonic_index)"', 'phase_expression: "90*(harmonic_index-1)"')
+    assert [p.phase for p in resolve(tree, {"series/h": expression}, "series/h").states] == [0.0, 90.0, 180.0]
+
+
+def test_harmonic_series_phase_expression_is_range_checked(tree):
+    series = HARMONICS.replace('amplitude_expression: "-20*log10(harmonic_index)"', 'phase_expression: "100*harmonic_index"')
+    with pytest.raises(HzlError, match=r"phase_expression: phase is in degrees .* got 200.0"):
+        resolve(tree, {"series/h": series}, "series/h")
+
+
+def test_harmonic_series_phase_is_given_one_way(tree):
+    both = HARMONICS.replace('amplitude_expression: "-20*log10(harmonic_index)"', 'phase: 0\n  phase_expression: "0"')
+    with pytest.raises(HzlError, match="give either 'phase' or 'phase_expression', not both"):
+        resolve(tree, {"series/h": both}, "series/h")
+
+
+@pytest.mark.parametrize(
+    ("a", "b", "expected"),
+    [
+        (10.0, 30.0, 20.0),
+        (170.0, -170.0, 0.0),
+        (FREE_RUN, 30.0, 30.0),
+        (30.0, None, 30.0),
+        (FREE_RUN, FREE_RUN, FREE_RUN),
+        (None, FREE_RUN, FREE_RUN),
+        (None, None, None),
+    ],
+)
+def test_product_combines_phases_by_the_authors_rule(a, b, expected):
+    assert combine_phase(a, b) == expected
+    assert combine_phase(b, a) == expected
+
+
+def test_product_carries_phase(tree):
+    scale = SCALE.replace("frequency: 261.63", "frequency: 261.63\n      phase: 30").replace("amplitude: -3.0", "amplitude: -3.0\n      phase: free")
+    series = HARMONICS.replace('amplitude_expression: "-20*log10(harmonic_index)"', 'phase_expression: "-30*(harmonic_index-1)"')
+    v = resolve(tree, {"scales/c": scale, "series/h": series, "virtual/v": PRODUCT}, "virtual/v")
+    assert [p.phase for p in v.states] == [15.0, 0.0, -15.0, 0.0, -30.0, -60.0]
 
 
 def test_duplicate_identifiers_are_refused(tree):
