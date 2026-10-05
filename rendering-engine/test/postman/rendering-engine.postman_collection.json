@@ -1194,7 +1194,7 @@
     },
     {
       "name": "6 Frame position",
-      "description": "Where a musical position on the root map falls in the sample stream (server.md \u00a73.4). Beats 0, 2, 4 and 8 are the first partial's frequency knots; the expected frame and offset are the floor of the rendering oracle's independent times for them (engine-db/examples/tempo-map-score.json), split by the frame size of 48000.",
+      "description": "Where a musical position on the root map falls in the sample stream (server.md \u00a73.4). Beats 0, 2, 4 and 8 are the first partial's frequency envelope nodes; the expected frame and offset are the floor of the rendering oracle's independent times for them (engine-db/examples/tempo-map-score.json), split by the frame size of 48000.",
       "item": [
         {
           "name": "Frame position at 1:0: 200",

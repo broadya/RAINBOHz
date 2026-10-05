@@ -13,6 +13,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -21,6 +22,7 @@
 #include <span>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -46,20 +48,28 @@ using rainbohz::rendering_engine::SampleTime;
 using rainbohz::rendering_engine::wrapHalfOpen;
 using rainbohz::rendering_engine::test::addSpatialTimelines;
 using rainbohz::rendering_engine::transform::collapseFreeRuns;
+using rainbohz::rendering_engine::transform::EnvelopeNode;
 using rainbohz::rendering_engine::transform::fitToLifeline;
-using rainbohz::rendering_engine::transform::Knot;
 using rainbohz::rendering_engine::transform::PartialSetTransformOutcome;
 using rainbohz::rendering_engine::transform::PartialTransformError;
 using rainbohz::rendering_engine::transform::PartialTransformOutcome;
-using rainbohz::rendering_engine::transform::PhaseKnot;
-using rainbohz::rendering_engine::transform::phaseKnotsOf;
+using rainbohz::rendering_engine::transform::PhaseEnvelopeNode;
+using rainbohz::rendering_engine::transform::phaseNodesOf;
 using rainbohz::rendering_engine::transform::PhasePoint;
 using rainbohz::rendering_engine::transform::PhysicalPoint;
-using rainbohz::rendering_engine::transform::placeKnots;
-using rainbohz::rendering_engine::transform::placePhaseKnots;
+using rainbohz::rendering_engine::transform::placeNodes;
+using rainbohz::rendering_engine::transform::placePhaseNodes;
+using rainbohz::rendering_engine::transform::placeSpatialNodes;
+using rainbohz::rendering_engine::transform::requireCompletePosition;
 using rainbohz::rendering_engine::transform::requireSharedEndPoints;
+using rainbohz::rendering_engine::transform::requireSpatialValues;
 using rainbohz::rendering_engine::transform::requireStatesWithinLifeline;
 using rainbohz::rendering_engine::transform::requireValidPhase;
+using rainbohz::rendering_engine::transform::SoundSourceTransformError;
+using rainbohz::rendering_engine::transform::SpatialCurves;
+using rainbohz::rendering_engine::transform::spatialNodesOf;
+using rainbohz::rendering_engine::transform::SpatialState;
+using rainbohz::rendering_engine::transform::SpatialTriple;
 using rainbohz::rendering_engine::transform::StatePhase;
 using rainbohz::rendering_engine::transform::transformAll;
 using rainbohz::rendering_engine::transform::TransformError;
@@ -69,23 +79,23 @@ using rainbohz::rendering_engine::transform::TransformReport;
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// A knot for the pure-stage tests.
+/// An envelope node for the pure-stage tests.
 ///
 /// @param point  Index of the set point.
 /// @param value  Value in canonical units.
 /// @param curve  Curve type; linear by default.
-/// @return The knot, with curve amount 0.
-Knot knot(std::size_t point, double value, std::int64_t curve = 0) {
-    return Knot{.point = point, .value = value, .curveType = curve, .curveAmount = 0.0};
+/// @return The envelope node, with curve amount 0.
+EnvelopeNode node(std::size_t point, double value, std::int64_t curve = 0) {
+    return EnvelopeNode{.point = point, .value = value, .curveType = curve, .curveAmount = 0.0};
 }
 
 /// A phase point for the pure-stage tests.
 ///
 /// @param point    Index of the set point.
 /// @param degrees  Target phase; nullopt for a NULL point.
-/// @return The phase knot.
-PhaseKnot pk(std::size_t point, std::optional<double> degrees) {
-    return PhaseKnot{.point = point, .degrees = degrees};
+/// @return The phase envelope node.
+PhaseEnvelopeNode pk(std::size_t point, std::optional<double> degrees) {
+    return PhaseEnvelopeNode{.point = point, .degrees = degrees};
 }
 
 /// A state's phase fields for the pure-stage tests.
@@ -239,8 +249,9 @@ void addScore(EngineDb& db, double tempo = 120.0, bool lastHolds = true) {
                literal(tempo) + ", hold: " + (lastHolds ? "true" : "false") +
                "}) CREATE (s)-[:HAS_SOUNDENTITY]->(:SoundEntity {name: 'E'})"
                "-[:HAS_SOUNDSOURCE]->(:SoundSource {name: 'SS'});");
-    // The transform does not write the source's position yet; precomputation
-    // needs one, so the source is still and straight ahead.
+    // The source's position in physical time, still and straight ahead, as
+    // precomputation needs. A test of the spatial transform adds a musical
+    // timeline, which then replaces these.
     addSpatialTimelines(db, "SS");
 }
 
@@ -408,6 +419,131 @@ PartialTransformOutcome outcomeOf(const TransformReport& report, const std::stri
     return {};
 }
 
+/// One point of a test's SpatialPositionMusicalTimeline.
+struct SpatialMusicalPoint {
+    /// POINT_AT.sync_point, ticks.
+    std::int64_t sync = 0;
+
+    /// POINT_AT.offset_seconds.
+    double offset = 0.0;
+
+    /// Whether the point has a SpatialPositionState at all.
+    bool hasState = true;
+
+    /// The state's values, degrees and metres; nullopt for NULL.
+    std::optional<double> azimuth;
+    std::optional<double> elevation;
+    std::optional<double> distance;
+
+    /// The point's azimuth_curve_type; the other curve fields are left at
+    /// their defaults.
+    std::int64_t azimuthCurve = 0;
+};
+
+/// A point of a test's spatial timeline, with a state.
+///
+/// @param sync       POINT_AT.sync_point, ticks.
+/// @param azimuth    Degrees; nullopt for NULL.
+/// @param elevation  Degrees; nullopt for NULL.
+/// @param distance   Metres; nullopt for NULL.
+/// @return The point, at no offset and with linear curves.
+SpatialMusicalPoint positionAt(std::int64_t sync, std::optional<double> azimuth,
+    std::optional<double> elevation, std::optional<double> distance) {
+    return SpatialMusicalPoint{.sync = sync,
+        .offset = 0.0,
+        .hasState = true,
+        .azimuth = azimuth,
+        .elevation = elevation,
+        .distance = distance,
+        .azimuthCurve = 0};
+}
+
+/// A point of a test's spatial timeline with no state at all.
+///
+/// @param sync  POINT_AT.sync_point, ticks.
+/// @return The point.
+SpatialMusicalPoint statelessAt(std::int64_t sync) {
+    SpatialMusicalPoint point = positionAt(sync, std::nullopt, std::nullopt, std::nullopt);
+    point.hasState = false;
+    return point;
+}
+
+/// Whether requireSpatialValues() refuses one state.
+///
+/// @param state  The state.
+/// @return True when it throws SoundSourceTransformError.
+bool refusedValue(const SpatialState& state) {
+    try {
+        requireSpatialValues(std::vector{state});
+    } catch (const SoundSourceTransformError&) {
+        return true;
+    }
+    return false;
+}
+
+/// Gives the SoundSource "SS" of addScore() a SpatialPositionMusicalTimeline.
+///
+/// @param[in,out] db  Database holding addScore()'s score.
+/// @param points      The points, in list order.
+void addSpatialMusicalTimeline(EngineDb& db, const std::vector<SpatialMusicalPoint>& points) {
+    std::int64_t previous = requireInt64(
+        db.query("MATCH (s:SoundSource {name: 'SS'}) CREATE (s)-[:HAS_MUSICAL_TIMELINE]->"
+                 "(t:SpatialPositionMusicalTimeline) RETURN t.id;")
+            .at(0)
+            .at(0));
+    bool first = true;
+    for (const SpatialMusicalPoint& point : points) {
+        const std::string from =
+            first ? "SpatialPositionMusicalTimeline" : "SpatialPositionMusicalTimelinePoint";
+        previous = requireInt64(
+            db.query(
+                  "MATCH (prev:" + from +
+                  "), (m:TempoMap) WHERE prev.id = " + std::to_string(previous) +
+                  " CREATE (prev)-[:NEXT_POINT]->(p:SpatialPositionMusicalTimelinePoint "
+                  "{azimuth_curve_type: CAST(" +
+                  std::to_string(point.azimuthCurve) +
+                  " AS INT8)}) CREATE (p)-[:POINT_AT {sync_point: " + std::to_string(point.sync) +
+                  ", offset_seconds: " + literal(point.offset) + "}]->(m) RETURN p.id;")
+                .at(0)
+                .at(0));
+        first = false;
+        if (!point.hasState) {
+            continue;
+        }
+        std::string props;
+        for (const auto& [name, value] : {std::pair{"azimuth", point.azimuth},
+                 std::pair{"elevation", point.elevation}, std::pair{"distance", point.distance}}) {
+            if (value.has_value()) {
+                props += (props.empty() ? "" : ", ") + std::string{name} + ": " + literal(*value);
+            }
+        }
+        db.execute("MATCH (p:SpatialPositionMusicalTimelinePoint) WHERE p.id = " +
+                   std::to_string(previous) + " CREATE (p)-[:POINT_STATE]->(:SpatialPositionState" +
+                   (props.empty() ? "" : " {" + props + "}") + ");");
+    }
+}
+
+/// The points of the SoundSource "SS"'s physical timeline of one kind.
+///
+/// @param db      Database to query.
+/// @param kind    "Azimuth", "Elevation" or "Distance".
+/// @param column  "azimuth", "elevation" or "distance".
+/// @return (time, value, curve type) per point, ordered by time.
+std::vector<std::tuple<double, double, std::int64_t>> sourcePoints(
+    EngineDb& db, const std::string& kind, const std::string& column) {
+    const std::string timeline = kind + "PhysicalTimeline";
+    std::vector<std::tuple<double, double, std::int64_t>> points;
+    std::string cypher = "MATCH (:SoundSource {name: 'SS'})-[:HAS_PHYSICAL_TIMELINE]->(:";
+    cypher += timeline + ")-[:NEXT_POINT*1..30]->(x:" + timeline;
+    cypher += "Point) RETURN x.time, x." + column + ", x." + column;
+    cypher += "_curve_type ORDER BY x.time;";
+    for (const DbRow& row : db.query(cypher)) {
+        points.emplace_back(optionalDouble(row.at(0)).value(), optionalDouble(row.at(1)).value(),
+            optionalInt64(row.at(2)).value());
+    }
+    return points;
+}
+
 /// The start_phase of each PartialIntegrableSegment after precomputation:
 /// the natural phase at each segment's start, unwrapped, from φ₀.
 ///
@@ -541,40 +677,40 @@ protected:
 // ---------------------------------------------------------------------------
 
 TEST(RequireSharedEndPoints, AcceptsSharedEnds) {
-    const std::vector<Knot> frequency{knot(0, 440.0), knot(2, 440.0), knot(3, 220.0)};
-    const std::vector<Knot> amplitude{knot(0, -6.0), knot(1, -6.0), knot(3, -144.0)};
+    const std::vector<EnvelopeNode> frequency{node(0, 440.0), node(2, 440.0), node(3, 220.0)};
+    const std::vector<EnvelopeNode> amplitude{node(0, -6.0), node(1, -6.0), node(3, -144.0)};
     EXPECT_NO_THROW(requireSharedEndPoints(frequency, amplitude));
 }
 
-TEST(RequireSharedEndPoints, NeedsTwoKnotsOfEach) {
-    const std::vector<Knot> one{knot(0, 440.0)};
-    const std::vector<Knot> two{knot(0, -6.0), knot(1, -6.0)};
+TEST(RequireSharedEndPoints, NeedsTwoNodesOfEach) {
+    const std::vector<EnvelopeNode> one{node(0, 440.0)};
+    const std::vector<EnvelopeNode> two{node(0, -6.0), node(1, -6.0)};
     EXPECT_THROW(requireSharedEndPoints(one, two), PartialTransformError);
     EXPECT_THROW(requireSharedEndPoints(two, one), PartialTransformError);
-    const std::vector<Knot> none;
+    const std::vector<EnvelopeNode> none;
     EXPECT_THROW(requireSharedEndPoints(none, two), PartialTransformError);
 }
 
 TEST(RequireSharedEndPoints, RefusesDifferentFirstOrLastPoints) {
-    const std::vector<Knot> frequency{knot(0, 440.0), knot(3, 220.0)};
-    const std::vector<Knot> laterStart{knot(1, -6.0), knot(3, -6.0)};
-    const std::vector<Knot> earlierEnd{knot(0, -6.0), knot(2, -6.0)};
+    const std::vector<EnvelopeNode> frequency{node(0, 440.0), node(3, 220.0)};
+    const std::vector<EnvelopeNode> laterStart{node(1, -6.0), node(3, -6.0)};
+    const std::vector<EnvelopeNode> earlierEnd{node(0, -6.0), node(2, -6.0)};
     EXPECT_THROW(requireSharedEndPoints(frequency, laterStart), PartialTransformError);
     EXPECT_THROW(requireSharedEndPoints(frequency, earlierEnd), PartialTransformError);
 }
 
-TEST(PlaceKnots, UsesThePointTimesAndKeepsValuesAndCurves) {
+TEST(PlaceNodes, UsesThePointTimesAndKeepsValuesAndCurves) {
     const std::vector<SampleTime> times{
         SampleTime{0.0}, SampleTime{100.0}, SampleTime{200.0}, SampleTime{300.0}};
-    const std::vector<Knot> knots{knot(0, 440.0, 1), knot(2, 441.0), knot(3, 442.0, 3)};
-    EXPECT_EQ(placeKnots(knots, times),
+    const std::vector<EnvelopeNode> nodes{node(0, 440.0, 1), node(2, 441.0), node(3, 442.0, 3)};
+    EXPECT_EQ(placeNodes(nodes, times),
         (std::vector{pp(0.0, 440.0, 1), pp(200.0, 441.0), pp(300.0, 442.0, 3)}));
 }
 
-TEST(PlaceKnots, SquashesCollisions) {
+TEST(PlaceNodes, SquashesCollisions) {
     const std::vector<SampleTime> times{SampleTime{0.0}, SampleTime{100.0}, SampleTime{50.0}};
-    const std::vector<Knot> knots{knot(0, 1.0), knot(1, 2.0), knot(2, 3.0)};
-    EXPECT_EQ(placeKnots(knots, times), (std::vector{pp(0.0, 1.0), pp(100.0, 3.0)}));
+    const std::vector<EnvelopeNode> nodes{node(0, 1.0), node(1, 2.0), node(2, 3.0)};
+    EXPECT_EQ(placeNodes(nodes, times), (std::vector{pp(0.0, 1.0), pp(100.0, 3.0)}));
 }
 
 TEST(FitToLifeline, MovesTheLastPointToTheEnd) {
@@ -591,13 +727,13 @@ TEST(FitToLifeline, DropsPointsAtOrAfterTheEnd) {
 }
 
 TEST(RequireStatesWithinLifeline, AcceptsStatesOnAndBetweenTheEnds) {
-    const std::vector<Knot> frequency{knot(1, 440.0), knot(3, 440.0)};
+    const std::vector<EnvelopeNode> frequency{node(1, 440.0), node(3, 440.0)};
     const std::vector<StatePhase> states{byDefault(1), target(2, 90.0), freeRun(3)};
     EXPECT_NO_THROW(requireStatesWithinLifeline(frequency, states));
 }
 
 TEST(RequireStatesWithinLifeline, RefusesAStateBeforeOrAfterTheLifeline) {
-    const std::vector<Knot> frequency{knot(1, 440.0), knot(3, 440.0)};
+    const std::vector<EnvelopeNode> frequency{node(1, 440.0), node(3, 440.0)};
     const std::vector<StatePhase> before{freeRun(0), target(1, 0.0), target(3, 0.0)};
     const std::vector<StatePhase> after{target(1, 0.0), target(3, 0.0), target(4, 0.0)};
     EXPECT_THROW(requireStatesWithinLifeline(frequency, before), PartialTransformError);
@@ -606,7 +742,7 @@ TEST(RequireStatesWithinLifeline, RefusesAStateBeforeOrAfterTheLifeline) {
 
 TEST(RequireStatesWithinLifeline, ADefaultStateOutsideTheLifelineIsRefusedToo) {
     // It plays no role in phase, but it is still a state with no frequency.
-    const std::vector<Knot> frequency{knot(1, 440.0), knot(3, 440.0)};
+    const std::vector<EnvelopeNode> frequency{node(1, 440.0), node(3, 440.0)};
     const std::vector<StatePhase> states{byDefault(1), byDefault(3), byDefault(4)};
     EXPECT_THROW(requireStatesWithinLifeline(frequency, states), PartialTransformError);
 }
@@ -636,42 +772,42 @@ TEST(RequireValidPhase, RefusesATargetOutOfRange) {
     }
 }
 
-TEST(PhaseKnotsOf, TargetsAndFreeRunsArePointsDefaultsAreNot) {
+TEST(PhaseNodesOf, TargetsAndFreeRunsArePointsDefaultsAreNot) {
     const std::vector<StatePhase> states{
         target(0, 10.0), byDefault(1), freeRun(2), byDefault(3), target(4, 20.0)};
-    EXPECT_EQ(phaseKnotsOf(states), (std::vector{pk(0, 10.0), pk(2, std::nullopt), pk(4, 20.0)}));
+    EXPECT_EQ(phaseNodesOf(states), (std::vector{pk(0, 10.0), pk(2, std::nullopt), pk(4, 20.0)}));
 }
 
-TEST(PhaseKnotsOf, ADefaultFirstStateRunsFreeToTheFirstTarget) {
+TEST(PhaseNodesOf, ADefaultFirstStateRunsFreeToTheFirstTarget) {
     const std::vector<StatePhase> states{byDefault(0), byDefault(1), target(2, 45.0), byDefault(3)};
-    EXPECT_EQ(phaseKnotsOf(states), (std::vector{pk(0, std::nullopt), pk(2, 45.0)}));
+    EXPECT_EQ(phaseNodesOf(states), (std::vector{pk(0, std::nullopt), pk(2, 45.0)}));
 }
 
-TEST(PhaseKnotsOf, NoPhaseAnywhereGivesOneFreePoint) {
+TEST(PhaseNodesOf, NoPhaseAnywhereGivesOneFreePoint) {
     const std::vector<StatePhase> states{byDefault(0), byDefault(1), byDefault(2)};
-    EXPECT_EQ(phaseKnotsOf(states), (std::vector{pk(0, std::nullopt)}));
+    EXPECT_EQ(phaseNodesOf(states), (std::vector{pk(0, std::nullopt)}));
 }
 
-TEST(PlacePhaseKnots, ConvertsDegreesAndKeepsNulls) {
+TEST(PlacePhaseNodes, ConvertsDegreesAndKeepsNulls) {
     const std::vector<SampleTime> times{SampleTime{0.0}, SampleTime{100.0}, SampleTime{200.0}};
-    const std::vector<PhaseKnot> knots{pk(0, std::nullopt), pk(1, 90.0), pk(2, -180.0)};
-    EXPECT_EQ(placePhaseKnots(knots, times),
+    const std::vector<PhaseEnvelopeNode> nodes{pk(0, std::nullopt), pk(1, 90.0), pk(2, -180.0)};
+    EXPECT_EQ(placePhaseNodes(nodes, times),
         (std::vector{php(0.0, std::nullopt), php(100.0, std::numbers::pi / 2.0),
             php(200.0, -std::numbers::pi)}));
 }
 
-TEST(PlacePhaseKnots, HalfACycleIsExactlyPi) {
+TEST(PlacePhaseNodes, HalfACycleIsExactlyPi) {
     const std::vector<SampleTime> times{SampleTime{0.0}, SampleTime{100.0}};
-    const std::vector<PhaseKnot> knots{pk(0, 180.0), pk(1, -180.0)};
-    EXPECT_EQ(placePhaseKnots(knots, times),
+    const std::vector<PhaseEnvelopeNode> nodes{pk(0, 180.0), pk(1, -180.0)};
+    EXPECT_EQ(placePhaseNodes(nodes, times),
         (std::vector{php(0.0, std::numbers::pi), php(100.0, -std::numbers::pi)}));
 }
 
-TEST(PlacePhaseKnots, ALaterNullWinsACollision) {
+TEST(PlacePhaseNodes, ALaterNullWinsACollision) {
     const std::vector<SampleTime> times{SampleTime{0.0}, SampleTime{100.0}, SampleTime{50.0}};
-    const std::vector<PhaseKnot> knots{pk(0, 0.0), pk(1, 90.0), pk(2, std::nullopt)};
+    const std::vector<PhaseEnvelopeNode> nodes{pk(0, 0.0), pk(1, 90.0), pk(2, std::nullopt)};
     EXPECT_EQ(
-        placePhaseKnots(knots, times), (std::vector{php(0.0, 0.0), php(100.0, std::nullopt)}));
+        placePhaseNodes(nodes, times), (std::vector{php(0.0, 0.0), php(100.0, std::nullopt)}));
 }
 
 TEST(FitToLifeline, MovesALatePhasePointBackToTheEnd) {
@@ -717,6 +853,102 @@ TEST(CollapseFreeRuns, LeavesRunsOfTwoAndSeparateRunsAlone) {
 }
 
 // ---------------------------------------------------------------------------
+// Pure stages: spatial position (§6.8)
+// ---------------------------------------------------------------------------
+
+/// A spatial state for the pure-stage tests.
+SpatialState ss(std::size_t point, std::optional<double> azimuth, std::optional<double> elevation,
+    std::optional<double> distance) {
+    return SpatialState{
+        .point = point, .azimuth = azimuth, .elevation = elevation, .distance = distance};
+}
+
+TEST(RequireCompletePosition, AcceptsAFullFirstState) {
+    const std::vector<SpatialState> states{
+        ss(0, 0.0, 0.0, 1.0), ss(2, 90.0, std::nullopt, std::nullopt)};
+    EXPECT_NO_THROW(requireCompletePosition(states));
+}
+
+TEST(RequireCompletePosition, RefusesAFirstPointWithoutAState) {
+    EXPECT_THROW(requireCompletePosition({}), SoundSourceTransformError);
+    const std::vector<SpatialState> late{ss(1, 0.0, 0.0, 1.0)};
+    EXPECT_THROW(requireCompletePosition(late), SoundSourceTransformError);
+}
+
+TEST(RequireCompletePosition, NamesTheMissingProperties) {
+    const std::vector<SpatialState> states{ss(0, 0.0, std::nullopt, std::nullopt)};
+    try {
+        requireCompletePosition(states);
+        FAIL() << "an incomplete first state was accepted";
+    } catch (const SoundSourceTransformError& e) {
+        EXPECT_NE(std::string{e.what()}.find("elevation, distance is NULL"), std::string::npos)
+            << e.what();
+    }
+}
+
+TEST(RequireSpatialValues, AcceptsTheBoundsOfEachRange) {
+    const std::vector<SpatialState> states{
+        ss(0, -180.0, -90.0, 1.0), ss(1, 180.0, 90.0, 16384.0), ss(2, std::nullopt, 0.0, 2.0)};
+    EXPECT_NO_THROW(requireSpatialValues(states));
+}
+
+TEST(RequireSpatialValues, RefusesValuesOutsideTheirRanges) {
+    EXPECT_TRUE(refusedValue(ss(0, 180.5, 0.0, 1.0)));
+    EXPECT_TRUE(refusedValue(ss(0, 0.0, -90.5, 1.0)));
+    EXPECT_TRUE(refusedValue(ss(0, 0.0, 0.0, 0.99)));
+    EXPECT_TRUE(refusedValue(ss(0, 0.0, 0.0, 16384.5)));
+    EXPECT_TRUE(refusedValue(ss(0, std::numeric_limits<double>::quiet_NaN(), 0.0, 1.0)));
+}
+
+TEST(SpatialNodesOf, ANullPropertyIsNotAnEnvelopeNode) {
+    const std::vector<SpatialState> states{ss(0, 0.0, 0.0, 1.0), ss(1, 90.0, std::nullopt, 4.0),
+        ss(3, std::nullopt, 45.0, std::nullopt)};
+    std::vector<SpatialCurves> curves(4);
+    curves[1].curveType = {2, 3, 4};
+    curves[1].curveAmount = {0.25, 0.5, 0.75};
+    const SpatialTriple<EnvelopeNode> envelopes = spatialNodesOf(states, curves);
+    ASSERT_EQ(envelopes[0].size(), 2U);
+    ASSERT_EQ(envelopes[1].size(), 2U);
+    ASSERT_EQ(envelopes[2].size(), 2U);
+    EXPECT_EQ(envelopes[0][1].point, 1U);
+    EXPECT_EQ(envelopes[0][1].curveType, 2);
+    EXPECT_DOUBLE_EQ(envelopes[0][1].curveAmount, 0.25);
+    EXPECT_EQ(envelopes[1][1].point, 3U);
+    EXPECT_EQ(envelopes[2][1].curveType, 4);
+    EXPECT_DOUBLE_EQ(envelopes[2][1].value, 4.0);
+}
+
+TEST(PlaceSpatialNodes, ConvertsAnglesToRadiansAndKeepsMetres) {
+    const std::vector<SampleTime> times{SampleTime{0.0}, SampleTime{100.0}};
+    const SpatialTriple<EnvelopeNode> envelopes{{
+        {node(0, 90.0), node(1, -180.0)},
+        {node(0, -90.0), node(1, 45.0)},
+        {node(0, 1.0), node(1, 16384.0)},
+    }};
+    const SpatialTriple<PhysicalPoint> points = placeSpatialNodes(envelopes, times);
+    EXPECT_EQ(
+        points[0], (std::vector{pp(0.0, std::numbers::pi / 2.0), pp(100.0, -std::numbers::pi)}));
+    EXPECT_EQ(points[1],
+        (std::vector{pp(0.0, -std::numbers::pi / 2.0), pp(100.0, std::numbers::pi / 4.0)}));
+    EXPECT_EQ(points[2], (std::vector{pp(0.0, 1.0), pp(100.0, 16384.0)}));
+}
+
+TEST(PlaceSpatialNodes, SquashesEachEnvelopeOnItsOwn) {
+    // Point 2 computes before point 1: in azimuth it collides and wins at the
+    // tail; distance has no node there and is untouched.
+    const std::vector<SampleTime> times{SampleTime{0.0}, SampleTime{100.0}, SampleTime{50.0}};
+    const SpatialTriple<EnvelopeNode> envelopes{{
+        {node(0, 0.0), node(1, 90.0), node(2, 45.0)},
+        {node(0, 0.0)},
+        {node(0, 1.0), node(1, 2.0)},
+    }};
+    const SpatialTriple<PhysicalPoint> points = placeSpatialNodes(envelopes, times);
+    EXPECT_EQ(points[0], (std::vector{pp(0.0, 0.0), pp(100.0, std::numbers::pi / 4.0)}));
+    EXPECT_EQ(points[1], (std::vector{pp(0.0, 0.0)}));
+    EXPECT_EQ(points[2], (std::vector{pp(0.0, 1.0), pp(100.0, 2.0)}));
+}
+
+// ---------------------------------------------------------------------------
 // The run
 // ---------------------------------------------------------------------------
 
@@ -753,7 +985,7 @@ TEST_F(TransformDb, TransformsASimpleScore) {
     EXPECT_DOUBLE_EQ(std::get<1>(amplitude[1]), -12.0);
 }
 
-TEST_F(TransformDb, ANullPropertyOrAMissingStateIsNotAKnot) {
+TEST_F(TransformDb, ANullPropertyOrAMissingStateIsNotAnEnvelopeNode) {
     addScore(db);
     addMusicalSet(db, "P", {"A", "B"},
         {
@@ -1404,6 +1636,112 @@ TEST_F(TransformDb, TheInitialPhaseMeetsATargetAtAnyFrequency) {
     EXPECT_LT(phases[0], std::numbers::pi);
     EXPECT_NEAR(wrapHalfOpen(Phase{phases[1]} - Phase{std::numbers::pi}).value(), 0.0, 1e-9);
     expectNoAdjustment(compensation(db, "A"), {0.0, 96000.0, 144000.0});
+}
+
+// ---------------------------------------------------------------------------
+// The run: spatial position (§6.8)
+// ---------------------------------------------------------------------------
+
+/// Adds the score of the spatial run tests: three points two beats (one
+/// second at 120 BPM) apart, the first with an azimuth curve type of 3, the
+/// second leaving elevation NULL, the third with no state at all.
+///
+/// @param[in,out] db  Database with the schema and EngineConfig applied.
+void addMovingSource(EngineDb& db) {
+    addScore(db);
+    SpatialMusicalPoint first = positionAt(0, 0.0, 0.0, 1.0);
+    first.azimuthCurve = 3;
+    addSpatialMusicalTimeline(
+        db, {first, positionAt(1920, 90.0, std::nullopt, 4.0), statelessAt(2880)});
+}
+
+TEST_F(TransformDb, ReportsASourcesPosition) {
+    addMovingSource(db);
+    const TransformReport report = transformAll(db);
+    EXPECT_TRUE(report.ok());
+    ASSERT_EQ(report.sources.size(), 1U);
+    EXPECT_EQ(report.sources[0].sourceName, "SS");
+    EXPECT_EQ(report.sources[0].error, std::nullopt);
+    EXPECT_EQ(report.sources[0].points, (std::array<std::size_t, 3>{2U, 1U, 2U}));
+}
+
+TEST_F(TransformDb, TransformsASourcesPosition) {
+    addMovingSource(db);
+    ASSERT_TRUE(transformAll(db).ok());
+    using Points = std::vector<std::tuple<double, double, std::int64_t>>;
+    // 48000 samples is one second. The curve type is copied, not
+    // interpreted. Elevation has one envelope node, and holds.
+    EXPECT_EQ(sourcePoints(db, "Azimuth", "azimuth"),
+        (Points{{0.0, 0.0, 3}, {48000.0, std::numbers::pi / 2.0, 0}}));
+    EXPECT_EQ(sourcePoints(db, "Elevation", "elevation"), (Points{{0.0, 0.0, 0}}));
+    EXPECT_EQ(sourcePoints(db, "Distance", "distance"), (Points{{0.0, 1.0, 0}, {48000.0, 4.0, 0}}));
+    // The physical timelines addScore() wrote were replaced, not added to.
+    EXPECT_EQ(requireInt64(
+                  db.query("MATCH (:SoundSource)-[:HAS_PHYSICAL_TIMELINE]->"
+                           "(t:AzimuthPhysicalTimeline) RETURN count(t);")
+                      .at(0)
+                      .at(0)),
+        1);
+}
+
+TEST_F(TransformDb, ASecondRunRebuildsTheSourcesTimelinesAndDropsTheirEntries) {
+    addScore(db);
+    addMusicalSet(db, "P", {"A"},
+        {
+            MusicalPoint{.sync = 0, .states = {state("A", 440.0, -6.0)}},
+            MusicalPoint{.sync = 1920, .states = {state("A", 440.0, -6.0)}},
+        });
+    addSpatialMusicalTimeline(db, {positionAt(0, 30.0, 10.0, 2.0)});
+    ASSERT_TRUE(transformAll(db).ok());
+    ASSERT_TRUE(precomputeAll(db).ok());
+    const auto entries = [this] {
+        return requireInt64(
+            db.query("MATCH (:FrameEntry)-[e:FRAME_ENTRY_PHYSICAL_TIMELINE]->"
+                     "(:AzimuthPhysicalTimelinePoint) RETURN count(e);")
+                .at(0)
+                .at(0));
+    };
+    EXPECT_GT(entries(), 0);
+    const auto before = sourcePoints(db, "Azimuth", "azimuth");
+
+    ASSERT_TRUE(transformAll(db).ok());
+    EXPECT_EQ(entries(), 0);
+    EXPECT_EQ(sourcePoints(db, "Azimuth", "azimuth"), before);
+}
+
+TEST_F(TransformDb, AnIncompleteFirstPositionFailsTheSourceAndWritesNothing) {
+    addScore(db);
+    addSpatialMusicalTimeline(db,
+        {positionAt(0, 0.0, 0.0, std::nullopt), positionAt(1920, std::nullopt, std::nullopt, 2.0)});
+    const auto before = sourcePoints(db, "Distance", "distance");
+    const TransformReport report = transformAll(db);
+    EXPECT_FALSE(report.ok());
+    EXPECT_EQ(report.failureCount(), 1U);
+    ASSERT_EQ(report.sources.size(), 1U);
+    const std::string error = report.sources[0].error.value_or("");
+    EXPECT_NE(error.find("at point 0 its distance is NULL"), std::string::npos) << error;
+    EXPECT_EQ(sourcePoints(db, "Distance", "distance"), before);
+}
+
+TEST_F(TransformDb, AnOutOfRangePositionFailsTheSource) {
+    addScore(db);
+    // The second point is below straight down: refused, not wrapped.
+    addSpatialMusicalTimeline(
+        db, {positionAt(0, 0.0, 0.0, 1.0), positionAt(960, std::nullopt, -95.0, std::nullopt)});
+    const TransformReport report = transformAll(db);
+    ASSERT_EQ(report.sources.size(), 1U);
+    const std::string error = report.sources[0].error.value_or("");
+    EXPECT_NE(error.find("at point 1 its elevation is -95 degrees"), std::string::npos) << error;
+}
+
+TEST_F(TransformDb, ASpatialPointBeforeItsPredecessorInMusicalTimeFailsTheSource) {
+    addScore(db);
+    addSpatialMusicalTimeline(
+        db, {positionAt(960, 0.0, 0.0, 1.0), positionAt(0, 10.0, std::nullopt, std::nullopt)});
+    const TransformReport report = transformAll(db);
+    ASSERT_EQ(report.sources.size(), 1U);
+    const std::string error = report.sources[0].error.value_or("");
+    EXPECT_NE(error.find("non-decreasing musical order"), std::string::npos) << error;
 }
 
 } // namespace

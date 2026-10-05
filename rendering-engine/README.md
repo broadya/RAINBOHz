@@ -106,16 +106,21 @@ What `batch` mode does today:
 3. Applies `--schema`, one Cypher file of DDL.
 4. Applies `--state`, one Cypher file of initial database state.
 5. Prints what the schema declared and what the state actually loaded.
-6. With `--validate-db`, checks the integrity of what loaded: no cycles or
-   merged lists in any `NEXT_POINT` list, and the columns the engine reads in
-   their valid ranges. A violation stops the run here, with exit 1. See
-   [docs/integrity.md](docs/integrity.md).
-7. Transforms every partial set that has a musical timeline: its points are
-   placed in physical time through the score's tempo map, with the offsets
-   and collisions resolved as [docs/transform.md](docs/transform.md) §6.3
-   describes, and each partial gets its frequency and amplitude physical
-   timelines. Sets written in physical time directly are left alone. A set
-   or partial that cannot be transformed stops the run here, with exit 1.
+6. With `--validate-db`, checks the integrity of the canonical model that
+   loaded: no cycles or merged lists in its `NEXT_POINT` lists, and the
+   columns the transform reads in their valid ranges. A violation stops the
+   run here, with exit 1. See [docs/integrity.md](docs/integrity.md).
+7. Transforms every partial set and every SoundSource that has a musical
+   timeline: its points are placed in physical time through the score's tempo
+   map, with the offsets and collisions resolved as
+   [docs/transform.md](docs/transform.md) §6.3 describes. Each partial gets
+   its frequency, amplitude and phase physical timelines, and each source its
+   azimuth, elevation and distance timelines, in radians and metres (§6.8).
+   Sets and sources written in physical time directly are left alone. A set,
+   partial or source that cannot be transformed stops the run here, with
+   exit 1.
+   With `--validate-db`, the physical timelines are then checked in turn, and
+   a violation stops the run, with exit 1.
 8. Precomputes every partial ([docs/precomputation.md](docs/precomputation.md)).
 9. Lists the requested frames and checks every requested label against the
    `Label` nodes that loaded.
@@ -241,7 +246,7 @@ rendering-engine/
 │       ├── musical_units.hpp  ticks, tempo, ticks per beat
 │       ├── tempo_map.hpp      the TempoMap and its conversion to seconds
 │       ├── squash.hpp         placing colliding points in physical time
-│       └── transform.hpp      knots, envelopes, the run and its report
+│       └── transform.hpp      envelope nodes, envelopes, the run and its report
 ├── src/
 │   ├── main.cpp            entry point, batch-mode driver, mode dispatch
 │   ├── cypher_script.cpp

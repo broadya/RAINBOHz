@@ -178,7 +178,7 @@ struct PhaseTarget {
     SampleTime time;
 
     /// The phase to meet at `time`, wrapped radians in [-π, π]; nullopt for
-    /// "free-running up to here". Not "no knot here": a NULL point still
+    /// "free-running up to here". Not "no envelope node here": a NULL point still
     /// starts a new compensation segment.
     std::optional<Phase> phase;
 };
@@ -343,15 +343,17 @@ std::vector<SampleTime> validateSpatialTimeline(
     SpatialKind kind, std::span<const SpatialPointRecord> points);
 
 /// Checks that a source's spatial timeline covers a partial's lifeline: its
-/// first point at or before `b₀` and its last at or after `b_last` (§7).
+/// first point is at or before `b₀` (§7).
+///
+/// After its last point a timeline's value holds, so it need not reach
+/// `b_last` (author, 2026-10-05).
 ///
 /// @param kind           Which timeline it is.
 /// @param times          Its validated times. Not empty.
 /// @param lifelineStart  The partial's b₀.
-/// @param lifelineEnd    The partial's b_last.
-/// @throws PartialPrecomputationError  If it does not cover the lifeline.
-void checkSpatialCoverage(SpatialKind kind, std::span<const SampleTime> times,
-    SampleTime lifelineStart, SampleTime lifelineEnd);
+/// @throws PartialPrecomputationError  If it starts after the lifeline.
+void checkSpatialCoverage(
+    SpatialKind kind, std::span<const SampleTime> times, SampleTime lifelineStart);
 
 /// Checks a partial's phase points against its frequency envelope, and
 /// converts them to typed values (§7, §6.8).

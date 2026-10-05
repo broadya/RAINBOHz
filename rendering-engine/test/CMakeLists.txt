@@ -79,6 +79,8 @@ target_compile_definitions(rendering_engine_tests
         RE_TEST_TWO_SETS_STATE="${RE_TWO_SETS_STATE_FILE}"
         RE_TEST_TEMPO_MAP_STATE="${RE_TEMPO_MAP_STATE_FILE}"
         RE_TEST_OFFSET_COLLISION_STATE="${RE_OFFSET_COLLISION_STATE_FILE}"
+        RE_TEST_SPATIAL_STATE="${RE_SPATIAL_STATE_FILE}"
+        RE_TEST_SPATIAL_MUSICAL_STATE="${RE_SPATIAL_MUSICAL_STATE_FILE}"
         RE_SPATIAL_ORACLE_CSV="${CMAKE_CURRENT_SOURCE_DIR}/oracle/spatial_gains.csv"
 )
 
@@ -132,7 +134,7 @@ if(Python3_Interpreter_FOUND)
     # served. Every response is checked against the OpenAPI document where
     # PyYAML and jsonschema are installed. For a score in musical time, the
     # optional last argument lists the beats of the first partial's frequency
-    # knots, and the tempo-map calls are checked against the oracle's times.
+    # envelope nodes, and the tempo-map calls are checked against the oracle's times.
     # Skipped like the oracle when NumPy is missing.
     set(RE_OPENAPI_SPEC "${CMAKE_CURRENT_SOURCE_DIR}/../api/openapi.yaml")
     function(re_add_server_test name score request)

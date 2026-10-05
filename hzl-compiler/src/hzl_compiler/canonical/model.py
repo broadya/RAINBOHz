@@ -154,7 +154,7 @@ class PartialStateSetRow(Row):
 
 @dataclass(frozen=True)
 class PartialStateRow(Row):
-    """A `PartialState`: Hz and dB, either NULL for "no knot here", and phase.
+    """A `PartialState`: Hz and dB, either NULL for "no envelope node here", and phase.
 
     `phase` (degrees) and `phase_free_run` are one of three combinations
     (the schema's comment on `PartialState`): a target (phase, False),

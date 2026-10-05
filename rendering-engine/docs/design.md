@@ -122,15 +122,19 @@ reporting that says whether they worked:
   Cypher file named by `--schema`;
 - an initial database state is loaded from the one Cypher file named by
   `--state`;
-- with `--validate-db`, the integrity of what loaded is checked (list shapes,
-  and the ranges of the columns the engine reads), and the run stops before
-  precomputation if a check fails; see [integrity.md](integrity.md);
-- every partial set with a musical timeline is transformed: its points are
-  placed in physical time through the Score's tempo map, and each partial
-  gets a `FrequencyPhysicalTimeline` and an `AmplitudePhysicalTimeline`.
-  This is the first version, covering one tempo map per Score, frequency
-  and amplitude only; see [transform.md](transform.md). A set or partial that
-  cannot be transformed stops the run here;
+- with `--validate-db`, the integrity of the canonical model that loaded is
+  checked (list shapes, and the ranges of the columns the transform reads),
+  and the run stops before the transform if a check fails; see
+  [integrity.md](integrity.md);
+- every partial set and SoundSource with a musical timeline is transformed:
+  its points are placed in physical time through the Score's tempo map; each
+  partial gets a `FrequencyPhysicalTimeline`, an `AmplitudePhysicalTimeline`
+  and a `PhasePhysicalTimeline`, and each source an azimuth, an elevation and
+  a distance timeline. This is the first version, covering one tempo map per
+  Score and no modulators; see [transform.md](transform.md). A set, partial
+  or source that cannot be transformed stops the run here;
+- with `--validate-db`, the physical timelines are checked in turn, and the
+  run stops before precomputation if a check fails;
 - every partial is precomputed: its `PartialSegmentPhysicalTimeline` of integrable
   segments with their start phases, the frames it is in scope for, and a
   `FrameEntry` per frame leading to where that frame's rendering starts.

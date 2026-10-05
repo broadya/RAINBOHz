@@ -772,6 +772,72 @@ private:
     double value_ = 1.0;
 };
 
+/// An azimuth in degrees: the canonical model's unit for
+/// SpatialPositionState.azimuth, in [−180, 180], anticlockwise from the
+/// front (engine-schema.cypher). Read only by the transform, which converts
+/// it to Azimuth with toAzimuth().
+class AzimuthDegrees {
+public:
+    /// An azimuth of `degrees` degrees.
+    ///
+    /// @param degrees  Any value.
+    constexpr explicit AzimuthDegrees(double degrees) noexcept : value_{degrees} {}
+
+    /// The azimuth in degrees.
+    constexpr double value() const noexcept { return value_; }
+
+    /// Orders two values of this type by their representation.
+    friend constexpr auto operator<=>(AzimuthDegrees, AzimuthDegrees) noexcept = default;
+
+private:
+    double value_;
+};
+
+/// An elevation in degrees: the canonical model's unit for
+/// SpatialPositionState.elevation, in [−90, 90], up from the horizontal
+/// (engine-schema.cypher). Read only by the transform, which converts it to
+/// Elevation with toElevation().
+class ElevationDegrees {
+public:
+    /// An elevation of `degrees` degrees.
+    ///
+    /// @param degrees  Any value.
+    constexpr explicit ElevationDegrees(double degrees) noexcept : value_{degrees} {}
+
+    /// The elevation in degrees.
+    constexpr double value() const noexcept { return value_; }
+
+    /// Orders two values of this type by their representation.
+    friend constexpr auto operator<=>(ElevationDegrees, ElevationDegrees) noexcept = default;
+
+private:
+    double value_;
+};
+
+/// Converts a canonical azimuth to the rendering model's unit.
+///
+/// The result is clamped to [−π, π], the range precomputation and rendering
+/// accept, so that ±180° gives exactly ±π whatever the rounding of the
+/// product, as toPhase() does.
+///
+/// @param azimuth  Azimuth in degrees, in [−180, 180].
+/// @return The same azimuth in radians, in [−π, π].
+constexpr Azimuth toAzimuth(AzimuthDegrees azimuth) noexcept {
+    return Azimuth{std::clamp(
+        azimuth.value() * (std::numbers::pi / 180.0), -std::numbers::pi, std::numbers::pi)};
+}
+
+/// Converts a canonical elevation to the rendering model's unit.
+///
+/// The result is clamped to [−π/2, π/2], so that ±90° gives exactly ±π/2.
+///
+/// @param elevation  Elevation in degrees, in [−90, 90].
+/// @return The same elevation in radians, in [−π/2, π/2].
+constexpr Elevation toElevation(ElevationDegrees elevation) noexcept {
+    return Elevation{std::clamp(elevation.value() * (std::numbers::pi / 180.0),
+        -std::numbers::pi / 2.0, std::numbers::pi / 2.0)};
+}
+
 /// A rate of change of azimuth or elevation, in radians per sample.
 class AngleGradient {
 public:

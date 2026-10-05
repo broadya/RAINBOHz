@@ -12,7 +12,7 @@
 // 48 kHz a frame is 48,000 samples, so frame k covers
 // [48000 k, 48000 (k + 1)).
 //
-// A phase point is a target, not a knot: between two points the
+// A phase point is a target, not an envelope node: between two points the
 // phase is adjusted by a linear ramp, so that it arrives at the
 // target exactly. A NULL point means "free-running up to here"
 // (rendering-engine/docs/precomputation.md section 6.8).

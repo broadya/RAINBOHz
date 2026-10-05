@@ -143,7 +143,14 @@ struct ListDefects {
 ListDefects findListDefects(const std::unordered_map<std::int64_t, std::int64_t>& heads,
     const std::unordered_map<std::int64_t, std::int64_t>& next);
 
-/// Runs every integrity check against `db`.
+/// Runs the canonical pass of the integrity checks against `db`: everything
+/// the transform reads (docs/integrity.md section 2).
+///
+/// That is the EngineConfig, the canonical model's columns, set membership,
+/// the tempo maps, every musical timeline's POINT_AT edges and order, the
+/// PartialStates, the first SpatialPositionState of every spatial timeline,
+/// and the canonical lists. It is run before the transform, when the physical
+/// timelines of a musical score do not exist yet.
 ///
 /// Reads the whole of every table it checks, so its cost is proportional to
 /// the size of the database. It is meant for development and diagnosis, not
@@ -153,6 +160,31 @@ ListDefects findListDefects(const std::unordered_map<std::int64_t, std::int64_t>
 /// @return One IntegrityCheck per check, in a fixed order.
 /// @throws EngineDbError  If a query fails, e.g. because the schema has not
 ///         been applied. Violations are reported, not thrown.
+IntegrityReport checkCanonicalIntegrity(EngineDb& db);
+
+/// Runs the physical pass of the integrity checks against `db`: everything
+/// the transform writes and precomputation reads (docs/integrity.md section
+/// 2).
+///
+/// That is the physical timelines' columns, lifeline equality, the coverage
+/// of every SoundSource's spatial timelines, and the physical lists. It is
+/// run after the transform and before precomputation.
+///
+/// @param db  Database to check. Not modified.
+/// @return One IntegrityCheck per check, in a fixed order.
+/// @throws EngineDbError  If a query fails. Violations are reported, not
+///         thrown.
+IntegrityReport checkPhysicalIntegrity(EngineDb& db);
+
+/// Runs both passes against `db`, canonical first, as one report.
+///
+/// For a database whose physical timelines are already in place, such as one
+/// written in physical time or already transformed.
+///
+/// @param db  Database to check. Not modified.
+/// @return The canonical pass's checks followed by the physical pass's.
+/// @throws EngineDbError  If a query fails. Violations are reported, not
+///         thrown.
 IntegrityReport checkIntegrity(EngineDb& db);
 
 } // namespace rainbohz::rendering_engine

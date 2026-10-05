@@ -24,6 +24,7 @@ namespace rainbohz::rendering_engine {
 
 using transform::PartialSetTransformOutcome;
 using transform::PartialTransformOutcome;
+using transform::SoundSourceTransformOutcome;
 using transform::TempoMapSummary;
 using transform::TransformReport;
 
@@ -215,6 +216,22 @@ void reportTransform(std::ostream& out, const TransformReport& report, bool verb
     out << "  transformed " << report.partialCount() - failedPartials << " of "
         << report.partialCount() << " partial(s) in " << report.sets.size() - failedSets << " of "
         << report.sets.size() << " partial set(s)\n";
+
+    std::size_t failedSources = 0;
+    for (const SoundSourceTransformOutcome& source : report.sources) {
+        const std::string name = "SoundSource " + source.sourceName.value_or("(unnamed)") +
+                                 " (id " + std::to_string(source.sourceId) + ")";
+        if (source.error.has_value()) {
+            ++failedSources;
+            out << "    FAILED   " << name << ": " << *source.error << '\n';
+        } else if (verbose) {
+            out << "    ok       " << name << ": " << source.points.at(0) << " azimuth, "
+                << source.points.at(1) << " elevation, " << source.points.at(2)
+                << " distance point(s)\n";
+        }
+    }
+    out << "  transformed the spatial position of " << report.sources.size() - failedSources
+        << " of " << report.sources.size() << " SoundSource(s) with a musical timeline\n";
 }
 
 void reportPrecomputation(std::ostream& out, const PrecomputationReport& report, bool verbose) {

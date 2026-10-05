@@ -7,8 +7,11 @@
 // docs/transform.md; section numbers below refer to it. This first version
 // converts each PartialSet's PartialSetMusicalTimeline into one
 // FrequencyPhysicalTimeline, one AmplitudePhysicalTimeline and one
-// PhasePhysicalTimeline per partial, through one TempoMap per Score. Spatial
-// position, modulators and synchronised tempo maps are not yet converted (§2).
+// PhasePhysicalTimeline per partial, and each SoundSource's
+// SpatialPositionMusicalTimeline into one AzimuthPhysicalTimeline,
+// ElevationPhysicalTimeline and DistancePhysicalTimeline, through one
+// TempoMap per Score. Modulators and synchronised tempo maps are not yet
+// converted (§2).
 //
 // The stage is a module of the engine library, not a separate target: the
 // namespace rainbohz::rendering_engine::transform is the boundary between
@@ -20,8 +23,10 @@
 // and writing happen only inside transformAll().
 
 #include "rainbohz/rendering_engine/engine_db.hpp"
+#include "rainbohz/rendering_engine/precomputation.hpp"
 #include "rainbohz/rendering_engine/units.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -59,13 +64,26 @@ public:
     using std::runtime_error::runtime_error;
 };
 
-/// One defined value of one property of one partial: the point of the set's
-/// timeline it sits on, the value, and the curve from here to the next knot.
+/// Thrown when one SoundSource's spatial position cannot be transformed: its
+/// SpatialPositionMusicalTimeline, its POINT_AT edges or its states are
+/// invalid (§6.8). Nothing is written for the source; transformAll() records
+/// it and carries on with the next.
 ///
-/// A partial's envelope for a property is its knots in point order (§6.2).
+/// The message names the timeline point involved by its position in the
+/// list, counting from 0; it does not name the source, which the caller
+/// knows.
+class SoundSourceTransformError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+
+/// One defined value of one property of one partial: the point of the set's
+/// timeline it sits on, the value, and the curve from here to the next envelope node.
+///
+/// A partial's envelope for a property is its envelope nodes in point order (§6.2).
 /// Points where the property is NULL, or where the partial has no state, are
-/// not knots.
-struct Knot {
+/// not envelope nodes.
+struct EnvelopeNode {
     /// Index of the point in the set's timeline, from 0.
     std::size_t point = 0;
 
@@ -74,7 +92,7 @@ struct Knot {
     double value = 0.0;
 
     /// The set point's curve type for this property, describing the path to
-    /// the next knot.
+    /// the next envelope node.
     std::int64_t curveType = 0;
 
     /// The set point's curve amount for this property.
@@ -86,7 +104,7 @@ struct PhysicalPoint {
     /// When the envelope passes through this point.
     SampleTime time;
 
-    /// The value; in the unit the caller put into the knots it came from.
+    /// The value; in the unit the caller put into the envelope nodes it came from.
     double value = 0.0;
 
     /// Curve type from here to the next point.
@@ -118,11 +136,11 @@ struct StatePhase {
 /// One phase point of one partial: the point of the set's timeline it sits
 /// on, and the phase there (§6.6).
 ///
-/// Unlike a Knot, a NULL value is still a point: "free-running up to here"
+/// Unlike an EnvelopeNode, a NULL value is still a point: "free-running up to here"
 /// (precomputation.md §6.8). Targets and free-running states give one; a
 /// default state, or a point where the partial has no state, gives none
-/// (phaseKnotsOf()).
-struct PhaseKnot {
+/// (phaseNodesOf()).
+struct PhaseEnvelopeNode {
     /// Index of the point in the set's timeline, from 0.
     std::size_t point = 0;
 
@@ -130,7 +148,7 @@ struct PhaseKnot {
     /// (free-running) point.
     std::optional<double> degrees;
 
-    friend bool operator==(const PhaseKnot&, const PhaseKnot&) = default;
+    friend bool operator==(const PhaseEnvelopeNode&, const PhaseEnvelopeNode&) = default;
 };
 
 /// A point of a PhasePhysicalTimeline as it will be written.
@@ -144,6 +162,91 @@ struct PhasePoint {
     friend bool operator==(const PhasePoint&, const PhasePoint&) = default;
 };
 
+/// The SpatialPositionState of one point of a source's timeline, as read
+/// (§6.8). A NULL property is "no envelope node here" for that property,
+/// except on the first point, where all three are required.
+struct SpatialState {
+    /// Index of the point in the source's timeline, from 0.
+    std::size_t point = 0;
+
+    /// SpatialPositionState.azimuth, degrees; nullopt when NULL.
+    std::optional<double> azimuth;
+
+    /// SpatialPositionState.elevation, degrees; nullopt when NULL.
+    std::optional<double> elevation;
+
+    /// SpatialPositionState.distance, metres; nullopt when NULL.
+    std::optional<double> distance;
+};
+
+/// The curve fields of one point of a source's timeline, validated, each
+/// array in kSpatialKinds order (azimuth, elevation, distance).
+struct SpatialCurves {
+    /// `<kind>_curve_type`, 0 to 4.
+    std::array<std::int64_t, 3> curveType{};
+
+    /// `<kind>_curve_amount`, 0 to 1.
+    std::array<double, 3> curveAmount{};
+};
+
+/// A source's three spatial envelopes, or their placed points, in
+/// kSpatialKinds order (azimuth, elevation, distance).
+template <typename T>
+using SpatialTriple = std::array<std::vector<T>, 3>;
+
+/// Checks that a source's position is fully defined at its timeline's first
+/// point (§6.8).
+///
+/// Supplying a default position is the compiler's responsibility (author,
+/// 2026-10-05); here a missing value is an integrity error.
+///
+/// @param states  The states of the source's timeline, in point order.
+/// @throws SoundSourceTransformError  If point 0 has no state, or its state
+///         leaves azimuth, elevation or distance NULL.
+void requireCompletePosition(std::span<const SpatialState> states);
+
+/// Checks that every value a source's states define is in the canonical
+/// model's range (§6.8).
+///
+/// Azimuth must be finite and in [−180, 180] degrees, elevation in [−90, 90]
+/// degrees, distance in [1, 16384] metres. Out-of-range values are refused,
+/// not wrapped: wraparound is for modulators only (engine-schema.cypher).
+///
+/// @param states  The states of the source's timeline.
+/// @throws SoundSourceTransformError  If a value is out of range.
+void requireSpatialValues(std::span<const SpatialState> states);
+
+/// Builds a source's three envelopes from its states (§6.8).
+///
+/// Each property is its own envelope: a state contributes an envelope node
+/// for each property it does not leave NULL, carrying that property's curve
+/// fields from its point.
+///
+/// @param states  The states of the source's timeline, in point order, at
+///                most one per point.
+/// @param curves  The curve fields of every point of the timeline, by point
+///                index.
+/// @return The envelope nodes of azimuth (degrees), elevation (degrees) and
+///         distance (metres), each in point order.
+SpatialTriple<EnvelopeNode> spatialNodesOf(
+    std::span<const SpatialState> states, std::span<const SpatialCurves> curves);
+
+/// Places a source's three envelopes in physical time and converts them to
+/// the rendering model's units (§6.3, §6.8).
+///
+/// Each envelope is squashed on its own, as a partial's are (placeNodes()).
+/// There is no lifeline to fit: past the last point the value holds.
+/// Azimuth and elevation become radians (toAzimuth(), toElevation());
+/// distance stays in metres.
+///
+/// @param envelopes   The envelopes from spatialNodesOf(), values in range,
+///                    each with at least one envelope node.
+/// @param pointTimes  The computed physical time of every point of the
+///                    source's timeline, by point index. Every value finite.
+/// @return The points of the azimuth, elevation and distance timelines.
+SpatialTriple<PhysicalPoint> placeSpatialNodes(
+    const SpatialTriple<EnvelopeNode>& envelopes, std::span<const SampleTime> pointTimes);
+
 /// Checks that frequency and amplitude share the partial's first and last
 /// points (§6.2).
 ///
@@ -151,27 +254,28 @@ struct PhasePoint {
 /// defined to the last. Both properties must be defined at those two points;
 /// in between they are independent.
 ///
-/// @param frequency  The partial's frequency knots, in point order. At least
+/// @param frequency  The partial's frequency envelope nodes, in point order. At least
 ///                   two.
-/// @param amplitude  The partial's amplitude knots, in point order. At least
+/// @param amplitude  The partial's amplitude envelope nodes, in point order. At least
 ///                   two.
 /// @throws PartialTransformError  If either property has fewer than two
-///         knots, or the first or last knots are on different points.
-void requireSharedEndPoints(std::span<const Knot> frequency, std::span<const Knot> amplitude);
+///         envelope nodes, or the first or last envelope nodes are on different points.
+void requireSharedEndPoints(
+    std::span<const EnvelopeNode> frequency, std::span<const EnvelopeNode> amplitude);
 
-/// Places one property's knots in physical time (§6.3).
+/// Places one property's envelope nodes in physical time (§6.3).
 ///
-/// Each knot's computed time is its point's time; the knots are squashed
+/// Each envelope node's computed time is its point's time; the envelope nodes are squashed
 /// (squash.hpp) so that the result is strictly increasing and never negative,
 /// with the user's order kept and later states winning a collision.
 ///
-/// @param knots       The property's knots, in point order.
+/// @param nodes       The property's envelope nodes, in point order.
 /// @param pointTimes  The computed physical time of every point of the set's
 ///                    timeline, by point index. Every value finite.
-/// @return One point per surviving knot, in order, carrying that knot's
-///         value and curve. Fewer than the knots when any collided.
-std::vector<PhysicalPoint> placeKnots(
-    std::span<const Knot> knots, std::span<const SampleTime> pointTimes);
+/// @return One point per surviving envelope node, in order, carrying that envelope node's
+///         value and curve. Fewer than the envelope nodes when any collided.
+std::vector<PhysicalPoint> placeNodes(
+    std::span<const EnvelopeNode> nodes, std::span<const SampleTime> pointTimes);
 
 /// Fits a placed amplitude envelope to the partial's lifeline (§6.4).
 ///
@@ -189,18 +293,18 @@ void fitToLifeline(std::vector<PhysicalPoint>& amplitude, SampleTime end);
 
 /// Checks that a partial's states lie within its lifeline (§6.6).
 ///
-/// The partial's first and last frequency knots sit on points where it has a
+/// The partial's first and last frequency envelope nodes sit on points where it has a
 /// state. A state before the first or after the last, whatever its phase,
 /// has no frequency to sound at.
 ///
-/// @param frequency  The partial's frequency knots, in point order. At least
+/// @param frequency  The partial's frequency envelope nodes, in point order. At least
 ///                   two.
 /// @param states     The phase fields of every state of the partial, in
 ///                   point order.
 /// @throws PartialTransformError  If the first or last state is not on the
-///         point of the first or last frequency knot.
+///         point of the first or last frequency envelope node.
 void requireStatesWithinLifeline(
-    std::span<const Knot> frequency, std::span<const StatePhase> states);
+    std::span<const EnvelopeNode> frequency, std::span<const StatePhase> states);
 
 /// Checks that every state's phase fields are one of the three valid
 /// combinations, and that every target is in range (§6.6).
@@ -225,23 +329,23 @@ void requireValidPhase(std::span<const StatePhase> states);
 ///                first on the lifeline's first point.
 /// @return The phase points, in point order; at least one, the first on the
 ///         first state's point.
-std::vector<PhaseKnot> phaseKnotsOf(std::span<const StatePhase> states);
+std::vector<PhaseEnvelopeNode> phaseNodesOf(std::span<const StatePhase> states);
 
 /// Places a partial's phase points in physical time and converts them to
 /// radians (§6.3, §6.6).
 ///
-/// The points are squashed on their own, exactly as an envelope's knots are:
+/// The points are squashed on their own, exactly as envelope nodes are:
 /// the user's order is kept and a later state wins a collision, including a
 /// later NULL over an earlier target.
 ///
-/// @param knots       The phase points, in point order, each NULL or in
+/// @param nodes       The phase points, in point order, each NULL or in
 ///                    [−180, 180] degrees.
 /// @param pointTimes  The computed physical time of every point of the set's
 ///                    timeline, by point index. Every value finite.
-/// @return One point per surviving knot, in order, with its phase in radians
+/// @return One point per surviving envelope node, in order, with its phase in radians
 ///         (toPhase()) or NULL.
-std::vector<PhasePoint> placePhaseKnots(
-    std::span<const PhaseKnot> knots, std::span<const SampleTime> pointTimes);
+std::vector<PhasePoint> placePhaseNodes(
+    std::span<const PhaseEnvelopeNode> nodes, std::span<const SampleTime> pointTimes);
 
 /// Fits placed phase points to the partial's lifeline (§6.6).
 ///
@@ -322,6 +426,26 @@ struct PartialSetTransformOutcome {
     bool ok() const noexcept { return !error.has_value() && failureCount() == 0; }
 };
 
+/// What happened to one SoundSource with a spatial musical timeline.
+struct SoundSourceTransformOutcome {
+    /// SoundSource.id.
+    std::int64_t sourceId = 0;
+
+    /// SoundSource.name; nullopt when NULL.
+    std::optional<std::string> sourceName;
+
+    /// Why the source failed; nullopt when it succeeded. A failed source has
+    /// nothing written for it by this run.
+    std::optional<std::string> error;
+
+    /// Points written to its AzimuthPhysicalTimeline, ElevationPhysicalTimeline
+    /// and DistancePhysicalTimeline, in kSpatialKinds order. Zero on failure.
+    std::array<std::size_t, 3> points{};
+
+    /// True when the source was transformed and written.
+    bool ok() const noexcept { return !error.has_value(); }
+};
+
 /// A Score's tempo map, as the run found it.
 struct TempoMapSummary {
     /// Score.id.
@@ -353,10 +477,16 @@ struct TransformReport {
     /// order. Sets without one are not transformed and do not appear.
     std::vector<PartialSetTransformOutcome> sets;
 
+    /// One outcome per SoundSource with a SpatialPositionMusicalTimeline, in
+    /// SoundSource.id order. Sources without one are not transformed and do
+    /// not appear.
+    std::vector<SoundSourceTransformOutcome> sources;
+
     /// How many partials were attempted, over every set that did not fail.
     std::size_t partialCount() const noexcept;
 
-    /// How many sets failed whole, plus how many partials failed.
+    /// How many sets failed whole, plus how many partials failed, plus how
+    /// many sources failed.
     std::size_t failureCount() const noexcept;
 
     /// True when everything succeeded, including when there was nothing to
@@ -364,24 +494,29 @@ struct TransformReport {
     bool ok() const noexcept { return failureCount() == 0; }
 };
 
-/// Transforms every PartialSet with a musical timeline in `db` (§6).
+/// Transforms every PartialSet and SoundSource with a musical timeline in
+/// `db` (§6).
 ///
-/// Reads the EngineConfig, every Score's TempoMap, and every musical set's
-/// timeline, points, POINT_AT edges and states; then transforms the sets one
-/// at a time in PartialSet.id order, and within a set the partials in
-/// Partial.id order, each partial in its own transaction. Any
-/// FrequencyPhysicalTimeline, AmplitudePhysicalTimeline or
-/// PhasePhysicalTimeline a transformed partial already has is deleted and
-/// rebuilt. Partial sets with no musical
-/// timeline, and their partials, are left exactly as they are.
+/// Reads the EngineConfig, every Score's TempoMap, every musical set's
+/// timeline, points, POINT_AT edges and states, and every spatial musical
+/// timeline with the same; then transforms the sets one at a time in
+/// PartialSet.id order, and within a set the partials in Partial.id order,
+/// each partial in its own transaction; then the sources in SoundSource.id
+/// order, each in its own transaction. Any FrequencyPhysicalTimeline,
+/// AmplitudePhysicalTimeline or PhasePhysicalTimeline a transformed partial
+/// already has, and any AzimuthPhysicalTimeline, ElevationPhysicalTimeline or
+/// DistancePhysicalTimeline a transformed source already has, is deleted and
+/// rebuilt. Partial sets and sources with no musical timeline are left
+/// exactly as they are.
 ///
-/// A set or partial that fails is recorded in the report and the run carries
-/// on. A failed partial's transaction is rolled back, so any timelines from
-/// an earlier run are left as they were.
+/// A set, partial or source that fails is recorded in the report and the run
+/// carries on. A failed partial's or source's transaction is rolled back, so
+/// any timelines from an earlier run are left as they were.
 ///
 /// @param[in,out] db  Database holding the score. Modified: every partial
-///                    that succeeds has its three physical timelines replaced.
-/// @return What was found and what happened to each set and partial.
+///                    that succeeds has its three physical timelines
+///                    replaced, and so does every source that succeeds.
+/// @return What was found and what happened to each set, partial and source.
 /// @throws TransformError  If there is not exactly one EngineConfig or its
 ///         sampleRate is unusable; if any TempoMap is invalid; or if any
 ///         TEMPO_MAP_SYNCHRONIZATION_POINT edge exists, which this version

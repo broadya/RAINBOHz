@@ -46,11 +46,34 @@ make run-rendering-engine RE_ARGS=--validate-db
 The flag is named after what it validates. The command line and the render
 request are always validated, so a bare `--validate` would not say which.
 
-The checks run once the state has loaded whole, and before precomputation.
+The checks run once the state has loaded whole, in **two passes** around the
+transform (author, 2026-10-05):
+
+1. **Canonical**, before the transform (`checkCanonicalIntegrity`): what the
+   transform reads. The `EngineConfig`, the canonical model's columns, set
+   membership, the tempo maps, every musical timeline's `POINT_AT` edges and
+   order, the `PartialState`s, the first `SpatialPositionState` of every
+   spatial timeline, and the canonical lists.
+2. **Physical**, after the transform and before precomputation
+   (`checkPhysicalIntegrity`): what the transform writes and precomputation
+   reads. The physical timelines' columns, lifeline equality, the coverage of
+   every SoundSource's partials by its position, and the physical lists.
+
+The split is by table: a check of a `*Physical*` table, or of precomputation's
+segments, belongs to the second pass, and everything else to the first.
+Before the transform, a score written in the canonical model has no physical
+timelines to check; and some rules, such as a source's position being
+defined from the start of its first partial, can only be checked once
+musical time has become samples, which is the transform's job. A score
+written in physical time, with nothing to transform, simply passes the
+second pass on what it was given. `checkIntegrity` runs both passes at once,
+for a database already in physical form.
+
 Against a partly loaded score the violations would say more about the load
-than about the data, so they are skipped there, as the label check is. If any
-check fails, the run reports the violations, exits 1, and does not
-precompute. With `--verbose` the checks that passed are listed too.
+than about the data, so the checks are skipped there, as the label check is.
+If any check in a pass fails, the run reports the violations, exits 1, and
+goes no further: no transform after the first pass, no precomputation after
+the second. With `--verbose` the checks that passed are listed too.
 
 They are off by default because they read the whole of every table they
 cover. That is cheap for a test score and not something to pay on every
@@ -96,9 +119,14 @@ the schema documents a range for it.
 | `TempoMapPoint.start_tempo` | no | 1 to 1000 | schema's tempo range |
 | `PartialSetMusicalTimelinePoint.frequency_curve_type`, `amplitude_curve_type` | no | 0 to 4 | schema's enumeration |
 | `PartialSetMusicalTimelinePoint.frequency_curve_amount`, `amplitude_curve_amount` | no | 0 to 1 | schema |
-| `PartialState.frequency` | **allowed**: no knot here | any finite value | transform.md §6.2 (author, 2026-10-02) |
-| `PartialState.amplitude` | **allowed**: no knot here | −144 to 0 | schema's canonical range |
+| `PartialState.frequency` | **allowed**: no envelope node here | any finite value | transform.md §6.2 (author, 2026-10-02) |
+| `PartialState.amplitude` | **allowed**: no envelope node here | −144 to 0 | schema's canonical range |
 | `PartialState.phase` | **allowed**: free-running or default, as `phase_free_run` says | −180 to 180 degrees | schema's canonical range ([transform.md](transform.md) §6.6) |
+| `SpatialPositionMusicalTimelinePoint.*_curve_type` (azimuth, elevation, distance) | no | 0 to 4 | schema's enumeration |
+| `SpatialPositionMusicalTimelinePoint.*_curve_amount` (azimuth, elevation, distance) | no | 0 to 1 | schema |
+| `SpatialPositionState.azimuth` | **allowed**: no envelope node here, except on the first point (below) | −180 to 180 degrees | schema's canonical range ([transform.md](transform.md) §6.8) |
+| `SpatialPositionState.elevation` | **allowed**, as for azimuth | −90 to 90 degrees | schema's canonical range |
+| `SpatialPositionState.distance` | **allowed**, as for azimuth | 1 to 16384 metres | schema's canonical range |
 
 The `EngineConfig.channelMode` and `AmplitudePhysicalTimelinePoint` rows arrived
 with rendering ([rendering.md](rendering.md) §9, decided 2026-09-24,
@@ -110,7 +138,9 @@ feature brings its columns' rules with it. The `TempoMap`, `TempoMapPoint`,
 transform ([transform.md](transform.md) §9, 2026-10-02), and
 `PartialState.phase` with the transform's phase mapping (2026-10-03). The
 spatial point rows, and the `channelMode` range of 0 to 7, arrived with the
-spatial stage (rendering.md §8.5, 2026-10-04).
+spatial stage (rendering.md §8.5, 2026-10-04), and the
+`SpatialPositionMusicalTimelinePoint` and `SpatialPositionState` rows with
+the transform's spatial position (transform.md §6.8, 2026-10-05).
 `PartialState.phase_free_run` is a nullable BOOLEAN with no range; what is
 checked is its combination with `phase`, below.
 
@@ -129,28 +159,34 @@ Four further checks cover what no single column can:
   failure, not this check's. The lists are walked in C++ from their heads,
   stopping silently at a revisited node, since cycles are the list checks'
   business.
-- **SoundSource timelines** (2026-10-04). Every `SoundSource` with partials
-  has an `AzimuthPhysicalTimeline`, an `ElevationPhysicalTimeline` and a
-  `DistancePhysicalTimeline`. Each starts at or before the earliest start of
-  its partials' lifelines and ends at or after the latest end, since a
-  source's position is shared by all its partials (author, 2026-10-04). The
-  lifeline is the frequency timeline's span. That the times along a spatial
-  timeline strictly increase is precomputation's and rendering's to check, as
-  it is for the other physical timelines.
+- **SoundSource timelines** (2026-10-04, physical pass). Every `SoundSource`
+  with partials has an `AzimuthPhysicalTimeline`, an
+  `ElevationPhysicalTimeline` and a `DistancePhysicalTimeline`. Each starts
+  at or before the earliest start of its partials' lifelines, since a
+  source's position is shared by all its partials and must be defined from
+  the first instant any of them sounds (author, 2026-10-04 and 2026-10-05).
+  The lifeline is the frequency timeline's span. There is no rule for the
+  end: after its last point a timeline's value holds (author, 2026-10-05).
+  That the times along a spatial timeline strictly increase is
+  precomputation's and rendering's to check, as it is for the other physical
+  timelines.
 
-Six more arrived with the transform, covering the musical-time tables it
-reads (transform.md §9; all decided by the author on 2026-10-02):
+Seven more arrived with the transform, covering the musical-time tables it
+reads (transform.md §9; decided by the author on 2026-10-02, and extended to
+spatial timelines on 2026-10-05). All are in the canonical pass:
 
 - **Tempo map shape.** Every `TempoMap` has at least one point; the first is
   at position 0; positions strictly increase; `hold` is set on every point
   and true on the last.
-- **POINT_AT.** Every `PartialSetMusicalTimelinePoint` has a `POINT_AT` (the
-  schema enforces at most one) with `sync_point` ≥ 0 and `offset_seconds`
-  NULL or finite.
-- **Musical order.** Along each `PartialSetMusicalTimeline`, `sync_point` is
-  non-decreasing (equal ticks with different offsets are how a fixed-length
-  attack is written), and every `POINT_AT` leads to the `TempoMap` of the
-  Score the set hangs from, which must exist.
+- **POINT_AT.** Every `PartialSetMusicalTimelinePoint` and every
+  `SpatialPositionMusicalTimelinePoint` has a `POINT_AT` (the schema enforces
+  at most one) with `sync_point` ≥ 0 and `offset_seconds` NULL or finite.
+  One check per kind of timeline.
+- **Musical order.** Along each `PartialSetMusicalTimeline` and
+  `SpatialPositionMusicalTimeline`, `sync_point` is non-decreasing (equal
+  ticks with different offsets are how a fixed-length attack is written),
+  and every `POINT_AT` leads to the `TempoMap` of the Score the set or source
+  hangs from, which must exist. One check per kind of timeline.
 - **PartialState links.** Every `PartialState` is in exactly one
   `PartialStateSet` and is the state of exactly one `Partial`; the schema
   enforces at most one of each.
@@ -161,6 +197,12 @@ reads (transform.md §9; all decided by the author on 2026-10-02):
   `phase_free_run` are a target (a phase, false), free-running (NULL, true)
   or the default (NULL, NULL). Any other combination is a violation (author,
   2026-10-03; transform.md §6.6).
+- **Spatial first state.** The first point of every
+  `SpatialPositionMusicalTimeline` has a `SpatialPositionState` that sets
+  azimuth, elevation and distance; an empty timeline fails too. After the
+  first point a NULL is "no envelope node here"; on the first there is
+  nothing to continue from. Supplying a default position is the compiler's
+  job (author, 2026-10-05; transform.md §6.8).
 
 That there is one `TempoMap` per Score and no synchronisation edge is a limit
 of the transform's first version, not of the model, so the transform checks
@@ -181,7 +223,7 @@ validation covers the entries it reads, per frame (rendering.md §9).
 
 Every list type in `NEXT_POINT` is checked, not just the ones the engine
 reads. A cycle or a merge is a structural defect in any list, and the check is
-the same for all fourteen types. (`FrequencyModulatorPhysicalTimeline` was
+the same for all seventeen types. (`FrequencyModulatorPhysicalTimeline` was
 missing from the table until the transform's checks were added on
 2026-10-02, although the schema declares it; `TempoMap` and
 `PartialSetMusicalTimeline` arrived at the same time. The
@@ -190,7 +232,10 @@ missing from the table until the transform's checks were added on
 heads the integrable segments. A timeline that heads more than one list has
 its lists' checks named after their node tables, `PartialIntegrableSegment`
 and `PartialPhaseCompensationSegment`, so that the names stay distinct.) These checks are about the graph's shape, not the
-meaning of any feature, so they do not come under §3's rule.
+meaning of any feature, so they do not come under §3's rule. The canonical
+lists (`TempoMap`, `PartialSetMusicalTimeline`,
+`SpatialPositionMusicalTimeline`) are checked in the canonical pass and the
+others in the physical pass (§2).
 
 `NEXT_POINT` is `ONE_ONE`, but Ladybug counts multiplicity separately for each
 FROM/TO pair (AGENTS.md, Linked Lists). The database does refuse branches, and
@@ -252,7 +297,9 @@ Both families are driven by tables in `integrity.cpp`:
 
 A check that is neither a range nor a list shape, such as the `EngineConfig`
 singleton, is a function returning an `IntegrityCheck`, called from
-`checkIntegrity`.
+`checkCanonicalIntegrity` or `checkPhysicalIntegrity`, according to whether
+it checks what the transform reads or what it writes (§2). Range rules and
+list types are assigned to a pass by their table's name.
 
 `kListTypes` and the rule tables are spliced into query text, so they must
 only ever hold identifiers from the schema, never input.

@@ -10,6 +10,7 @@
 #include "rainbohz/rendering_engine/precomputation.hpp"
 #include "rainbohz/rendering_engine/render_request.hpp"
 #include "rainbohz/rendering_engine/rendering.hpp"
+#include "rainbohz/rendering_engine/score_pipeline.hpp"
 #include "rainbohz/rendering_engine/script_loader.hpp"
 
 #include "test_support.hpp"
@@ -21,6 +22,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <limits>
 #include <numbers>
 #include <optional>
@@ -35,6 +38,12 @@
 #ifndef RE_TEST_EXAMPLE_STATE
 #define RE_TEST_EXAMPLE_STATE ""
 #endif
+#ifndef RE_TEST_SPATIAL_STATE
+#define RE_TEST_SPATIAL_STATE ""
+#endif
+#ifndef RE_TEST_SPATIAL_MUSICAL_STATE
+#define RE_TEST_SPATIAL_MUSICAL_STATE ""
+#endif
 #ifndef RE_TEST_TWO_SETS_STATE
 #define RE_TEST_TWO_SETS_STATE ""
 #endif
@@ -44,10 +53,14 @@ namespace {
 using rainbohz::rendering_engine::ChannelMode;
 using rainbohz::rendering_engine::EngineDb;
 using rainbohz::rendering_engine::frameFileName;
+using rainbohz::rendering_engine::FrameNumber;
 using rainbohz::rendering_engine::FrameOutcome;
 using rainbohz::rendering_engine::FrameRequest;
 using rainbohz::rendering_engine::loadCypherFile;
+using rainbohz::rendering_engine::LoadResult;
+using rainbohz::rendering_engine::loadScore;
 using rainbohz::rendering_engine::PartialFailure;
+using rainbohz::rendering_engine::PipelineSettings;
 using rainbohz::rendering_engine::precomputeAll;
 using rainbohz::rendering_engine::renderFrames;
 using rainbohz::rendering_engine::RenderingError;
@@ -707,6 +720,59 @@ TEST(Rendering, RendersTheTwoPartialSetsScore) {
     // Frame 11 is past every partial.
     EXPECT_EQ(report.frames[6].setCount, 0U);
     EXPECT_EQ(report.frames[6].peak, 0.0F);
+}
+
+/// Loads a score through the whole pipeline, as `--validate-db` would, sets
+/// the channel mode, and renders frames 0 to 9 into a fresh directory.
+///
+/// @param state  The score's Cypher file.
+/// @param mode   EngineConfig.channelMode to render in.
+/// @param name   A name for the output directory.
+/// @return The directory holding the frames.
+std::filesystem::path renderSpatialScore(
+    const std::string& state, int mode, const std::string& name) {
+    EngineDb db;
+    std::ostringstream log;
+    const LoadResult loaded = loadScore(db, RE_TEST_SCHEMA_FILE, state,
+        PipelineSettings{.verbose = false, .validateDb = true, .perSetWav = false}, log);
+    EXPECT_TRUE(loaded.ok()) << loaded.verdict << "\n" << log.str();
+    db.execute("MATCH (c:EngineConfig) SET c.channelMode = " + std::to_string(mode) + ";");
+    const std::filesystem::path dir = freshDirectory(name);
+    const RenderingReport report =
+        renderFrames(db, requestFor({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}), dir, false);
+    EXPECT_TRUE(report.ok()) << firstError(report);
+    return dir;
+}
+
+/// The bytes of a file.
+///
+/// @param file  The file to read.
+/// @return Its contents; empty if it cannot be read.
+std::vector<char> fileBytes(const std::filesystem::path& file) {
+    std::ifstream in{file, std::ios::binary};
+    return {std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+}
+
+// spatial-musical-score.cypher is spatial-score.cypher with the source's
+// position in the canonical model: musical time, degrees and metres. The
+// transform must turn it into exactly the physical timelines written there,
+// so that every frame is the same, bit for bit (docs/transform.md section
+// 6.8). Stereo from M/S, as the score has it, and FOA B-format, which uses
+// elevation too.
+TEST(Rendering, TheMusicalSpatialScoreRendersAsItsPhysicalTwin) {
+    for (const int mode : {1, 7}) {
+        const std::string suffix = "-mode" + std::to_string(mode);
+        const std::filesystem::path physical =
+            renderSpatialScore(RE_TEST_SPATIAL_STATE, mode, "Rendering.SpatialPhysical" + suffix);
+        const std::filesystem::path musical = renderSpatialScore(
+            RE_TEST_SPATIAL_MUSICAL_STATE, mode, "Rendering.SpatialMusical" + suffix);
+        for (std::int32_t frame = 0; frame < 10; ++frame) {
+            const std::string file = frameFileName(FrameNumber{frame});
+            const std::vector<char> expected = fileBytes(physical / file);
+            ASSERT_FALSE(expected.empty()) << file;
+            EXPECT_EQ(fileBytes(musical / file), expected) << "mode " << mode << ", " << file;
+        }
+    }
 }
 
 } // namespace

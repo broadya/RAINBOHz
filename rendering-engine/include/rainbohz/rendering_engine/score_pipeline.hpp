@@ -28,8 +28,10 @@ struct PipelineSettings {
     /// Report every statement, check, partial and frame, not just failures.
     bool verbose = false;
 
-    /// Run the integrity checks of integrity.hpp after the state has loaded,
-    /// and stop before the transform if any fails.
+    /// Run the integrity checks of integrity.hpp in two passes: the canonical
+    /// pass after the state has loaded, stopping before the transform if any
+    /// fails, and the physical pass after the transform, stopping before
+    /// precomputation if any fails.
     bool validateDb = false;
 
     /// Also write each partial set's contribution to a frame as its own WAV
@@ -64,10 +66,11 @@ struct LoadResult {
 /// Loads a score into `db` and makes it ready to render.
 ///
 /// In order: applies `schemaFile`, then `stateFile`; reports the schema
-/// census; and, only if every statement applied, checks integrity if
-/// settings.validateDb is set, transforms every partial set in musical time,
-/// and precomputes every partial. The state file is applied even when the
-/// schema did not load whole, since the errors it then produces say which
+/// census; and, only if every statement applied, checks the canonical
+/// model's integrity if settings.validateDb is set, transforms every partial
+/// set and SoundSource in musical time, checks the physical timelines'
+/// integrity if settings.validateDb is set, and precomputes every partial. The state file is
+/// applied even when the schema did not load whole, since the errors it then produces say which
 /// tables are missing. Each later step runs only if the one before succeeded.
 /// What the database holds is reported after loading fails, after the
 /// transform fails, or after precomputation, so that the census includes

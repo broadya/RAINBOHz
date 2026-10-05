@@ -53,13 +53,16 @@ CREATE (e)-[:HAS_PHYSICAL_TIMELINE]->(:AmplitudePhysicalTimeline)
 CREATE (e)-[:HAS_PHYSICAL_TIMELINE]->(:PhasePhysicalTimeline)
        -[:NEXT_POINT]->(:PhasePhysicalTimelinePoint {time: 0.0, phase: 0.0})
 
-// The orbit. From 3.0 to -3.0 rad the azimuth takes the shorter way, through
-// ±π behind the listener, not back round through the front.
+// The orbit. From 172° to -172° (3.0019... to -3.0019... rad) the azimuth
+// takes the shorter way, through ±π behind the listener, not back round
+// through the front. Every angle is the exact double that the transform makes
+// of a whole number of degrees, so that spatial-musical-score.cypher, the same
+// score written in the canonical model, renders to the same samples.
 CREATE (source)-[:HAS_PHYSICAL_TIMELINE]->(:AzimuthPhysicalTimeline)
        -[:NEXT_POINT]->(:AzimuthPhysicalTimelinePoint {time: 0.0, azimuth: 0.0})
        -[:NEXT_POINT]->(:AzimuthPhysicalTimelinePoint {time: 96000.0, azimuth: 1.5707963267948966})
-       -[:NEXT_POINT]->(:AzimuthPhysicalTimelinePoint {time: 192000.0, azimuth: 3.0})
-       -[:NEXT_POINT]->(:AzimuthPhysicalTimelinePoint {time: 288000.0, azimuth: -3.0})
+       -[:NEXT_POINT]->(:AzimuthPhysicalTimelinePoint {time: 192000.0, azimuth: 3.001966313430247})
+       -[:NEXT_POINT]->(:AzimuthPhysicalTimelinePoint {time: 288000.0, azimuth: -3.001966313430247})
        -[:NEXT_POINT]->(:AzimuthPhysicalTimelinePoint {time: 384000.0, azimuth: -1.5707963267948966})
        -[:NEXT_POINT]->(:AzimuthPhysicalTimelinePoint {time: 480000.0, azimuth: 0.0})
 CREATE (source)-[:HAS_PHYSICAL_TIMELINE]->(:ElevationPhysicalTimeline)

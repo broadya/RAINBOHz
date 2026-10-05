@@ -811,8 +811,7 @@ void precomputePartial(EngineDb& db, const Inputs& inputs, SourceTimelineCache& 
     }
     for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
         try {
-            checkSpatialCoverage(kSpatialKinds.at(k), spatial.times.at(k), envelope.front().time,
-                envelope.back().time);
+            checkSpatialCoverage(kSpatialKinds.at(k), spatial.times.at(k), envelope.front().time);
         } catch (const PartialPrecomputationError& e) {
             throw PartialPrecomputationError{"its " + spatial.description + ": " + e.what()};
         }
@@ -1041,20 +1040,14 @@ std::vector<SampleTime> validateSpatialTimeline(
     return times;
 }
 
-void checkSpatialCoverage(SpatialKind kind, std::span<const SampleTime> times,
-    SampleTime lifelineStart, SampleTime lifelineEnd) {
-    const std::string timeline{spatialTimelineName(kind)};
+void checkSpatialCoverage(
+    SpatialKind kind, std::span<const SampleTime> times, SampleTime lifelineStart) {
     if (times.front() > lifelineStart) {
         throw PartialPrecomputationError{
-            timeline + " starts at " + formatNumber(times.front().value()) +
-            ", after the partial's lifeline starts at " + formatNumber(lifelineStart.value()) +
-            "; it must cover the lifeline of every partial of the source"};
-    }
-    if (times.back() < lifelineEnd) {
-        throw PartialPrecomputationError{
-            timeline + " ends at " + formatNumber(times.back().value()) +
-            ", before the partial's lifeline ends at " + formatNumber(lifelineEnd.value()) +
-            "; it must cover the lifeline of every partial of the source"};
+            std::string{spatialTimelineName(kind)} + " starts at " +
+            formatNumber(times.front().value()) + ", after the partial's lifeline starts at " +
+            formatNumber(lifelineStart.value()) +
+            "; the source's position must be defined from the start of every partial of it"};
     }
 }
 

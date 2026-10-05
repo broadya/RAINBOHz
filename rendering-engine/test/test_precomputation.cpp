@@ -570,18 +570,19 @@ TEST(ValidateSpatialTimeline, RefusesNoPointsNullsDisorderAndCurves) {
         SpatialKind::Azimuth, std::vector{spatialRecord(0.0, 0.0), spatialRecord(10.0, 0.1, 3)}));
 }
 
-TEST(CheckSpatialCoverage, TheTimelineMustSpanTheLifeline) {
+TEST(CheckSpatialCoverage, TheTimelineMustStartByTheLifelineStart) {
     const std::vector<SampleTime> times{SampleTime{100.0}, SampleTime{500.0}};
-    EXPECT_NO_THROW(
-        checkSpatialCoverage(SpatialKind::Azimuth, times, SampleTime{100.0}, SampleTime{500.0}));
-    EXPECT_NO_THROW(
-        checkSpatialCoverage(SpatialKind::Azimuth, times, SampleTime{200.0}, SampleTime{300.0}));
-    EXPECT_THROW(
-        checkSpatialCoverage(SpatialKind::Azimuth, times, SampleTime{99.5}, SampleTime{300.0}),
+    EXPECT_NO_THROW(checkSpatialCoverage(SpatialKind::Azimuth, times, SampleTime{100.0}));
+    EXPECT_NO_THROW(checkSpatialCoverage(SpatialKind::Azimuth, times, SampleTime{200.0}));
+    EXPECT_THROW(checkSpatialCoverage(SpatialKind::Azimuth, times, SampleTime{99.5}),
         PartialPrecomputationError);
-    EXPECT_THROW(
-        checkSpatialCoverage(SpatialKind::Distance, times, SampleTime{200.0}, SampleTime{500.5}),
-        PartialPrecomputationError);
+}
+
+// After its last point a timeline's value holds (author, 2026-10-05).
+TEST(CheckSpatialCoverage, TheTimelineNeedNotReachTheLifelineEnd) {
+    const std::vector<SampleTime> times{SampleTime{0.0}};
+    EXPECT_NO_THROW(checkSpatialCoverage(SpatialKind::Distance, times, SampleTime{0.0}));
+    EXPECT_NO_THROW(checkSpatialCoverage(SpatialKind::Distance, times, SampleTime{1.0e9}));
 }
 
 // The worked example of docs/precomputation.md section 5: frames 0, 1 and 2
@@ -1247,10 +1248,10 @@ TEST_F(PrecomputationDb, ASpatialTimelineThatDoesNotCoverThePartialFails) {
     EXPECT_NE(late.find("starts at 200"), std::string::npos) << late;
 }
 
-TEST_F(PrecomputationDb, ASpatialTimelineEndingTooEarlyFails) {
-    const std::string early =
-        spatialFailure(db, stillAzimuth(), {{0.0, 0.0}, {999.0, 0.0}}, stillDistance());
-    EXPECT_NE(early.find("ends at 999"), std::string::npos) << early;
+// After its last point a timeline's value holds (author, 2026-10-05), so a
+// timeline ending before the partial, or a single point, is a valid position.
+TEST_F(PrecomputationDb, ASpatialTimelineMayEndBeforeThePartial) {
+    EXPECT_EQ(spatialFailure(db, stillAzimuth(), {{0.0, 0.0}, {999.0, 0.0}}, {{0.0, 1.0}}), "");
 }
 
 TEST_F(PrecomputationDb, ASpatialCurveOtherThanLinearFails) {

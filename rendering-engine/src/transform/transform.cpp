@@ -5,6 +5,7 @@
 #include "rainbohz/rendering_engine/transform/tempo_map.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -21,7 +22,7 @@
 
 /// @file
 /// @brief Transforms musical-time partial set timelines into per-partial
-/// physical timelines.
+/// physical timelines, and spatial musical timelines into per-source ones.
 ///
 /// Implements docs/transform.md. The file is organised as precomputation.cpp
 /// is:
@@ -32,11 +33,14 @@
 ///   - the tempo maps, built and validated once per Score;
 ///   - the per-set stage: validation of the timeline, its POINT_AT edges and
 ///     its states, and the physical time of each point;
-///   - the per-partial stage: knots, placement, lifeline fit, unit
+///   - the per-partial stage: envelope nodes, placement, lifeline fit, unit
 ///     conversion, and the write that replaces earlier output in one
 ///     transaction;
+///   - the per-source stage: the spatial timeline, its POINT_AT edges and
+///     states, placement, unit conversion and the write (§6.8);
 ///   - the pure stages, which are testable without a database;
-///   - transformAll(), which processes sets and partials independently.
+///   - transformAll(), which processes sets, partials and sources
+///     independently.
 ///
 /// Section numbers in comments refer to docs/transform.md.
 ///
@@ -151,15 +155,15 @@ constexpr std::string_view kDeletePhaseTimeline =
     "MATCH (t:PhasePhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;";
 
 constexpr std::string_view kCreateFrequencyTimeline =
-    "MATCH (p:Partial) WHERE p.id = $partial "
+    "MATCH (p:Partial) WHERE p.id = $owner "
     "CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:FrequencyPhysicalTimeline) RETURN t.id;";
 
 constexpr std::string_view kCreateAmplitudeTimeline =
-    "MATCH (p:Partial) WHERE p.id = $partial "
+    "MATCH (p:Partial) WHERE p.id = $owner "
     "CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:AmplitudePhysicalTimeline) RETURN t.id;";
 
 constexpr std::string_view kCreatePhaseTimeline =
-    "MATCH (p:Partial) WHERE p.id = $partial "
+    "MATCH (p:Partial) WHERE p.id = $owner "
     "CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:PhasePhysicalTimeline) RETURN t.id;";
 
 // One point, linked from the node before it: the timeline for the first
@@ -212,6 +216,107 @@ constexpr std::string_view kCreateNextFreePhasePoint =
     "MATCH (prev:PhasePhysicalTimelinePoint) WHERE prev.id = $previous "
     "CREATE (prev)-[:NEXT_POINT]->(f:PhasePhysicalTimelinePoint {time: $time}) RETURN f.id;";
 
+// Every SoundSource with a spatial musical timeline, with the head of the
+// timeline's point list, or NULL when it has no points (§6.8).
+constexpr std::string_view kReadSpatialSources =
+    "MATCH (ss:SoundSource)-[:HAS_MUSICAL_TIMELINE]->(t:SpatialPositionMusicalTimeline) "
+    "OPTIONAL MATCH (t)-[:NEXT_POINT]->(p:SpatialPositionMusicalTimelinePoint) "
+    "RETURN ss.id, ss.name, t.id, p.id ORDER BY ss.id;";
+
+constexpr std::string_view kReadSourceScores =
+    "MATCH (s:Score)-[:HAS_SOUNDENTITY]->(:SoundEntity)-[:HAS_SOUNDSOURCE]->(ss:SoundSource) "
+    "RETURN ss.id, s.id;";
+
+constexpr std::string_view kReadSpatialMusicalPoints =
+    "MATCH (p:SpatialPositionMusicalTimelinePoint) OPTIONAL MATCH (p)-[a:POINT_AT]->(m:TempoMap) "
+    "RETURN p.id, p.azimuth_curve_type, p.azimuth_curve_amount, p.elevation_curve_type, "
+    "p.elevation_curve_amount, p.distance_curve_type, p.distance_curve_amount, m.id, "
+    "a.sync_point, a.offset_seconds;";
+
+constexpr std::string_view kReadSpatialMusicalLinks =
+    "MATCH (a:SpatialPositionMusicalTimelinePoint)-[:NEXT_POINT]->"
+    "(b:SpatialPositionMusicalTimelinePoint) RETURN a.id, b.id;";
+
+// POINT_STATE is MANY_ONE, so a point has at most one state.
+constexpr std::string_view kReadSpatialStates =
+    "MATCH (p:SpatialPositionMusicalTimelinePoint)-[:POINT_STATE]->(st:SpatialPositionState) "
+    "RETURN p.id, st.id, st.azimuth, st.elevation, st.distance;";
+
+// The physical spatial timelines, one statement of each shape per kind, in
+// kSpatialKinds order. As for partials, existing ones are replaced.
+constexpr std::array<std::string_view, 3> kReadExistingSpatial{
+    "MATCH (ss:SoundSource)-[:HAS_PHYSICAL_TIMELINE]->(t:AzimuthPhysicalTimeline) "
+    "OPTIONAL MATCH (t)-[:NEXT_POINT]->(p:AzimuthPhysicalTimelinePoint) RETURN ss.id, t.id, p.id;",
+    "MATCH (ss:SoundSource)-[:HAS_PHYSICAL_TIMELINE]->(t:ElevationPhysicalTimeline) "
+    "OPTIONAL MATCH (t)-[:NEXT_POINT]->(p:ElevationPhysicalTimelinePoint) "
+    "RETURN ss.id, t.id, p.id;",
+    "MATCH (ss:SoundSource)-[:HAS_PHYSICAL_TIMELINE]->(t:DistancePhysicalTimeline) "
+    "OPTIONAL MATCH (t)-[:NEXT_POINT]->(p:DistancePhysicalTimelinePoint) "
+    "RETURN ss.id, t.id, p.id;",
+};
+
+constexpr std::array<std::string_view, 3> kReadSpatialPhysicalLinks{
+    "MATCH (a:AzimuthPhysicalTimelinePoint)-[:NEXT_POINT]->(b:AzimuthPhysicalTimelinePoint) "
+    "RETURN a.id, b.id;",
+    "MATCH (a:ElevationPhysicalTimelinePoint)-[:NEXT_POINT]->(b:ElevationPhysicalTimelinePoint) "
+    "RETURN a.id, b.id;",
+    "MATCH (a:DistancePhysicalTimelinePoint)-[:NEXT_POINT]->(b:DistancePhysicalTimelinePoint) "
+    "RETURN a.id, b.id;",
+};
+
+constexpr std::array<std::string_view, 3> kDeleteSpatialPoints{
+    "UNWIND $ids AS id MATCH (p:AzimuthPhysicalTimelinePoint {id: id}) DETACH DELETE p;",
+    "UNWIND $ids AS id MATCH (p:ElevationPhysicalTimelinePoint {id: id}) DETACH DELETE p;",
+    "UNWIND $ids AS id MATCH (p:DistancePhysicalTimelinePoint {id: id}) DETACH DELETE p;",
+};
+
+constexpr std::array<std::string_view, 3> kDeleteSpatialTimeline{
+    "MATCH (t:AzimuthPhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;",
+    "MATCH (t:ElevationPhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;",
+    "MATCH (t:DistancePhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;",
+};
+
+constexpr std::array<std::string_view, 3> kCreateSpatialTimeline{
+    "MATCH (ss:SoundSource) WHERE ss.id = $owner "
+    "CREATE (ss)-[:HAS_PHYSICAL_TIMELINE]->(t:AzimuthPhysicalTimeline) RETURN t.id;",
+    "MATCH (ss:SoundSource) WHERE ss.id = $owner "
+    "CREATE (ss)-[:HAS_PHYSICAL_TIMELINE]->(t:ElevationPhysicalTimeline) RETURN t.id;",
+    "MATCH (ss:SoundSource) WHERE ss.id = $owner "
+    "CREATE (ss)-[:HAS_PHYSICAL_TIMELINE]->(t:DistancePhysicalTimeline) RETURN t.id;",
+};
+
+// As for frequency and amplitude, two fixed variants per kind. Azimuth and
+// elevation are DOUBLE columns, distance FLOAT.
+constexpr std::array<std::string_view, 3> kCreateFirstSpatialPoint{
+    "MATCH (prev:AzimuthPhysicalTimeline) WHERE prev.id = $previous "
+    "CREATE (prev)-[:NEXT_POINT]->(p:AzimuthPhysicalTimelinePoint {time: $time, "
+    "azimuth: $value, azimuth_curve_type: CAST($curveType AS INT8), "
+    "azimuth_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN p.id;",
+    "MATCH (prev:ElevationPhysicalTimeline) WHERE prev.id = $previous "
+    "CREATE (prev)-[:NEXT_POINT]->(p:ElevationPhysicalTimelinePoint {time: $time, "
+    "elevation: $value, elevation_curve_type: CAST($curveType AS INT8), "
+    "elevation_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN p.id;",
+    "MATCH (prev:DistancePhysicalTimeline) WHERE prev.id = $previous "
+    "CREATE (prev)-[:NEXT_POINT]->(p:DistancePhysicalTimelinePoint {time: $time, "
+    "distance: CAST($value AS FLOAT), distance_curve_type: CAST($curveType AS INT8), "
+    "distance_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN p.id;",
+};
+
+constexpr std::array<std::string_view, 3> kCreateNextSpatialPoint{
+    "MATCH (prev:AzimuthPhysicalTimelinePoint) WHERE prev.id = $previous "
+    "CREATE (prev)-[:NEXT_POINT]->(p:AzimuthPhysicalTimelinePoint {time: $time, "
+    "azimuth: $value, azimuth_curve_type: CAST($curveType AS INT8), "
+    "azimuth_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN p.id;",
+    "MATCH (prev:ElevationPhysicalTimelinePoint) WHERE prev.id = $previous "
+    "CREATE (prev)-[:NEXT_POINT]->(p:ElevationPhysicalTimelinePoint {time: $time, "
+    "elevation: $value, elevation_curve_type: CAST($curveType AS INT8), "
+    "elevation_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN p.id;",
+    "MATCH (prev:DistancePhysicalTimelinePoint) WHERE prev.id = $previous "
+    "CREATE (prev)-[:NEXT_POINT]->(p:DistancePhysicalTimelinePoint {time: $time, "
+    "distance: CAST($value AS FLOAT), distance_curve_type: CAST($curveType AS INT8), "
+    "distance_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN p.id;",
+};
+
 // ---------------------------------------------------------------------------
 // Limits from the schema (engine-schema.cypher, "Units for specification of
 // a score", and the curve enumerations)
@@ -225,6 +330,12 @@ constexpr double kMinAmplitude = -144.0;
 constexpr double kMaxAmplitude = 0.0;
 constexpr double kMinPhaseDegrees = -180.0;
 constexpr double kMaxPhaseDegrees = 180.0;
+constexpr double kMinAzimuthDegrees = -180.0;
+constexpr double kMaxAzimuthDegrees = 180.0;
+constexpr double kMinElevationDegrees = -90.0;
+constexpr double kMaxElevationDegrees = 90.0;
+constexpr double kMinDistanceMetres = 1.0;
+constexpr double kMaxDistanceMetres = 16384.0;
 
 // ---------------------------------------------------------------------------
 // Inputs, as read in bulk before anything is written
@@ -249,6 +360,14 @@ struct MusicalSetRecord {
     std::vector<std::pair<std::int64_t, std::optional<std::int64_t>>> timelines;
 };
 
+/// A musical timeline point's POINT_AT, as read.
+struct PointAtRecord {
+    /// The TempoMap its POINT_AT leads to; nullopt when it has none.
+    std::optional<std::int64_t> tempoMapId;
+    std::optional<std::int64_t> syncPoint;
+    std::optional<double> offsetSeconds;
+};
+
 /// A PartialSetMusicalTimelinePoint with its POINT_AT, as read.
 struct MusicalPointRecord {
     std::int64_t id = 0;
@@ -256,11 +375,34 @@ struct MusicalPointRecord {
     std::optional<double> frequencyCurveAmount;
     std::optional<std::int64_t> amplitudeCurveType;
     std::optional<double> amplitudeCurveAmount;
+    PointAtRecord at;
+};
 
-    /// The TempoMap its POINT_AT leads to; nullopt when it has none.
-    std::optional<std::int64_t> tempoMapId;
-    std::optional<std::int64_t> syncPoint;
-    std::optional<double> offsetSeconds;
+/// A SoundSource with a spatial musical timeline, as read.
+struct SpatialSourceRecord {
+    std::int64_t sourceId = 0;
+    std::optional<std::string> name;
+
+    /// Each SpatialPositionMusicalTimeline of the source with the head of
+    /// its point list (nullopt for an empty one). The schema allows one.
+    std::vector<std::pair<std::int64_t, std::optional<std::int64_t>>> timelines;
+};
+
+/// A SpatialPositionMusicalTimelinePoint with its POINT_AT, as read; the
+/// curve fields in kSpatialKinds order.
+struct SpatialMusicalPointRecord {
+    std::int64_t id = 0;
+    std::array<std::optional<std::int64_t>, 3> curveType;
+    std::array<std::optional<double>, 3> curveAmount;
+    PointAtRecord at;
+};
+
+/// A SpatialPositionState reached from a timeline point, as read.
+struct SpatialStateRecord {
+    std::int64_t stateId = 0;
+    std::optional<double> azimuth;
+    std::optional<double> elevation;
+    std::optional<double> distance;
 };
 
 /// A PartialState reached from a timeline point, as read.
@@ -305,6 +447,17 @@ struct Inputs {
     IdMap amplitudeNext;
     std::unordered_map<std::int64_t, std::vector<ExistingTimeline>> existingPhase;
     IdMap phaseNext;
+
+    std::vector<SpatialSourceRecord> sources;
+    std::unordered_map<std::int64_t, std::int64_t> scoreOfSource;
+    std::unordered_map<std::int64_t, SpatialMusicalPointRecord> spatialPoints;
+    IdMap spatialMusicalNext;
+    std::unordered_map<std::int64_t, std::vector<SpatialStateRecord>> statesOfSpatialPoint;
+
+    /// Per kind, in kSpatialKinds order: each source's existing physical
+    /// timelines, and the links between their points.
+    std::array<std::unordered_map<std::int64_t, std::vector<ExistingTimeline>>, 3> existingSpatial;
+    std::array<IdMap, 3> spatialPhysicalNext;
 };
 
 /// Reads an id-to-id link table from a two-column query.
@@ -334,6 +487,58 @@ std::optional<bool> optionalBool(const DbValue& value) {
         return *flag;
     }
     throw EngineDbError{"expected a BOOL column"};
+}
+
+/// Reads every spatial input the run needs (§6.8): the sources with a
+/// spatial musical timeline, their Scores, their points, POINT_AT edges and
+/// states, and their existing physical timelines.
+///
+/// @param db              Database to read. Not modified.
+/// @param[in,out] inputs  Receives the spatial members.
+/// @throws EngineDbError  If any query fails or returns a value of an
+///         unexpected type.
+void readSpatialInputs(EngineDb& db, Inputs& inputs) {
+    for (const DbRow& row : db.query(kReadSpatialSources)) {
+        const std::int64_t sourceId = requireInt64(row.at(0));
+        if (inputs.sources.empty() || inputs.sources.back().sourceId != sourceId) {
+            inputs.sources.push_back(SpatialSourceRecord{
+                .sourceId = sourceId, .name = optionalString(row.at(1)), .timelines = {}});
+        }
+        inputs.sources.back().timelines.emplace_back(
+            requireInt64(row.at(2)), optionalInt64(row.at(3)));
+    }
+    for (const DbRow& row : db.query(kReadSourceScores)) {
+        inputs.scoreOfSource.emplace(requireInt64(row.at(0)), requireInt64(row.at(1)));
+    }
+    for (const DbRow& row : db.query(kReadSpatialMusicalPoints)) {
+        SpatialMusicalPointRecord point{.id = requireInt64(row.at(0)),
+            .curveType = {},
+            .curveAmount = {},
+            .at = PointAtRecord{.tempoMapId = optionalInt64(row.at(7)),
+                .syncPoint = optionalInt64(row.at(8)),
+                .offsetSeconds = optionalDouble(row.at(9))}};
+        for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
+            point.curveType.at(k) = optionalInt64(row.at(1 + (2 * k)));
+            point.curveAmount.at(k) = optionalDouble(row.at(2 + (2 * k)));
+        }
+        inputs.spatialPoints.emplace(point.id, point);
+    }
+    inputs.spatialMusicalNext = readLinks(db, kReadSpatialMusicalLinks);
+    for (const DbRow& row : db.query(kReadSpatialStates)) {
+        inputs.statesOfSpatialPoint[requireInt64(row.at(0))].push_back(SpatialStateRecord{
+            .stateId = requireInt64(row.at(1)),
+            .azimuth = optionalDouble(row.at(2)),
+            .elevation = optionalDouble(row.at(3)),
+            .distance = optionalDouble(row.at(4)),
+        });
+    }
+    for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
+        for (const DbRow& row : db.query(kReadExistingSpatial.at(k))) {
+            inputs.existingSpatial.at(k)[requireInt64(row.at(0))].push_back(ExistingTimeline{
+                .timelineId = requireInt64(row.at(1)), .head = optionalInt64(row.at(2))});
+        }
+        inputs.spatialPhysicalNext.at(k) = readLinks(db, kReadSpatialPhysicalLinks.at(k));
+    }
 }
 
 /// Reads every input the run needs.
@@ -391,9 +596,9 @@ Inputs readInputs(EngineDb& db) {
             .frequencyCurveAmount = optionalDouble(row.at(2)),
             .amplitudeCurveType = optionalInt64(row.at(3)),
             .amplitudeCurveAmount = optionalDouble(row.at(4)),
-            .tempoMapId = optionalInt64(row.at(5)),
-            .syncPoint = optionalInt64(row.at(6)),
-            .offsetSeconds = optionalDouble(row.at(7)),
+            .at = PointAtRecord{.tempoMapId = optionalInt64(row.at(5)),
+                .syncPoint = optionalInt64(row.at(6)),
+                .offsetSeconds = optionalDouble(row.at(7))},
         };
         inputs.musicalPoints.emplace(point.id, point);
     }
@@ -425,6 +630,7 @@ Inputs readInputs(EngineDb& db) {
     }
     inputs.phaseNext = readLinks(db, kReadPhaseLinks);
 
+    readSpatialInputs(db, inputs);
     return inputs;
 }
 
@@ -543,13 +749,15 @@ std::map<std::int64_t, ScoreTempoMap> buildTempoMaps(
 // ---------------------------------------------------------------------------
 
 /// A set's timeline, validated, with the physical time of each point and
-/// each partial's knots (§6.2).
+/// each partial's envelope nodes (§6.2).
 struct SetEnvelopes {
     /// The computed physical time of every point, by point index.
     std::vector<SampleTime> pointTimes;
 
-    /// Each member partial's knots: frequency, then amplitude.
-    std::unordered_map<std::int64_t, std::pair<std::vector<Knot>, std::vector<Knot>>> knots;
+    /// Each member partial's envelope nodes: frequency, then amplitude.
+    std::unordered_map<std::int64_t,
+        std::pair<std::vector<EnvelopeNode>, std::vector<EnvelopeNode>>>
+        nodes;
 
     /// Each member partial's states' phase fields, one per state it has,
     /// whatever their meaning (§6.6).
@@ -558,90 +766,90 @@ struct SetEnvelopes {
 
 /// Checks a curve type and amount of a point, for one property.
 ///
+/// @tparam Error  The exception of the timeline's scope: PartialSetTransformError
+///                or SoundSourceTransformError.
 /// @param index     Position of the point in the timeline, from 0.
 /// @param id        Its id.
-/// @param property  "frequency" or "amplitude".
+/// @param property  The property's column prefix, e.g. "frequency" or
+///                  "azimuth".
 /// @param type      The curve type as read.
 /// @param amount    The curve amount as read.
-/// @throws PartialSetTransformError  If either is NULL or out of range.
+/// @throws Error  If either is NULL or out of range.
+template <typename Error>
 void requireCurve(std::size_t index, std::int64_t id, std::string_view property,
     const std::optional<std::int64_t>& type, const std::optional<double>& amount) {
     const std::string where = describePoint(index, id) + ": " + std::string{property};
     if (!type.has_value() || *type < kMinCurveType || *type > kMaxCurveType) {
-        throw PartialSetTransformError{where + "_curve_type is " +
-                                       (type.has_value() ? std::to_string(*type) : "NULL") +
-                                       "; it must be in [" + std::to_string(kMinCurveType) + ", " +
-                                       std::to_string(kMaxCurveType) + "]"};
+        throw Error{where + "_curve_type is " +
+                    (type.has_value() ? std::to_string(*type) : "NULL") + "; it must be in [" +
+                    std::to_string(kMinCurveType) + ", " + std::to_string(kMaxCurveType) + "]"};
     }
     if (!amount.has_value() || !std::isfinite(*amount) || *amount < kMinCurveAmount ||
         *amount > kMaxCurveAmount) {
-        throw PartialSetTransformError{where + "_curve_amount is " +
-                                       (amount.has_value() ? formatNumber(*amount) : "NULL") +
-                                       "; it must be in [" + formatNumber(kMinCurveAmount) + ", " +
-                                       formatNumber(kMaxCurveAmount) + "]"};
+        throw Error{where + "_curve_amount is " +
+                    (amount.has_value() ? formatNumber(*amount) : "NULL") + "; it must be in [" +
+                    formatNumber(kMinCurveAmount) + ", " + formatNumber(kMaxCurveAmount) + "]"};
     }
 }
 
 /// Validates one point's POINT_AT against its predecessor and the Score's
 /// map, and returns its physical time.
 ///
+/// @tparam Error  The exception of the timeline's scope: PartialSetTransformError
+///                or SoundSourceTransformError.
 /// @param index         Position of the point in the timeline, from 0.
-/// @param point         The point as read.
+/// @param id            Its id.
+/// @param at            Its POINT_AT as read.
 /// @param mapId         The TempoMap every POINT_AT must lead to.
 /// @param map           That map.
 /// @param rate          Sample rate for the conversion to samples.
 /// @param[in,out] previousSync  The previous point's sync_point; updated to
 ///                      this point's on return.
 /// @return `toSampleTime(toSeconds(sync_point) + offset_seconds)`.
-/// @throws PartialSetTransformError  If the point has no POINT_AT, or one to
-///         another map, or a NULL or negative sync_point, or a sync_point
-///         before the previous point's, or a non-finite offset, or a curve
-///         field out of range.
-SampleTime pointTime(std::size_t index, const MusicalPointRecord& point, std::int64_t mapId,
-    const TempoMap& map, SampleRate rate, std::optional<std::int64_t>& previousSync) {
-    const std::string where = describePoint(index, point.id);
-    if (!point.tempoMapId.has_value()) {
-        throw PartialSetTransformError{where + " has no POINT_AT"};
+/// @throws Error  If the point has no POINT_AT, or one to another map, or a
+///         NULL or negative sync_point, or a sync_point before the previous
+///         point's, or a non-finite offset.
+template <typename Error>
+SampleTime pointTime(std::size_t index, std::int64_t id, const PointAtRecord& at,
+    std::int64_t mapId, const TempoMap& map, SampleRate rate,
+    std::optional<std::int64_t>& previousSync) {
+    const std::string where = describePoint(index, id);
+    if (!at.tempoMapId.has_value()) {
+        throw Error{where + " has no POINT_AT"};
     }
-    if (*point.tempoMapId != mapId) {
-        throw PartialSetTransformError{where + ": POINT_AT leads to TempoMap " +
-                                       std::to_string(*point.tempoMapId) +
-                                       ", not the Score's TempoMap " + std::to_string(mapId)};
+    if (*at.tempoMapId != mapId) {
+        throw Error{where + ": POINT_AT leads to TempoMap " + std::to_string(*at.tempoMapId) +
+                    ", not the Score's TempoMap " + std::to_string(mapId)};
     }
-    if (!point.syncPoint.has_value() || *point.syncPoint < 0) {
-        throw PartialSetTransformError{
-            where + ": sync_point is " +
-            (point.syncPoint.has_value() ? std::to_string(*point.syncPoint) : "NULL") +
-            "; it must be >= 0"};
+    if (!at.syncPoint.has_value() || *at.syncPoint < 0) {
+        throw Error{where + ": sync_point is " +
+                    (at.syncPoint.has_value() ? std::to_string(*at.syncPoint) : "NULL") +
+                    "; it must be >= 0"};
     }
-    const std::int64_t sync = *point.syncPoint;
+    const std::int64_t sync = *at.syncPoint;
     if (previousSync.has_value() && sync < *previousSync) {
-        throw PartialSetTransformError{
-            where + ": sync_point " + std::to_string(sync) + " is before the previous point's " +
-            std::to_string(*previousSync) + "; points must be in non-decreasing musical order"};
+        throw Error{where + ": sync_point " + std::to_string(sync) +
+                    " is before the previous point's " + std::to_string(*previousSync) +
+                    "; points must be in non-decreasing musical order"};
     }
     previousSync = sync;
-    const double offset = point.offsetSeconds.value_or(0.0);
+    const double offset = at.offsetSeconds.value_or(0.0);
     if (!std::isfinite(offset)) {
-        throw PartialSetTransformError{
+        throw Error{
             where + ": offset_seconds is " + formatNumber(offset) + ", which is not finite"};
     }
-    requireCurve(
-        index, point.id, "frequency", point.frequencyCurveType, point.frequencyCurveAmount);
-    requireCurve(
-        index, point.id, "amplitude", point.amplitudeCurveType, point.amplitudeCurveAmount);
 
     const SecondsTime seconds = map.toSeconds(MusicalTime{sync}) + SecondsDuration{offset};
     return toSampleTime(seconds, rate);
 }
 
-/// Adds one point's states to its partials' knots (§6.2).
+/// Adds one point's states to its partials' envelope nodes (§6.2).
 ///
 /// @param index          Position of the point in the timeline, from 0.
 /// @param point          The point as read; its curve fields are valid.
 /// @param states         The PartialStates reached from it.
 /// @param members        The ids of the set's partials.
-/// @param[in,out] envelopes  Each partial's (frequency, amplitude) knots and
+/// @param[in,out] envelopes  Each partial's (frequency, amplitude) envelope nodes and
 ///                       states' phase fields; this point's are appended.
 /// @throws PartialSetTransformError  If a state belongs to a partial outside
 ///         the set, or two states belong to the same partial.
@@ -661,15 +869,15 @@ void gatherStates(std::size_t index, const MusicalPointRecord& point,
                 where + ": Partial " + std::to_string(state.partialId) +
                 " has more than one PartialState; at most one is allowed per point"};
         }
-        auto& [frequency, amplitude] = envelopes.knots[state.partialId];
+        auto& [frequency, amplitude] = envelopes.nodes[state.partialId];
         if (state.frequency.has_value()) {
-            frequency.push_back(Knot{.point = index,
+            frequency.push_back(EnvelopeNode{.point = index,
                 .value = *state.frequency,
                 .curveType = point.frequencyCurveType.value_or(0),
                 .curveAmount = point.frequencyCurveAmount.value_or(0.0)});
         }
         if (state.amplitude.has_value()) {
-            amplitude.push_back(Knot{.point = index,
+            amplitude.push_back(EnvelopeNode{.point = index,
                 .value = *state.amplitude,
                 .curveType = point.amplitudeCurveType.value_or(0),
                 .curveAmount = point.amplitudeCurveAmount.value_or(0.0)});
@@ -682,14 +890,14 @@ void gatherStates(std::size_t index, const MusicalPointRecord& point,
 }
 
 /// Validates a set's timeline, POINT_AT edges and states, and computes the
-/// physical time of every point and the knots of every member (§6.2).
+/// physical time of every point and the envelope nodes of every member (§6.2).
 ///
 /// @param inputs  Everything read for the run.
 /// @param set     The set.
 /// @param map     The TempoMap of the set's Score.
 /// @param mapId   That map's id, which every POINT_AT must lead to.
 /// @param rate    Sample rate for the conversion to samples.
-/// @return The point times and the members' knots.
+/// @return The point times and the members' envelope nodes.
 /// @throws PartialSetTransformError  If the set has no, or more than one,
 ///         timeline; the timeline has no points or loops; a point has no
 ///         POINT_AT, or one to another map, or a NULL or negative sync_point,
@@ -723,7 +931,12 @@ SetEnvelopes gatherSet(const Inputs& inputs, const MusicalSetRecord& set, const 
     static const std::vector<StateRecord> kNoStates;
     for (std::size_t i = 0; i < pointIds.size(); ++i) {
         const MusicalPointRecord& point = inputs.musicalPoints.at(pointIds[i]);
-        envelopes.pointTimes.push_back(pointTime(i, point, mapId, map, rate, previousSync));
+        envelopes.pointTimes.push_back(pointTime<PartialSetTransformError>(
+            i, point.id, point.at, mapId, map, rate, previousSync));
+        requireCurve<PartialSetTransformError>(
+            i, point.id, "frequency", point.frequencyCurveType, point.frequencyCurveAmount);
+        requireCurve<PartialSetTransformError>(
+            i, point.id, "amplitude", point.amplitudeCurveType, point.amplitudeCurveAmount);
         const auto states = inputs.statesOfPoint.find(point.id);
         gatherStates(i, point, states == inputs.statesOfPoint.end() ? kNoStates : states->second,
             members, envelopes);
@@ -752,21 +965,25 @@ struct PartialOutput {
 
 /// Writes one chain of points, linked from a freshly created timeline.
 ///
+/// @tparam Error  The exception of the owner's scope: PartialTransformError
+///                or SoundSourceTransformError.
 /// @param[in,out] db     Database to write, inside the caller's transaction.
-/// @param createTimeline  Statement creating the timeline for $partial and
+/// @param createTimeline  Statement creating the timeline for $owner and
 ///                        returning its id.
 /// @param createFirst     Statement creating a point linked from the timeline.
 /// @param createNext      Statement creating a point linked from a point.
-/// @param partialId       The partial.
+/// @param ownerId         The partial or source the timeline belongs to.
+/// @param owner           What the owner is, for the error message.
 /// @param points          The points, in order.
 /// @throws EngineDbError  If a statement fails.
-/// @throws PartialTransformError  If the partial is no longer in the
-///         database.
+/// @throws Error  If the owner is no longer in the database.
+template <typename Error>
 void writeChain(EngineDb& db, std::string_view createTimeline, std::string_view createFirst,
-    std::string_view createNext, std::int64_t partialId, std::span<const PhysicalPoint> points) {
-    const std::vector<DbRow> created = db.query(createTimeline, {{"partial", partialId}});
+    std::string_view createNext, std::int64_t ownerId, std::string_view owner,
+    std::span<const PhysicalPoint> points) {
+    const std::vector<DbRow> created = db.query(createTimeline, {{"owner", ownerId}});
     if (created.size() != 1) {
-        throw PartialTransformError{"the partial disappeared while it was being transformed"};
+        throw Error{"the " + std::string{owner} + " disappeared while it was being transformed"};
     }
     std::int64_t previous = requireInt64(created.front().at(0));
     bool first = true;
@@ -798,7 +1015,7 @@ void writeChain(EngineDb& db, std::string_view createTimeline, std::string_view 
 /// @throws PartialTransformError  If the partial is no longer in the
 ///         database.
 void writePhaseChain(EngineDb& db, std::int64_t partialId, std::span<const PhasePoint> points) {
-    const std::vector<DbRow> created = db.query(kCreatePhaseTimeline, {{"partial", partialId}});
+    const std::vector<DbRow> created = db.query(kCreatePhaseTimeline, {{"owner", partialId}});
     if (created.size() != 1) {
         throw PartialTransformError{"the partial disappeared while it was being transformed"};
     }
@@ -853,34 +1070,35 @@ void writePartial(EngineDb& db, const PartialOutput& output) {
         db.query(kDeletePhaseTimeline, {{"timeline", timelineId}});
     }
 
-    writeChain(db, kCreateFrequencyTimeline, kCreateFirstFrequencyPoint, kCreateNextFrequencyPoint,
-        output.partialId, output.frequency);
-    writeChain(db, kCreateAmplitudeTimeline, kCreateFirstAmplitudePoint, kCreateNextAmplitudePoint,
-        output.partialId, output.amplitude);
+    writeChain<PartialTransformError>(db, kCreateFrequencyTimeline, kCreateFirstFrequencyPoint,
+        kCreateNextFrequencyPoint, output.partialId, "partial", output.frequency);
+    writeChain<PartialTransformError>(db, kCreateAmplitudeTimeline, kCreateFirstAmplitudePoint,
+        kCreateNextAmplitudePoint, output.partialId, "partial", output.amplitude);
     writePhaseChain(db, output.partialId, output.phase);
 
     transaction.commit();
 }
 
-/// Checks the knots' values, naming the offending point.
+/// Checks the envelope nodes' values, naming the offending point.
 ///
-/// @param frequency  Frequency knots, Hz.
-/// @param amplitude  Amplitude knots, dB.
+/// @param frequency  Frequency envelope nodes, Hz.
+/// @param amplitude  Amplitude envelope nodes, dB.
 /// @throws PartialTransformError  If a frequency is not finite, or an
 ///         amplitude is not finite or outside [−144, 0].
-void requireValues(std::span<const Knot> frequency, std::span<const Knot> amplitude) {
-    for (const Knot& knot : frequency) {
-        if (!std::isfinite(knot.value)) {
-            throw PartialTransformError{"at point " + std::to_string(knot.point) +
-                                        " its frequency is " + formatNumber(knot.value) +
+void requireValues(
+    std::span<const EnvelopeNode> frequency, std::span<const EnvelopeNode> amplitude) {
+    for (const EnvelopeNode& node : frequency) {
+        if (!std::isfinite(node.value)) {
+            throw PartialTransformError{"at point " + std::to_string(node.point) +
+                                        " its frequency is " + formatNumber(node.value) +
                                         ", which is not finite"};
         }
     }
-    for (const Knot& knot : amplitude) {
-        if (!std::isfinite(knot.value) || knot.value < kMinAmplitude ||
-            knot.value > kMaxAmplitude) {
-            throw PartialTransformError{"at point " + std::to_string(knot.point) +
-                                        " its amplitude is " + formatNumber(knot.value) +
+    for (const EnvelopeNode& node : amplitude) {
+        if (!std::isfinite(node.value) || node.value < kMinAmplitude ||
+            node.value > kMaxAmplitude) {
+            throw PartialTransformError{"at point " + std::to_string(node.point) +
+                                        " its amplitude is " + formatNumber(node.value) +
                                         " dB; it must be in [" + formatNumber(kMinAmplitude) +
                                         ", " + formatNumber(kMaxAmplitude) + "]"};
         }
@@ -891,37 +1109,37 @@ void requireValues(std::span<const Knot> frequency, std::span<const Knot> amplit
 ///
 /// @param[in,out] db    Database to write.
 /// @param inputs        Everything read for the run.
-/// @param envelopes     The set's point times and knots.
+/// @param envelopes     The set's point times and envelope nodes.
 /// @param partialId     The partial.
 /// @param rate          Sample rate, for the frequency conversion.
 /// @param[out] outcome  On success, its point counts are set.
-/// @throws PartialTransformError  If the partial's knots are invalid, its
+/// @throws PartialTransformError  If the partial's envelope nodes are invalid, its
 ///         lifeline collapses, or it disappears while being written. Nothing
 ///         has been written.
 /// @throws EngineDbError  If writing fails. Nothing has been written.
 void transformPartial(EngineDb& db, const Inputs& inputs, const SetEnvelopes& envelopes,
     std::int64_t partialId, SampleRate rate, PartialTransformOutcome& outcome) {
-    static const std::pair<std::vector<Knot>, std::vector<Knot>> kNoKnots;
+    static const std::pair<std::vector<EnvelopeNode>, std::vector<EnvelopeNode>> kNoNodes;
     static const std::vector<StatePhase> kNoStates;
-    const auto found = envelopes.knots.find(partialId);
-    const auto& [frequencyKnots, amplitudeKnots] =
-        found == envelopes.knots.end() ? kNoKnots : found->second;
+    const auto found = envelopes.nodes.find(partialId);
+    const auto& [frequencyNodes, amplitudeNodes] =
+        found == envelopes.nodes.end() ? kNoNodes : found->second;
     const auto foundStates = envelopes.states.find(partialId);
     const std::vector<StatePhase>& states =
         foundStates == envelopes.states.end() ? kNoStates : foundStates->second;
 
-    requireSharedEndPoints(frequencyKnots, amplitudeKnots);
-    requireStatesWithinLifeline(frequencyKnots, states);
-    requireValues(frequencyKnots, amplitudeKnots);
+    requireSharedEndPoints(frequencyNodes, amplitudeNodes);
+    requireStatesWithinLifeline(frequencyNodes, states);
+    requireValues(frequencyNodes, amplitudeNodes);
     requireValidPhase(states);
 
     PartialOutput output{.partialId = partialId,
         .staleFrequency = {},
         .staleAmplitude = {},
         .stalePhase = {},
-        .frequency = placeKnots(frequencyKnots, envelopes.pointTimes),
-        .amplitude = placeKnots(amplitudeKnots, envelopes.pointTimes),
-        .phase = placePhaseKnots(phaseKnotsOf(states), envelopes.pointTimes)};
+        .frequency = placeNodes(frequencyNodes, envelopes.pointTimes),
+        .amplitude = placeNodes(amplitudeNodes, envelopes.pointTimes),
+        .phase = placePhaseNodes(phaseNodesOf(states), envelopes.pointTimes)};
     if (output.frequency.size() < 2) {
         throw PartialTransformError{
             "its lifeline collapsed to a single instant at " +
@@ -1011,17 +1229,189 @@ void transformSet(EngineDb& db, const Inputs& inputs, const MusicalSetRecord& se
     }
 }
 
+// ---------------------------------------------------------------------------
+// The per-source stage (§6.8)
+// ---------------------------------------------------------------------------
+
+/// The column prefixes of the three spatial properties, in kSpatialKinds
+/// order, for messages.
+constexpr std::array<std::string_view, 3> kSpatialProperties{"azimuth", "elevation", "distance"};
+
+/// A source's timeline, validated, with the physical time of each point and
+/// its three envelopes.
+struct SourceEnvelopes {
+    /// The computed physical time of every point, by point index.
+    std::vector<SampleTime> pointTimes;
+
+    /// The azimuth (degrees), elevation (degrees) and distance (metres)
+    /// envelopes.
+    SpatialTriple<EnvelopeNode> envelopes;
+};
+
+/// Validates a source's spatial timeline, POINT_AT edges and states, and
+/// computes the physical time of every point and its three envelopes.
+///
+/// @param inputs  Everything read for the run.
+/// @param source  The source.
+/// @param map     The TempoMap of the source's Score.
+/// @param mapId   That map's id, which every POINT_AT must lead to.
+/// @param rate    Sample rate for the conversion to samples.
+/// @return The point times and the envelopes.
+/// @throws SoundSourceTransformError  If the source has no, or more than one,
+///         timeline; the timeline has no points or loops; a point's POINT_AT
+///         or curve fields are invalid (as for a set); a point has more than
+///         one state; the first point does not define all three properties;
+///         or a value is out of range.
+SourceEnvelopes gatherSource(const Inputs& inputs, const SpatialSourceRecord& source,
+    const TempoMap& map, std::int64_t mapId, SampleRate rate) {
+    if (source.timelines.size() != 1) {
+        throw SoundSourceTransformError{
+            "it has " + std::to_string(source.timelines.size()) +
+            " SpatialPositionMusicalTimelines; exactly one is required"};
+    }
+    const std::vector<std::int64_t> pointIds =
+        walkList<SoundSourceTransformError>(source.timelines.front().second,
+            inputs.spatialMusicalNext, "its SpatialPositionMusicalTimeline");
+    if (pointIds.empty()) {
+        throw SoundSourceTransformError{"its SpatialPositionMusicalTimeline has no points"};
+    }
+
+    SourceEnvelopes result;
+    result.pointTimes.reserve(pointIds.size());
+    std::vector<SpatialState> states;
+    std::vector<SpatialCurves> curves;
+    std::optional<std::int64_t> previousSync;
+    for (std::size_t i = 0; i < pointIds.size(); ++i) {
+        const SpatialMusicalPointRecord& point = inputs.spatialPoints.at(pointIds[i]);
+        result.pointTimes.push_back(pointTime<SoundSourceTransformError>(
+            i, point.id, point.at, mapId, map, rate, previousSync));
+        SpatialCurves pointCurves;
+        for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
+            requireCurve<SoundSourceTransformError>(i, point.id, kSpatialProperties.at(k),
+                point.curveType.at(k), point.curveAmount.at(k));
+            // Checked non-NULL by requireCurve().
+            pointCurves.curveType.at(k) = point.curveType.at(k).value_or(0);
+            pointCurves.curveAmount.at(k) = point.curveAmount.at(k).value_or(0.0);
+        }
+        curves.push_back(pointCurves);
+
+        const auto found = inputs.statesOfSpatialPoint.find(point.id);
+        if (found == inputs.statesOfSpatialPoint.end()) {
+            continue;
+        }
+        if (found->second.size() != 1) {
+            throw SoundSourceTransformError{describePoint(i, point.id) + " has " +
+                                            std::to_string(found->second.size()) +
+                                            " SpatialPositionStates; at most one is allowed"};
+        }
+        const SpatialStateRecord& state = found->second.front();
+        states.push_back(SpatialState{.point = i,
+            .azimuth = state.azimuth,
+            .elevation = state.elevation,
+            .distance = state.distance});
+    }
+
+    requireCompletePosition(states);
+    requireSpatialValues(states);
+    result.envelopes = spatialNodesOf(states, curves);
+    return result;
+}
+
+/// Replaces a source's three spatial physical timelines in one transaction
+/// (§7).
+///
+/// @param[in,out] db  Database to write. Modified only if every statement
+///                    succeeds; otherwise the transaction is rolled back.
+/// @param sourceId    The source.
+/// @param stale       Per kind, the existing timelines to delete, each with
+///                    its point ids.
+/// @param points      Per kind, the points to write, in physical units.
+/// @throws EngineDbError  If any statement fails. Nothing has been written.
+/// @throws SoundSourceTransformError  If the source is no longer in the
+///         database. Nothing has been written.
+void writeSource(EngineDb& db, std::int64_t sourceId,
+    const std::array<std::vector<std::pair<std::int64_t, std::vector<std::int64_t>>>, 3>& stale,
+    const SpatialTriple<PhysicalPoint>& points) {
+    Transaction transaction{db};
+    for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
+        for (const auto& [timelineId, pointIds] : stale.at(k)) {
+            if (!pointIds.empty()) {
+                db.query(kDeleteSpatialPoints.at(k), {{"ids", pointIds}});
+            }
+            db.query(kDeleteSpatialTimeline.at(k), {{"timeline", timelineId}});
+        }
+    }
+    for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
+        writeChain<SoundSourceTransformError>(db, kCreateSpatialTimeline.at(k),
+            kCreateFirstSpatialPoint.at(k), kCreateNextSpatialPoint.at(k), sourceId, "source",
+            points.at(k));
+    }
+    transaction.commit();
+}
+
+/// Transforms and writes one source's spatial position (§6.8, §7).
+///
+/// @param[in,out] db      Database to write.
+/// @param inputs          Everything read for the run.
+/// @param source          The source.
+/// @param maps            Every Score's TempoMap, by Score.id.
+/// @param rate            Sample rate.
+/// @param[out] outcome    Receives the source's error, or its point counts.
+void transformSource(EngineDb& db, const Inputs& inputs, const SpatialSourceRecord& source,
+    const std::map<std::int64_t, ScoreTempoMap>& maps, SampleRate rate,
+    SoundSourceTransformOutcome& outcome) {
+    try {
+        const auto score = inputs.scoreOfSource.find(source.sourceId);
+        if (score == inputs.scoreOfSource.end()) {
+            throw SoundSourceTransformError{"it is not reached from any Score through SoundEntity"};
+        }
+        const auto map = maps.find(score->second);
+        if (map == maps.end()) {
+            throw SoundSourceTransformError{"its Score " + std::to_string(score->second) +
+                                            " has no TempoMap, so its musical time is undefined"};
+        }
+        const SourceEnvelopes envelopes =
+            gatherSource(inputs, source, map->second.map, map->second.mapId, rate);
+        const SpatialTriple<PhysicalPoint> points =
+            placeSpatialNodes(envelopes.envelopes, envelopes.pointTimes);
+
+        std::array<std::vector<std::pair<std::int64_t, std::vector<std::int64_t>>>, 3> stale;
+        for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
+            const auto& existing = inputs.existingSpatial.at(k);
+            if (const auto timelines = existing.find(source.sourceId);
+                timelines != existing.end()) {
+                for (const ExistingTimeline& timeline : timelines->second) {
+                    stale.at(k).emplace_back(timeline.timelineId,
+                        walkList<SoundSourceTransformError>(timeline.head,
+                            inputs.spatialPhysicalNext.at(k),
+                            "its existing " +
+                                std::string{spatialTimelineName(kSpatialKinds.at(k))}));
+                }
+            }
+        }
+        writeSource(db, source.sourceId, stale, points);
+        for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
+            outcome.points.at(k) = points.at(k).size();
+        }
+    } catch (const SoundSourceTransformError& e) {
+        outcome.error = e.what();
+    } catch (const EngineDbError& e) {
+        outcome.error = std::string{"engine-db: "} + e.what();
+    }
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
 // Pure stages
 // ---------------------------------------------------------------------------
 
-void requireSharedEndPoints(std::span<const Knot> frequency, std::span<const Knot> amplitude) {
-    const auto requireTwo = [](std::span<const Knot> knots, std::string_view property) {
-        if (knots.size() < 2) {
+void requireSharedEndPoints(
+    std::span<const EnvelopeNode> frequency, std::span<const EnvelopeNode> amplitude) {
+    const auto requireTwo = [](std::span<const EnvelopeNode> nodes, std::string_view property) {
+        if (nodes.size() < 2) {
             throw PartialTransformError{"its " + std::string{property} + " is defined at " +
-                                        std::to_string(knots.size()) +
+                                        std::to_string(nodes.size()) +
                                         " point(s); at least two are required"};
         }
     };
@@ -1041,20 +1431,20 @@ void requireSharedEndPoints(std::span<const Knot> frequency, std::span<const Kno
     }
 }
 
-std::vector<PhysicalPoint> placeKnots(
-    std::span<const Knot> knots, std::span<const SampleTime> pointTimes) {
+std::vector<PhysicalPoint> placeNodes(
+    std::span<const EnvelopeNode> nodes, std::span<const SampleTime> pointTimes) {
     std::vector<SampleTime> times;
-    times.reserve(knots.size());
-    for (const Knot& knot : knots) {
-        times.push_back(pointTimes[knot.point]);
+    times.reserve(nodes.size());
+    for (const EnvelopeNode& node : nodes) {
+        times.push_back(pointTimes[node.point]);
     }
     std::vector<PhysicalPoint> points;
     for (const Placement& placement : squash(times)) {
-        const Knot& knot = knots[placement.index];
+        const EnvelopeNode& node = nodes[placement.index];
         points.push_back(PhysicalPoint{.time = placement.time,
-            .value = knot.value,
-            .curveType = knot.curveType,
-            .curveAmount = knot.curveAmount});
+            .value = node.value,
+            .curveType = node.curveType,
+            .curveAmount = node.curveAmount});
     }
     return points;
 }
@@ -1068,8 +1458,8 @@ void fitToLifeline(std::vector<PhysicalPoint>& amplitude, SampleTime end) {
 }
 
 void requireStatesWithinLifeline(
-    std::span<const Knot> frequency, std::span<const StatePhase> states) {
-    // The caller has checked that frequency has at least two knots, and each
+    std::span<const EnvelopeNode> frequency, std::span<const StatePhase> states) {
+    // The caller has checked that frequency has at least two envelope nodes, and each
     // sits on a point where the partial has a state, so states is not empty.
     if (states.empty() || states.front().point != frequency.front().point) {
         throw PartialTransformError{
@@ -1114,34 +1504,34 @@ void requireValidPhase(std::span<const StatePhase> states) {
     }
 }
 
-std::vector<PhaseKnot> phaseKnotsOf(std::span<const StatePhase> states) {
-    std::vector<PhaseKnot> knots;
+std::vector<PhaseEnvelopeNode> phaseNodesOf(std::span<const StatePhase> states) {
+    std::vector<PhaseEnvelopeNode> nodes;
     for (const StatePhase& state : states) {
         const bool isTarget = state.degrees.has_value();
         const bool isFree = state.freeRun == true;
         // A default first state still gives a NULL point: precomputation
         // needs one at the lifeline's start, and running free to the first
         // target is what the default means there.
-        if (isTarget || isFree || knots.empty()) {
-            knots.push_back(PhaseKnot{.point = state.point, .degrees = state.degrees});
+        if (isTarget || isFree || nodes.empty()) {
+            nodes.push_back(PhaseEnvelopeNode{.point = state.point, .degrees = state.degrees});
         }
     }
-    return knots;
+    return nodes;
 }
 
-std::vector<PhasePoint> placePhaseKnots(
-    std::span<const PhaseKnot> knots, std::span<const SampleTime> pointTimes) {
+std::vector<PhasePoint> placePhaseNodes(
+    std::span<const PhaseEnvelopeNode> nodes, std::span<const SampleTime> pointTimes) {
     std::vector<SampleTime> times;
-    times.reserve(knots.size());
-    for (const PhaseKnot& knot : knots) {
-        times.push_back(pointTimes[knot.point]);
+    times.reserve(nodes.size());
+    for (const PhaseEnvelopeNode& node : nodes) {
+        times.push_back(pointTimes[node.point]);
     }
     std::vector<PhasePoint> points;
     for (const Placement& placement : squash(times)) {
-        const PhaseKnot& knot = knots[placement.index];
+        const PhaseEnvelopeNode& node = nodes[placement.index];
         points.push_back(PhasePoint{.time = placement.time,
-            .phase = knot.degrees.has_value()
-                         ? std::optional<Phase>{toPhase(Degrees{*knot.degrees})}
+            .phase = node.degrees.has_value()
+                         ? std::optional<Phase>{toPhase(Degrees{*node.degrees})}
                          : std::nullopt});
     }
     return points;
@@ -1172,6 +1562,83 @@ void collapseFreeRuns(std::vector<PhasePoint>& phase) {
     phase = std::move(kept);
 }
 
+void requireCompletePosition(std::span<const SpatialState> states) {
+    if (states.empty() || states.front().point != 0) {
+        throw SoundSourceTransformError{
+            "point 0 has no SpatialPositionState; the first point must define azimuth, "
+            "elevation and distance"};
+    }
+    const SpatialState& first = states.front();
+    std::string missing;
+    const auto note = [&missing](const std::optional<double>& value, std::string_view name) {
+        if (!value.has_value()) {
+            missing += missing.empty() ? "" : ", ";
+            missing += name;
+        }
+    };
+    note(first.azimuth, "azimuth");
+    note(first.elevation, "elevation");
+    note(first.distance, "distance");
+    if (!missing.empty()) {
+        throw SoundSourceTransformError{"at point 0 its " + missing +
+                                        " is NULL; the first point must define azimuth, "
+                                        "elevation and distance"};
+    }
+}
+
+void requireSpatialValues(std::span<const SpatialState> states) {
+    const auto check = [](const SpatialState& state, const std::optional<double>& value,
+                           std::string_view name, std::string_view unit, double low, double high) {
+        if (value.has_value() && (!std::isfinite(*value) || *value < low || *value > high)) {
+            throw SoundSourceTransformError{"at point " + std::to_string(state.point) + " its " +
+                                            std::string{name} + " is " + formatNumber(*value) +
+                                            " " + std::string{unit} + "; it must be in [" +
+                                            formatNumber(low) + ", " + formatNumber(high) + "]"};
+        }
+    };
+    for (const SpatialState& state : states) {
+        check(state, state.azimuth, "azimuth", "degrees", kMinAzimuthDegrees, kMaxAzimuthDegrees);
+        check(state, state.elevation, "elevation", "degrees", kMinElevationDegrees,
+            kMaxElevationDegrees);
+        check(state, state.distance, "distance", "metres", kMinDistanceMetres, kMaxDistanceMetres);
+    }
+}
+
+SpatialTriple<EnvelopeNode> spatialNodesOf(
+    std::span<const SpatialState> states, std::span<const SpatialCurves> curves) {
+    SpatialTriple<EnvelopeNode> envelopes;
+    for (const SpatialState& state : states) {
+        const SpatialCurves& curve = curves[state.point];
+        const std::array<std::optional<double>, 3> values{
+            state.azimuth, state.elevation, state.distance};
+        for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
+            const std::optional<double> value = values.at(k);
+            if (value.has_value()) {
+                envelopes.at(k).push_back(EnvelopeNode{.point = state.point,
+                    .value = *value,
+                    .curveType = curve.curveType.at(k),
+                    .curveAmount = curve.curveAmount.at(k)});
+            }
+        }
+    }
+    return envelopes;
+}
+
+SpatialTriple<PhysicalPoint> placeSpatialNodes(
+    const SpatialTriple<EnvelopeNode>& envelopes, std::span<const SampleTime> pointTimes) {
+    SpatialTriple<PhysicalPoint> points;
+    for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
+        points.at(k) = placeNodes(envelopes.at(k), pointTimes);
+    }
+    for (PhysicalPoint& point : points.at(0)) {
+        point.value = toAzimuth(AzimuthDegrees{point.value}).value();
+    }
+    for (PhysicalPoint& point : points.at(1)) {
+        point.value = toElevation(ElevationDegrees{point.value}).value();
+    }
+    return points;
+}
+
 // ---------------------------------------------------------------------------
 // Reports and the run
 // ---------------------------------------------------------------------------
@@ -1194,6 +1661,8 @@ std::size_t TransformReport::failureCount() const noexcept {
     for (const PartialSetTransformOutcome& set : sets) {
         total += set.error.has_value() ? 1 : set.failureCount();
     }
+    total += static_cast<std::size_t>(std::ranges::count_if(
+        sources, [](const SoundSourceTransformOutcome& s) { return !s.ok(); }));
     return total;
 }
 
@@ -1223,6 +1692,15 @@ TransformReport transformAll(EngineDb& db) {
             .setId = set.setId, .setName = set.name, .error = std::nullopt, .partials = {}};
         transformSet(db, inputs, set, maps, report.sampleRate, outcome);
         report.sets.push_back(std::move(outcome));
+    }
+    // Sources are independent of sets and of each other (§6.8).
+    for (const SpatialSourceRecord& source : inputs.sources) {
+        SoundSourceTransformOutcome outcome{.sourceId = source.sourceId,
+            .sourceName = source.name,
+            .error = std::nullopt,
+            .points = {}};
+        transformSource(db, inputs, source, maps, report.sampleRate, outcome);
+        report.sources.push_back(std::move(outcome));
     }
     return report;
 }

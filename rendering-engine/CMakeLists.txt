@@ -164,6 +164,14 @@ cmake_path(SET RE_TEMPO_MAP_STATE_FILE NORMALIZE
 cmake_path(SET RE_OFFSET_COLLISION_STATE_FILE NORMALIZE
     "${CMAKE_CURRENT_SOURCE_DIR}/../engine-db/examples/offset-collision-score.cypher")
 
+# A moving source written twice: in physical units, and with its position in
+# the canonical model for the transform to convert. The two must render alike
+# (docs/transform.md section 6.8).
+cmake_path(SET RE_SPATIAL_STATE_FILE NORMALIZE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../engine-db/examples/spatial-score.cypher")
+cmake_path(SET RE_SPATIAL_MUSICAL_STATE_FILE NORMALIZE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../engine-db/examples/spatial-musical-score.cypher")
+
 # See cmake/Dependencies.cmake for why the Ladybug version is passed in rather
 # than read back from the library at runtime.
 target_compile_definitions(rendering_engine_lib

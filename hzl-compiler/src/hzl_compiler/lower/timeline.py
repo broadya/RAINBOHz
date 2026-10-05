@@ -8,7 +8,7 @@ are placed relative to the envelope's start here; the score places them.
 Two rules from the transform (rendering-engine/docs/transform.md §6.2) are
 checked here, so that they are reported against the envelope: every partial
 has both frequency and amplitude at the first point and at the last, since
-those two knots bound its lifeline.
+those two envelope nodes bound its lifeline.
 """
 
 from __future__ import annotations
@@ -43,8 +43,8 @@ class StateValues:
     """A partial's values at one point.
 
     Attributes:
-        frequency: Hz, or None for no knot here.
-        amplitude: dB, or None for no knot here.
+        frequency: Hz, or None for no envelope node here.
+        amplitude: dB, or None for no envelope node here.
         phase: A target in degrees, `FREE_RUN`, or None for the default,
             which plays no role in phase.
     """
@@ -99,7 +99,7 @@ def lower_envelope(envelope: Envelope, tree: SourceTree, resolver: StateSetResol
     overrides an earlier one property by property; for phase, a target or
     `free` overrides, and an absent phase leaves an earlier one as it was.
     Partials the stage leaves
-    alone have no state at its point, and so continue to their next knot.
+    alone have no state at its point, and so continue to their next envelope node.
 
     A stage's curve describes the path through the stage, which the model
     stores on the point the stage starts from; the last point's curve fields

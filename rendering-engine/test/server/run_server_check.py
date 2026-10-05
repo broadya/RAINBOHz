@@ -13,7 +13,7 @@ method gets 405 and an unknown path 404, and the server exits 0 when told to.
 
 With --beats, the score's tempo map is also checked against the oracle's
 score: frame-position of each of those beats must be the floor of the time,
-in samples, of the corresponding knot of the first partial's frequency
+in samples, of the corresponding envelope node of the first partial's frequency
 envelope in the score's JSON mirror, split into frame and offset.
 
     run_server_check.py --engine <binary> --schema <cypher> --state <cypher>
@@ -213,7 +213,7 @@ def check_tempo_map(client: Client, score_path: str, beats: list[int]) -> None:
         client: The client, with a score loaded.
         score_path: The oracle's JSON mirror of the score.
         beats: Beats whose frame position to check against the first
-            partial's frequency knots, one beat per knot, in order.
+            partial's frequency envelope nodes, one beat per envelope node, in order.
     """
     status, root = client.call("GET", "/tempo-maps/root", "/tempo-maps/root")
     if status != 200:
@@ -252,9 +252,9 @@ def check_tempo_map(client: Client, score_path: str, beats: list[int]) -> None:
                  f"the sample rate is {config['sample_rate']}, the oracle's {score['sample_rate']}")
     if not beats:
         return
-    knots = [time for time, _ in score["partial_sets"][0]["partials"][0]["frequency"]]
-    client.check(len(knots) == len(beats), f"--beats names {len(beats)} beats for {len(knots)} knots")
-    for beat, time in zip(beats, knots):
+    nodes = [time for time, _ in score["partial_sets"][0]["partials"][0]["frequency"]]
+    client.check(len(nodes) == len(beats), f"--beats names {len(beats)} beats for {len(nodes)} envelope nodes")
+    for beat, time in zip(beats, nodes):
         status, at = client.call("GET", f"/tempo-maps/{map_id}/frame-position",
                                  "/tempo-maps/{id}/frame-position", query={"at": str(beat)})
         if status != 200:
@@ -277,7 +277,7 @@ def main() -> int:
     parser.add_argument("--score", required=True)
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--spec")
-    parser.add_argument("--beats", help="comma-separated beats of the first partial's frequency knots")
+    parser.add_argument("--beats", help="comma-separated beats of the first partial's frequency envelope nodes")
     args = parser.parse_args()
 
     try:

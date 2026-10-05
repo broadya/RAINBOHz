@@ -239,7 +239,7 @@ disagree, that one wins.
 | `hzl-compiler/` | `hzl-compiler` | Python 3.12 | First version: score, tempo map, sound entity/source, envelope with `Update`, state sets, scale, harmonic series, flattened cartesian product; frequency and amplitude; emits Cypher |
 | `engine-db/` | `engine-db` — **the implementation** | Cypher DDL | Under construction; rendering concepts, plus the canonical tempo map and partial-set timelines the transform reads |
 | `canonical-db/` | Canonical model — **design artefact** | Cypher DDL | Loads cleanly; not the implementation |
-| `rendering-engine/` | `rendering-engine` | C++20 | Hosts and loads `engine-db`; transforms musical time to physical time (first version: one tempo map, frequency, amplitude and phase targets); precomputes; renders frames to multi-channel WAV files (first version: linear curves, one spatial position per SoundSource, all eight channel modes, labels ignored); `batch` and `server` (REST) modes |
+| `rendering-engine/` | `rendering-engine` | C++20 | Hosts and loads `engine-db`; transforms musical time to physical time (first version: one tempo map, frequency, amplitude, phase targets and spatial position); precomputes; renders frames to multi-channel WAV files (first version: linear curves, one spatial position per SoundSource, all eight channel modes, labels ignored); `batch` and `server` (REST) modes |
 | `playback-client/` | `playback-client` | C++20 | First version: loops a range through the default audio device over `rendering-engine`'s REST service, two buffer lanes, mono; `--output-wav` for tests |
 
 Component directory names match the canonical component identifiers from

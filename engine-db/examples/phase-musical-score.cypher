@@ -120,17 +120,12 @@ CREATE (b6)-[:STATE_OF]->(b)
 CREATE (c6:PartialState {frequency: 660.0, amplitude: -144.0})-[:MEMBER_OF_SET_MANY_ONE]->(s6)
 CREATE (c6)-[:STATE_OF]->(c)
 
-// The sound source's position, in the rendering model's physical units, since
-// nothing yet produces it from the canonical model: straight ahead, level and
-// 1 m away, from 0 to well past the end of the score, whose length in samples
-// the transform decides. There the mono gain is exactly 1, so mono output is
-// unchanged by the spatial stage.
-CREATE (source)-[:HAS_PHYSICAL_TIMELINE]->(:AzimuthPhysicalTimeline)
-       -[:NEXT_POINT]->(:AzimuthPhysicalTimelinePoint {time:0.0, azimuth:0.0})
-       -[:NEXT_POINT]->(:AzimuthPhysicalTimelinePoint {time:1000000000.0, azimuth:0.0})
-CREATE (source)-[:HAS_PHYSICAL_TIMELINE]->(:ElevationPhysicalTimeline)
-       -[:NEXT_POINT]->(:ElevationPhysicalTimelinePoint {time:0.0, elevation:0.0})
-       -[:NEXT_POINT]->(:ElevationPhysicalTimelinePoint {time:1000000000.0, elevation:0.0})
-CREATE (source)-[:HAS_PHYSICAL_TIMELINE]->(:DistancePhysicalTimeline)
-       -[:NEXT_POINT]->(:DistancePhysicalTimelinePoint {time:0.0, distance:1.0})
-       -[:NEXT_POINT]->(:DistancePhysicalTimelinePoint {time:1000000000.0, distance:1.0});
+// The sound source's position, in the canonical model: straight ahead, level
+// and 1 m away, stated once at tick 0 (degrees and metres). A position holds
+// after its timeline's last point, so one point covers the whole score. There
+// the mono gain is exactly 1, so mono output is unchanged by the spatial
+// stage.
+CREATE (source)-[:HAS_MUSICAL_TIMELINE]->(:SpatialPositionMusicalTimeline)
+       -[:NEXT_POINT]->(position:SpatialPositionMusicalTimelinePoint)
+       -[:POINT_STATE]->(:SpatialPositionState {azimuth: 0.0, elevation: 0.0, distance: 1.0})
+CREATE (position)-[:POINT_AT {sync_point: 0, offset_seconds: 0.0}]->(tempoMap);

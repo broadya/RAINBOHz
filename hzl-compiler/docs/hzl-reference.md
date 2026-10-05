@@ -271,11 +271,11 @@ whose identifier is not a partial of this set is ignored.
 
 ### 7.4 What a stage leaves alone
 
-A partial no transform touched, or a property the source state left out,
-has no value at that point. In the canonical model that is "no knot here":
-the partial's envelope for that property continues from its previous knot
-to its next one. This is how a set can restate a few partials at a point
-without restating them all.
+A partial no transform touched, or a property the source state left out, has
+no value at that point. In the canonical model that is "no envelope node
+here": the partial's envelope for that property continues from its previous
+envelope node to its next one. This is how a set can restate a few partials at
+a point without restating them all.
 
 At the **last** point every partial must have both properties: it ends the
 lifeline. The compiler reports the partial and the envelope otherwise.

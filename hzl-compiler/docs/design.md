@@ -106,13 +106,13 @@ collision it causes, and the compiler does not check for one.
 ### 5.2 Sparse states
 
 A stage states only the partials its transforms touched, and a source state
-only the properties it has. Everything else is absent at that point, which
-the transform reads as "no knot here for this partial and property"
-(`transform.md` §6.2): the envelope continues to the next knot. This is the
-proof of concept's `Update` made exact, and it is why a stage can restate a
-few partials without restating them all. The two bounds the transform
-requires, both properties at the first and the last point, are checked in
-L1 and reported against the envelope.
+only the properties it has. Everything else is absent at that point, which the
+transform reads as "no envelope node here for this partial and property"
+(`transform.md` §6.2): the envelope continues to the next envelope node. This
+is the proof of concept's `Update` made exact, and it is why a stage can
+restate a few partials without restating them all. The two bounds the
+transform requires, both properties at the first and the last point, are
+checked in L1 and reported against the envelope.
 
 ### 5.3 Curves
 
@@ -217,7 +217,7 @@ not started; its trigger is a score the single clause cannot carry.
   `TEMPO_MAP_SYNCHRONIZATION_POINT` is refused there too.
 - **A product inside a stage.** Partials born mid-timeline. The proof of
   concept sketched it; the transform's lifeline rule already allows a partial
-  whose first knot is not at the set's first point.
+  whose first envelope node is not at the set's first point.
 - **Instancing.** Placing one envelope twice needs a naming decision for
   partials; refused now.
 - **Labels on entities, sources and sets.** Need `HAS_LABEL` pairs the schema

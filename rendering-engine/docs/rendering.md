@@ -847,8 +847,11 @@ not round through the front. A difference of exactly π is ambiguous and is
 taken as +π, anticlockwise (author, 2026-10-04). The interpolated azimuth is
 wrapped back into [−π, π] with one conditional addition or subtraction. Before
 a timeline's first point or after its last, the value holds. Validation
-guarantees that the timelines cover every partial of the source, so a held
-value only ever multiplies silence.
+guarantees that each timeline starts by the first instant any partial of the
+source sounds, so a value held before the first point only ever multiplies
+silence. Holding after the last point is the model's meaning, not a fallback:
+a timeline need not reach the end of any partial, and one point is a still
+source (author, 2026-10-05).
 
 **Spatial segments.** The frame is cut at every point time of the source's
 three timelines strictly inside it. Within each piece, each quantity follows
@@ -934,7 +937,7 @@ defects with their node ids.
 | Every point except the last has `amplitude_curve_type` = 0 | partial | partial fails |
 | The source's spatial points walked have no cycle; every `time` and value is non-NULL and finite; values are in range (azimuth [−π, π], elevation [−π/2, π/2], distance [1, 16384]); `time` strictly increases; every point walked except the last has curve type 0 | source: every partial of it fails, naming the source | partial fails |
 | Every partial of a source leads to the same spatial entry points; each is at or before `fs` with the next point after `fs`, or after `fs` and the first point of its timeline | source: every partial of it fails | partial fails: the entry is stale |
-| Each spatial timeline starts at or before the partial's `t* = max(b₀, fs)`; where a walk reaches the end of its list, it does so at or after `min(b_last, fe)` | partial | partial fails: the timeline does not cover the partial |
+| Each spatial timeline starts at or before the partial's `t* = max(b₀, fs)`. There is no rule for its end: after its last point the value holds (author, 2026-10-05) | partial | partial fails: the timeline starts too late |
 | The compensation segments walked have no cycle, are contiguous, and have non-NULL, finite times and deltas with `end_time > start_time`; the entry compensation segment covers `max(b₀, fs)`; where the walk reaches the end of the list, it does so at `b_last`, as the integrable segments do | partial | partial fails |
 
 **Lifeline equality is exact**, in `double`. Both values come from the same

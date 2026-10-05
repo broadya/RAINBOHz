@@ -1,5 +1,5 @@
 # Beat 4: A drops an octave; B's amplitude falls, its frequency is left
-# out, so B's frequency continues towards its next knot.
+# out, so B's frequency continues towards its next envelope node.
 partial_state_set:
   hzl_version: "0.1.0"
   hzl_type: partial_state_set

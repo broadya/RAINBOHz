@@ -8,6 +8,7 @@
 #include "rainbohz/rendering_engine/engine_db.hpp"
 #include "rainbohz/rendering_engine/integrity.hpp"
 #include "rainbohz/rendering_engine/script_loader.hpp"
+#include "rainbohz/rendering_engine/transform/transform.hpp"
 
 #include "test_support.hpp"
 
@@ -38,7 +39,9 @@
 
 namespace {
 
+using rainbohz::rendering_engine::checkCanonicalIntegrity;
 using rainbohz::rendering_engine::checkIntegrity;
+using rainbohz::rendering_engine::checkPhysicalIntegrity;
 using rainbohz::rendering_engine::DbRow;
 using rainbohz::rendering_engine::EngineDb;
 using rainbohz::rendering_engine::findListDefects;
@@ -49,6 +52,7 @@ using rainbohz::rendering_engine::ListDefects;
 using rainbohz::rendering_engine::loadCypherFile;
 using rainbohz::rendering_engine::requireInt64;
 using rainbohz::rendering_engine::test::addSoundSource;
+using rainbohz::rendering_engine::transform::transformAll;
 
 using IdMap = std::unordered_map<std::int64_t, std::int64_t>;
 
@@ -192,10 +196,23 @@ TEST(FindListDefects, AMergeIntoAListNoTimelineReaches) {
 TEST_F(IntegrityDb, ASoundScorePasses) {
     const IntegrityReport report = checkIntegrity(db);
     EXPECT_TRUE(report.ok()) << failures(report);
-    // One EngineConfig check, 35 range rules, set membership, lifeline
-    // equality, source timelines, six musical-time checks, and two per
+    // One EngineConfig check, 44 range rules, set membership, lifeline
+    // equality, source timelines, nine musical-time checks, and two per
     // NEXT_POINT list type.
-    EXPECT_EQ(report.checks.size(), 1U + 35U + 3U + 6U + (2U * 17U));
+    EXPECT_EQ(report.checks.size(), 1U + 44U + 3U + 9U + (2U * 17U));
+}
+
+// The two passes divide the checks between them; checkIntegrity() is both.
+TEST_F(IntegrityDb, ThePassesPartitionTheChecks) {
+    const IntegrityReport canonical = checkCanonicalIntegrity(db);
+    const IntegrityReport physical = checkPhysicalIntegrity(db);
+    EXPECT_EQ(canonical.checks.size() + physical.checks.size(), checkIntegrity(db).checks.size());
+    // 22 physical range rules, lifeline equality, source timelines, and two
+    // per physical list type.
+    EXPECT_EQ(physical.checks.size(), 22U + 2U + (2U * 14U));
+    for (const IntegrityCheck& check : canonical.checks) {
+        EXPECT_EQ(check.name.find("PhysicalTimeline"), std::string::npos) << check.name;
+    }
 }
 
 TEST(Integrity, TheExampleScorePasses) {
@@ -391,8 +408,8 @@ TEST_F(IntegrityDb, EveryPartialMustBeInAPartialSet) {
 
 /// The name of checkSourceTimelines().
 constexpr std::string_view kSourceTimelinesCheck =
-    "every SoundSource with partials has azimuth, elevation and distance timelines that cover "
-    "its partials' lifelines";
+    "every SoundSource with partials has azimuth, elevation and distance timelines that start by "
+    "its partials' earliest start";
 
 TEST_F(IntegrityDb, ASourceWithPartialsNeedsAllThreeSpatialTimelines) {
     db.execute("MATCH (:SoundSource)-[:HAS_PHYSICAL_TIMELINE]->(t:ElevationPhysicalTimeline) "
@@ -403,15 +420,18 @@ TEST_F(IntegrityDb, ASourceWithPartialsNeedsAllThreeSpatialTimelines) {
         << check.violations[0];
 }
 
-TEST_F(IntegrityDb, ASourcesTimelinesMustCoverItsPartials) {
-    db.execute("MATCH (a:AzimuthPhysicalTimelinePoint) WHERE a.time = 20.0 SET a.time = 15.0;");
+TEST_F(IntegrityDb, ASourcesTimelinesMustStartByItsPartials) {
     db.execute("MATCH (d:DistancePhysicalTimelinePoint) WHERE d.time = 0.0 SET d.time = 0.5;");
     const IntegrityCheck check = find(checkIntegrity(db), kSourceTimelinesCheck);
-    ASSERT_EQ(check.violationCount, 2U) << check.violations[0];
-    EXPECT_NE(check.violations[0].find("AzimuthPhysicalTimeline ends at 15"), std::string::npos)
+    ASSERT_EQ(check.violationCount, 1U);
+    EXPECT_NE(check.violations[0].find("DistancePhysicalTimeline starts at 0.5"), std::string::npos)
         << check.violations[0];
-    EXPECT_NE(check.violations[1].find("DistancePhysicalTimeline starts at 0.5"), std::string::npos)
-        << check.violations[1];
+}
+
+// After its last point a timeline's value holds (author, 2026-10-05).
+TEST_F(IntegrityDb, ASourcesTimelinesNeedNotReachItsPartialsEnd) {
+    db.execute("MATCH (a:AzimuthPhysicalTimelinePoint) WHERE a.time = 20.0 SET a.time = 15.0;");
+    EXPECT_TRUE(find(checkIntegrity(db), kSourceTimelinesCheck).ok());
 }
 
 TEST_F(IntegrityDb, SpatialValuesMustBeInRange) {
@@ -484,17 +504,90 @@ protected:
     EngineDb db;
 };
 
+/// Checks a score in the canonical model as the pipeline does: the canonical
+/// pass, the transform, then the physical pass.
+///
+/// @param db  Database holding the score; modified by the transform.
+void expectBothPassesAround(EngineDb& db) {
+    const IntegrityReport canonical = checkCanonicalIntegrity(db);
+    EXPECT_TRUE(canonical.ok()) << failures(canonical);
+    // Before the transform the source has no physical position yet.
+    EXPECT_FALSE(checkPhysicalIntegrity(db).ok());
+    ASSERT_TRUE(transformAll(db).ok());
+    const IntegrityReport physical = checkPhysicalIntegrity(db);
+    EXPECT_TRUE(physical.ok()) << failures(physical);
+}
+
 TEST_F(MusicalIntegrityDb, TheTempoMapExamplePasses) {
-    const IntegrityReport report = checkIntegrity(db);
-    EXPECT_TRUE(report.ok()) << failures(report);
+    expectBothPassesAround(db);
 }
 
 TEST(Integrity, TheOffsetCollisionExamplePasses) {
     EngineDb db;
     ASSERT_TRUE(loadCypherFile(db, RE_TEST_SCHEMA_FILE).ok());
     ASSERT_TRUE(loadCypherFile(db, RE_TEST_OFFSET_COLLISION_STATE).ok());
-    const IntegrityReport report = checkIntegrity(db);
+    expectBothPassesAround(db);
+}
+
+/// The name of checkSpatialFirstState().
+constexpr std::string_view kSpatialFirstStateCheck =
+    "the first point of every SpatialPositionMusicalTimeline sets azimuth, elevation and distance";
+
+TEST_F(MusicalIntegrityDb, TheFirstSpatialPointMustSetAllThreeProperties) {
+    db.execute("MATCH (s:SpatialPositionState) SET s.elevation = NULL, s.distance = NULL;");
+    const IntegrityCheck check = find(checkCanonicalIntegrity(db), kSpatialFirstStateCheck);
+    ASSERT_EQ(check.violationCount, 1U);
+    EXPECT_NE(check.violations[0].find("leaves elevation, distance NULL"), std::string::npos)
+        << check.violations[0];
+}
+
+TEST_F(MusicalIntegrityDb, TheFirstSpatialPointMustHaveAState) {
+    db.execute("MATCH (s:SpatialPositionState) DETACH DELETE s;");
+    const IntegrityCheck check = find(checkCanonicalIntegrity(db), kSpatialFirstStateCheck);
+    ASSERT_EQ(check.violationCount, 1U);
+    EXPECT_NE(check.violations[0].find("has no SpatialPositionState"), std::string::npos)
+        << check.violations[0];
+}
+
+// After the first point a NULL is "no envelope node here".
+TEST_F(MusicalIntegrityDb, ALaterSpatialPointMayLeavePropertiesNull) {
+    db.execute("MATCH (m:TempoMap), (p:SpatialPositionMusicalTimelinePoint) "
+               "CREATE (p)-[:NEXT_POINT]->(q:SpatialPositionMusicalTimelinePoint)"
+               "-[:POINT_STATE]->(:SpatialPositionState {azimuth: 90.0}) "
+               "CREATE (q)-[:POINT_AT {sync_point: 1920, offset_seconds: 0.0}]->(m);");
+    const IntegrityReport report = checkCanonicalIntegrity(db);
     EXPECT_TRUE(report.ok()) << failures(report);
+}
+
+TEST_F(MusicalIntegrityDb, SpatialStatesAreInDegreesAndMetres) {
+    db.execute("MATCH (s:SpatialPositionState) SET s.azimuth = 181.0, s.elevation = -90.5, "
+               "s.distance = 0.5;");
+    const IntegrityReport report = checkCanonicalIntegrity(db);
+    EXPECT_EQ(find(report, "SpatialPositionState.azimuth is").violationCount, 1U);
+    EXPECT_EQ(find(report, "SpatialPositionState.elevation is").violationCount, 1U);
+    EXPECT_EQ(find(report, "SpatialPositionState.distance is").violationCount, 1U);
+    EXPECT_EQ(report.violationCount(), 3U) << failures(report);
+}
+
+TEST_F(MusicalIntegrityDb, SpatialPointsNeedAPointAt) {
+    db.execute("MATCH (:SpatialPositionMusicalTimelinePoint)-[a:POINT_AT]->() DELETE a;");
+    const IntegrityCheck check =
+        find(checkCanonicalIntegrity(db), "every SpatialPositionMusicalTimelinePoint has one");
+    ASSERT_EQ(check.violationCount, 1U);
+    EXPECT_NE(check.violations[0].find("has no POINT_AT"), std::string::npos)
+        << check.violations[0];
+}
+
+TEST_F(MusicalIntegrityDb, SpatialPointsAreInMusicalOrder) {
+    db.execute("MATCH (:SpatialPositionMusicalTimelinePoint)-[a:POINT_AT]->() "
+               "SET a.sync_point = 3840;");
+    db.execute("MATCH (m:TempoMap), (p:SpatialPositionMusicalTimelinePoint) "
+               "CREATE (p)-[:NEXT_POINT]->(q:SpatialPositionMusicalTimelinePoint) "
+               "CREATE (q)-[:POINT_AT {sync_point: 1920, offset_seconds: 0.0}]->(m);");
+    const IntegrityCheck check = find(checkCanonicalIntegrity(db),
+        "SpatialPositionMusicalTimeline points are in non-decreasing sync_point order");
+    ASSERT_EQ(check.violationCount, 1U);
+    EXPECT_NE(check.violations[0].find("SoundSource"), std::string::npos) << check.violations[0];
 }
 
 TEST_F(MusicalIntegrityDb, TheLastTempoMapPointMustHold) {

@@ -1056,28 +1056,22 @@ SourceData validateSource(const SourceRecord& source, SampleTime fs) {
 ///
 /// The source's entry points are shared and were checked once, against the
 /// frame's start (validateSourceEntryPoint()). What is left is per partial:
-/// each timeline must cover the partial within the frame. It must start at
-/// or before the partial's entry time `t* = max(b₀, fs)`, and where the walk
-/// shows it ending inside the frame, it must not end before the partial's
-/// lifeline does.
+/// each timeline must start at or before the partial's entry time
+/// `t* = max(b₀, fs)`. After its last point a timeline's value holds, so
+/// there is no rule for its end (author, 2026-10-05).
 ///
 /// @param entry      The partial's gathered entry, for its entry point ids.
 /// @param data       The partial's validated data.
-/// @param source     The source's gathered walk, for the ids and successor
-///                   flags.
+/// @param source     The source's gathered walk, for the entry point ids.
 /// @param validated  The source's validated timelines, index for index with
 ///                   the walk.
 /// @param fs         The frame's start.
-/// @param fe         The frame's end.
 /// @throws PartialRenderError  If the partial's entry is not the source's
-///         (which gatherSources() rules out), or a timeline starts after `t*`
-///         or is shown to end before the partial's lifeline.
+///         (which gatherSources() rules out), or a timeline starts after
+///         `t*`.
 void validateSourceEntry(const EntryRecord& entry, const PartialData& data,
-    const SourceRecord& source, const SourceData& validated, SampleTime fs, SampleTime fe) {
+    const SourceRecord& source, const SourceData& validated, SampleTime fs) {
     const SampleTime entryTime = std::max(data.segments.front().startTime, fs);
-    // Where the partial needs a position to: its lifeline's end if the
-    // frame shows it, otherwise the frame's end.
-    const SampleTime reach = std::min(data.segments.back().endTime, fe);
     const std::array<std::vector<SampleTime>, 3> times{
         timesOf(validated.azimuth), timesOf(validated.elevation), timesOf(validated.distance)};
     for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
@@ -1092,14 +1086,7 @@ void validateSourceEntry(const EntryRecord& entry, const PartialData& data,
             throw PartialRenderError{
                 "its source's " + timeline + " starts at " + formatNumber(t.front().value()) +
                 ", after the partial's entry time " + formatNumber(entryTime.value()) +
-                "; it must cover the lifeline of every partial of the source"};
-        }
-        if (!walk.back().hasSuccessor && t.back() < reach) {
-            throw PartialRenderError{"its source's " + timeline + " ends at " +
-                                     formatNumber(t.back().value()) + ", before " +
-                                     formatNumber(reach.value()) +
-                                     ", which the partial's lifeline reaches; it must cover the "
-                                     "lifeline of every partial of the source"};
+                "; the source's position must be defined from the start of every partial of it"};
         }
     }
 }
@@ -1224,7 +1211,6 @@ struct ValidatedFrame {
 ValidatedFrame validateFrame(const GatheredFrame& gathered, FrameNumber frame, FrameSize size,
     std::unordered_set<std::int64_t>& known, FrameOutcome& outcome) {
     const SampleTime fs = frameStart(frame, size);
-    const SampleTime fe = fs + SampleDuration{static_cast<double>(size.value())};
 
     // Each source once, however many partials it has.
     ValidatedFrame result;
@@ -1251,8 +1237,7 @@ ValidatedFrame validateFrame(const GatheredFrame& gathered, FrameNumber frame, F
             }
             const SourceRecord& source = gathered.sources.at(data.soundSourceId);
             try {
-                validateSourceEntry(
-                    entry, data, source, result.sources.at(data.soundSourceId), fs, fe);
+                validateSourceEntry(entry, data, source, result.sources.at(data.soundSourceId), fs);
             } catch (const PartialRenderError& e) {
                 throw PartialRenderError{"its " + source.description + ": " + e.what()};
             }

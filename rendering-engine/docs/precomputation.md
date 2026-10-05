@@ -728,7 +728,7 @@ reason.
 | The partial's set is aggregated by exactly one `SoundSource` | partial | partial fails |
 | The source has one each of `AzimuthPhysicalTimeline`, `ElevationPhysicalTimeline` and `DistancePhysicalTimeline`, each with at least 1 point, and no chain has a cycle | source: every partial of it fails, naming the source | partial fails |
 | Every spatial point's `time` and value are non-`NULL` and finite; `time` strictly increases; azimuth is in `[−π, π]`, elevation in `[−π/2, π/2]`, distance in `[1, 16384]` metres; every point except the last has curve type 0 (linear) | source, as above | partial fails |
-| Each spatial timeline's first point is at or before the partial's `b₀` and its last at or after `b_last`: a source's timelines cover every partial of it (author, 2026-10-04) | partial | partial fails |
+| Each spatial timeline's first point is at or before the partial's `b₀`: a source's position is defined from the start of every partial of it (author, 2026-10-04). There is no rule for the end: after its last point the value holds (author, 2026-10-05) | partial | partial fails |
 
 Three rules from the schema are **not** checks here:
 
@@ -1025,8 +1025,8 @@ design will build on:
   N(t) + D(t), D interpolated linearly over the covering compensation
   segment, and it meets every phase target of the phase timeline (§6.8).
 - The partial's SoundSource has one azimuth, one elevation and one distance
-  timeline, each well formed, linear, in range, and covering the partial's
-  lifeline.
+  timeline, each well formed, linear, in range, and starting at or before the
+  partial's `b₀`.
 
 ## 12. Worked example
 

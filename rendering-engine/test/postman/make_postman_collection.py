@@ -44,7 +44,7 @@ RESPONSE_SCHEMAS = [
 # Keywords Ajv does not need, and in strict mode refuses.
 STRIPPED_KEYWORDS = {"format", "example", "examples"}
 
-# The oracle's times, in samples, of the first partial's frequency knots in
+# The oracle's times, in samples, of the first partial's frequency envelope nodes in
 # engine-db/examples/tempo-map-score.json, and the beats they fall on (as
 # CTest server.tempo-map-score checks them). frame-position must give the
 # floor of each, split by a frame size of 48000.
@@ -420,7 +420,7 @@ def frame_position_folder() -> dict:
                                              f"the oracle's sample {sample}"))
     return folder("6 Frame position", (
         "Where a musical position on the root map falls in the sample stream (server.md §3.4). Beats 0, 2, 4 "
-        "and 8 are the first partial's frequency knots; the expected frame and offset are the floor of the "
+        "and 8 are the first partial's frequency envelope nodes; the expected frame and offset are the floor of the "
         "rendering oracle's independent times for them (engine-db/examples/tempo-map-score.json), split by "
         "the frame size of 48000."
     ), [

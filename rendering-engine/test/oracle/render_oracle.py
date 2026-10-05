@@ -359,7 +359,7 @@ def phase_control(partial: Partial) -> tuple[float, np.ndarray, np.ndarray]:
         partial: The partial.
 
     Returns:
-        (initial phase, knot times, adjustment at each knot), for linear
+        (initial phase, envelope node times, adjustment at each envelope node), for linear
         interpolation over the lifeline.
     """
     def natural0(time: float) -> float:
@@ -375,15 +375,15 @@ def phase_control(partial: Partial) -> tuple[float, np.ndarray, np.ndarray]:
         time, value = timeline[anchor]
         initial = wrap_half_open(value - natural0(time))
 
-    knot_times = [timeline[0][0]]
-    knot_deltas = [0.0]
+    node_times = [timeline[0][0]]
+    node_deltas = [0.0]
     delta = 0.0
     for i, (time, value) in enumerate(timeline[1:], start=1):
         if anchor is not None and i > anchor and value is not None:
             delta += wrap_half_open(value - (initial + natural0(time) + delta))
-        knot_times.append(time)
-        knot_deltas.append(delta)
-    return initial, np.array(knot_times), np.array(knot_deltas)
+        node_times.append(time)
+        node_deltas.append(delta)
+    return initial, np.array(node_times), np.array(node_deltas)
 
 
 def partial_samples(partial: Partial, t: np.ndarray, edges) -> np.ndarray:
@@ -416,8 +416,8 @@ def partial_samples(partial: Partial, t: np.ndarray, edges) -> np.ndarray:
     piece = np.clip(piece, 0, len(lengths) - 1)
     tau = ta - times[piece]
     frequency = freqs[piece] + gradients[piece] * tau
-    initial, knot_times, knot_deltas = phase_control(partial)
-    phase = initial + natural_phase(partial, ta) + np.interp(ta, knot_times, knot_deltas)
+    initial, node_times, node_deltas = phase_control(partial)
+    phase = initial + natural_phase(partial, ta) + np.interp(ta, node_times, node_deltas)
 
     a_times = partial.amplitude[:, 0]
     a_values = partial.amplitude[:, 1]

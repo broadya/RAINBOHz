@@ -57,14 +57,17 @@ LoadResult loadScore(EngineDb& db, const std::filesystem::path& schemaFile,
     // Integrity is checked only on a score that loaded whole: on a partial
     // one, the violations say more about the load than about the data. A
     // failure stops the load before anything computes from the data.
+    // The canonical pass checks what the transform reads; the physical pass,
+    // after the transform, checks what it wrote (docs/integrity.md section 2).
     if (settings.validateDb) {
         log << '\n';
-        const IntegrityReport integrity = checkIntegrity(db);
+        const IntegrityReport integrity = checkCanonicalIntegrity(db);
         reportIntegrity(log, integrity, settings.verbose);
         if (!integrity.ok()) {
             return {.stage = LoadStage::Integrity,
                 .verdict = std::to_string(integrity.violationCount()) +
-                           " integrity violation(s) in engine-db. Precomputation was not run."};
+                           " integrity violation(s) in engine-db's canonical model. The "
+                           "transform was not run."};
         }
     }
 
@@ -87,8 +90,20 @@ LoadResult loadScore(EngineDb& db, const std::filesystem::path& schemaFile,
         reportDataCensus(log, db);
         return {.stage = LoadStage::Transform,
             .verdict = std::to_string(transformed.failureCount()) +
-                       " partial set(s) or partial(s) could not be transformed. "
+                       " partial set(s), partial(s) or SoundSource(s) could not be transformed. "
                        "Precomputation was not run."};
+    }
+
+    if (settings.validateDb) {
+        log << '\n';
+        const IntegrityReport integrity = checkPhysicalIntegrity(db);
+        reportIntegrity(log, integrity, settings.verbose);
+        if (!integrity.ok()) {
+            return {.stage = LoadStage::Integrity,
+                .verdict = std::to_string(integrity.violationCount()) +
+                           " integrity violation(s) in engine-db's physical timelines. "
+                           "Precomputation was not run."};
+        }
     }
 
     // Precomputation runs only on a score that loaded whole, for the same

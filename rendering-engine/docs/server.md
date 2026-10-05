@@ -329,22 +329,22 @@ costs a walk from the head to its end. Each hop's far end is still found by a
 scan of `TempoMapPoint`, which is Ladybug's parked edge-hop cost. Both are
 accepted for now (§8).
 
-**Tests.** `transform/test_timing_query.cpp` tests the parser, and every query against
-the real schema with maps built in the test, including synchronisation edges,
-which a loaded score cannot have yet, and lists longer than several chunks.
-`test_server.cpp` drives `ServerCore` directly, covering every status and
-both media types. `test/server/run_server_check.py` (CTest `server.*`) starts
-the real binary on a free port. It checks 404, 405 and 409, loads an example
-score over HTTP, reads its engine parameters, and pages through its root map's
-points by following `next`. For the score in musical time, it checks the frame
-position of each beat of a partial's knots against the oracle's independent
-times. It then renders every frame of the request, checks each returned file
-with the rendering oracle, and shuts the server down. When PyYAML and
-jsonschema are installed, it also validates every response body against the
-OpenAPI document. `test/server/openapi_check.py` (CTest `server.openapi`)
-validates the document itself, and checks every example in it against its
-schema. It is skipped unless openapi-spec-validator, jsonschema and PyYAML are
-installed.
+**Tests.** `transform/test_timing_query.cpp` tests the parser, and every query
+against the real schema with maps built in the test, including synchronisation
+edges, which a loaded score cannot have yet, and lists longer than several
+chunks. `test_server.cpp` drives `ServerCore` directly, covering every status
+and both media types. `test/server/run_server_check.py` (CTest `server.*`)
+starts the real binary on a free port. It checks 404, 405 and 409, loads an
+example score over HTTP, reads its engine parameters, and pages through its
+root map's points by following `next`. For the score in musical time, it
+checks the frame position of each beat of a partial's envelope nodes against
+the oracle's independent times. It then renders every frame of the request,
+checks each returned file with the rendering oracle, and shuts the server
+down. When PyYAML and jsonschema are installed, it also validates every
+response body against the OpenAPI document. `test/server/openapi_check.py`
+(CTest `server.openapi`) validates the document itself, and checks every
+example in it against its schema. It is skipped unless openapi-spec-validator,
+jsonschema and PyYAML are installed.
 
 **Postman.** `test/postman/rendering-engine.postman_collection.json` is the same
 ground for Postman, run by hand against a server started with
