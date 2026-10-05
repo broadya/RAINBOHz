@@ -2,8 +2,9 @@
 
 What `hzlc` reads. This is the language as it stands in the first version of
 the compiler; it descends from the proof of concept (`proof-of-concept/hzl-language/`),
-with seconds replaced by musical time, amplitude in dB, and a score, a tempo
-map and the two levels between a score and an envelope added. It is a
+with seconds replaced by musical time, amplitude in dB, a score, a tempo
+map and the two levels between a score and an envelope added, and spatial
+position moved from partials to sound sources, as trajectories. It is a
 description of the current state, not a specification of where the language
 is going; `architecture/overview.md` §5.1 says how early that design is.
 
@@ -30,7 +31,7 @@ The body begins with the common header:
   hzl_type: <type>         # must equal the top-level key
   name: <name>             # must equal the file name without .yaml
   namespace: <namespace>   # must equal the directories under the root
-  layer: "0: base"         # any string; carried, not enforced (§8)
+  layer: "0: base"         # any string; carried, not enforced (§9)
   labels: [a, b]           # optional; strings, each once
 ```
 
@@ -68,11 +69,19 @@ The one time written in seconds is `offset_seconds` on an envelope stage (§7.6)
 | `tempo` | BPM | [1, 1000] | tempo map points |
 | `ticks_per_beat` | ticks | 1 or more | tempo map |
 | `offset_seconds` | s | finite | envelope stages |
-| `curve_amount` | — | [0, 1] | envelope stages |
+| `curve_amount` | — | [0, 1] | envelope and trajectory stages |
+| `azimuth` | degrees, anticlockwise from the front | [-180, 180] | trajectories |
+| `elevation` | degrees, up from the horizontal | [-90, 90] | trajectories |
+| `distance` | metres | [1, 16384] | trajectories |
 
-`azimuth`, `elevation`, `distance` and `pan`, which the proof of concept
-had, are refused with "not in this version" wherever they appear. `phase` is
-described in §7.7.
+`phase` is described in §7.7, the three spatial properties in §8. As
+everywhere in HzL, a value out of range is refused, not wrapped.
+
+The proof of concept had `azimuth`, `elevation`, `distance` and `pan` on
+partial states. Position now belongs to a sound source (§8), so on a partial
+state, a note or a harmonic series they are refused, with a message saying
+where they go. `pan` is gone: write an azimuth, and the engine's channel
+mode makes the stereo image.
 
 ## 4. The hierarchy: `score`, `sound_entity`, `sound_source`
 
@@ -98,6 +107,7 @@ sound_entity:
 # sources/left.yaml
 sound_source:
   ...header...
+  trajectory: {namespace: trajectories, name: still}   # optional (§8)
   envelopes:
     - envelope: {namespace: envelopes, name: swell}
       offset: "0:0"              # after the source's start; default 0:0
@@ -105,8 +115,8 @@ sound_source:
 
 An envelope starts at `entity.position + source.offset + envelope.offset`,
 in ticks. Each envelope may be placed once in a score; a second placement is
-an error. A `sound_source` is where a spatial position will be written when
-the compiler carries one; a `position` key there is refused now.
+an error. A `sound_source` has one spatial position, shared by every partial
+of every envelope under it: its trajectory (§8).
 
 Every file at these levels becomes one node, named `namespace/name`.
 
@@ -322,7 +332,73 @@ not break the span. A partial whose first state gives no phase runs free to
 its first target. Phase is optional at both ends of the envelope: unlike
 frequency and amplitude, the first and last points need none.
 
-## 8. Layers and namespaces
+## 8. `trajectory`
+
+A trajectory is a sound source's position over time, as an envelope is a
+partial set's history: a start, then stages. Lowered, it is the source's
+`SpatialPositionMusicalTimeline`. "Trajectory" is the usual term for a
+stored path of a sound source in spatial audio (SpatDIF, for one).
+
+```yaml
+trajectory:
+  ...header...
+  initial_position: {azimuth: 0.0, elevation: 0.0, distance: 1.0}   # all three required
+  trajectory_stages:                     # optional; none is a source that does not move
+    - trajectory_stage:
+        duration: "2:0"                  # required
+        offset_seconds: 0.0              # optional, as on an envelope stage (§7.6)
+        curve: linear                    # optional, default linear (§7.5)
+        curve_amount: 0.0                # optional, default 0
+        azimuth_curve: s_curve           # optional per-property override,
+        azimuth_curve_amount: 1.0        #   likewise elevation_ and distance_
+        position: {azimuth: 90.0}        # required; at least one property
+```
+
+A source names its trajectory with `trajectory: {namespace, name}`. A
+trajectory is a file of its own, never written inline, and one trajectory
+may serve many sources: it makes no partials, so using it twice is not
+placing anything twice.
+
+### 8.1 Coordinates
+
+Spherical, centred on the listener. **Azimuth** is in degrees,
+anticlockwise from straight ahead seen from above: 90 is the listener's
+left, -90 their right, ±180 behind. **Elevation** is degrees up from the
+horizontal plane, 90 straight up. **Distance** is metres from the listener,
+from 1, the reference distance, outwards. These are the canonical model's
+units and its convention (AmbiX). Formats that count azimuth clockwise
+exist, so check the direction when bringing positions in from elsewhere.
+
+### 8.2 Points and time
+
+The trajectory starts when its source starts (§4) and has no offset of its
+own; each stage ends at a new point, `duration` after the previous one, as
+in an envelope (§7.2). Since envelopes start at or after their source, the
+position is always defined before any partial under the source sounds.
+
+A stage's `position` states only what changes there. A property left out
+has no envelope node at that point: it continues from its previous value to
+its next one, exactly as a property left out of a partial state does
+(§7.4). The initial position must state all three, since nothing comes
+before it.
+
+After the last point the position holds. A trajectory need not reach the
+end of the envelopes under its source, and the last point's curves mean
+nothing. A stage's curve describes the path through the stage, as in an
+envelope (§7.5).
+
+### 8.3 Movement across ±180°
+
+Azimuth moves along the shorter arc. From 172 to -172 the source passes
+behind the listener through 180, 16° of travel, not 344° round the front. To
+go the long way round, write the points in between.
+
+### 8.4 No trajectory
+
+A source that names none is straight ahead, level, at 1 m: azimuth 0,
+elevation 0, distance 1, from its start.
+
+## 9. Layers and namespaces
 
 Both are parsed and carried on every file and nothing is enforced about
 them: there is no layer ordering, and a reference may lead anywhere in the
@@ -331,11 +407,14 @@ dependencies is on the table and deliberately untouched by this version.
 What the compiler does refuse is a cycle of state-set references (§6.4),
 which it detects directly.
 
-## 9. What is emitted
+## 10. What is emitted
 
 One `EngineConfig` statement from the compiler's options, then one
 statement for the score: a `Score`, its `TempoMap` and points; `Label`s;
 the `SoundEntity`/`SoundSource`/`PartialSet`/`Partial` hierarchy; per
+source a `SpatialPositionMusicalTimeline`, its points each with a
+`POINT_AT` and a `SpatialPositionState`, from the trajectory or the
+default (§8); per
 envelope a `PartialSetMusicalTimeline`, its points each with a `POINT_AT`
 (`sync_point` in ticks, `offset_seconds`), and at each point with states a
 `PartialStateSet` of `PartialState`s. `HAS_LABEL` is emitted for partials

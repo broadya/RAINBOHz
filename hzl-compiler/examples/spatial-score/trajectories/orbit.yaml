@@ -1,0 +1,23 @@
+# The orbit: ahead, left, round behind through ±180° (172° to -172° takes
+# the shorter way, 16° through the back), right and back to the front;
+# away to 4 m and back while behind, and up to 45° at the back.
+#
+# Azimuth is anticlockwise from straight ahead, seen from above: 90° is
+# the listener's left. A stage states only what changes at its end; the
+# rest continues to its next value.
+trajectory:
+  hzl_version: "0.1.0"
+  hzl_type: trajectory
+  name: orbit
+  namespace: trajectories
+  layer: "0: base"
+  initial_position: {azimuth: 0.0, elevation: 0.0, distance: 1.0}
+  trajectory_stages:
+    - trajectory_stage: {duration: "2:0", position: {azimuth: 90.0}}
+    - trajectory_stage: {duration: "1:0", position: {distance: 1.0}}
+    - trajectory_stage: {duration: "1:0", position: {azimuth: 172.0, elevation: 0.0}}
+    - trajectory_stage: {duration: "1:0", position: {elevation: 45.0, distance: 4.0}}
+    - trajectory_stage: {duration: "1:0", position: {azimuth: -172.0, elevation: 0.0}}
+    - trajectory_stage: {duration: "1:0", position: {distance: 1.0}}
+    - trajectory_stage: {duration: "1:0", position: {azimuth: -90.0}}
+    - trajectory_stage: {duration: "2:0", position: {azimuth: 0.0, elevation: 0.0, distance: 1.0}}

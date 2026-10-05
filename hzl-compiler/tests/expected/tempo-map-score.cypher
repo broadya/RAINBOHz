@@ -18,6 +18,12 @@ CREATE (score0:Score {name: "scores/tempo_map_score"}),
        (soundEntity0:SoundEntity {name: "entities/chord"}),
 // SoundSource: 1
        (soundSource0:SoundSource {name: "sources/chord"}),
+// SpatialPositionMusicalTimeline: 1
+       (spatialPositionMusicalTimeline0:SpatialPositionMusicalTimeline),
+// SpatialPositionMusicalTimelinePoint: 1
+       (spatialPositionMusicalTimelinePoint0:SpatialPositionMusicalTimelinePoint {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0}),
+// SpatialPositionState: 1
+       (spatialPositionState0:SpatialPositionState {azimuth: 0.0, elevation: 0.0, distance: 1.0}),
 // PartialSet: 1
        (partialSet0:PartialSet {name: "envelopes/chord"}),
 // Partial: 2
@@ -43,10 +49,11 @@ CREATE (score0:Score {name: "scores/tempo_map_score"}),
        (partialState4:PartialState {amplitude: -24.0}),
        (partialState5:PartialState {frequency: 220.0, amplitude: -144.0}),
        (partialState6:PartialState {frequency: 330.0, amplitude: -144.0}),
-// NEXT_POINT: 7
+// NEXT_POINT: 8
        (score0)-[:NEXT_POINT]->(tempoMap0),
        (tempoMap0)-[:NEXT_POINT]->(tempoMapPoint0),
        (tempoMapPoint0)-[:NEXT_POINT]->(tempoMapPoint1),
+       (spatialPositionMusicalTimeline0)-[:NEXT_POINT]->(spatialPositionMusicalTimelinePoint0),
        (partialSetMusicalTimeline0)-[:NEXT_POINT]->(partialSetMusicalTimelinePoint0),
        (partialSetMusicalTimelinePoint0)-[:NEXT_POINT]->(partialSetMusicalTimelinePoint1),
        (partialSetMusicalTimelinePoint1)-[:NEXT_POINT]->(partialSetMusicalTimelinePoint2),
@@ -55,23 +62,26 @@ CREATE (score0:Score {name: "scores/tempo_map_score"}),
        (score0)-[:HAS_SOUNDENTITY]->(soundEntity0),
 // HAS_SOUNDSOURCE: 1
        (soundEntity0)-[:HAS_SOUNDSOURCE]->(soundSource0),
+// HAS_MUSICAL_TIMELINE: 2
+       (soundSource0)-[:HAS_MUSICAL_TIMELINE]->(spatialPositionMusicalTimeline0),
+       (partialSet0)-[:HAS_MUSICAL_TIMELINE]->(partialSetMusicalTimeline0),
+// POINT_AT: 5
+       (spatialPositionMusicalTimelinePoint0)-[:POINT_AT {sync_point: 0, offset_seconds: 0.0}]->(tempoMap0),
+       (partialSetMusicalTimelinePoint0)-[:POINT_AT {sync_point: 0, offset_seconds: 0.0}]->(tempoMap0),
+       (partialSetMusicalTimelinePoint1)-[:POINT_AT {sync_point: 1920, offset_seconds: 0.0}]->(tempoMap0),
+       (partialSetMusicalTimelinePoint2)-[:POINT_AT {sync_point: 3840, offset_seconds: 0.0}]->(tempoMap0),
+       (partialSetMusicalTimelinePoint3)-[:POINT_AT {sync_point: 7680, offset_seconds: 0.0}]->(tempoMap0),
+// POINT_STATE: 5
+       (spatialPositionMusicalTimelinePoint0)-[:POINT_STATE]->(spatialPositionState0),
+       (partialSetMusicalTimelinePoint0)-[:POINT_STATE]->(partialStateSet0),
+       (partialSetMusicalTimelinePoint1)-[:POINT_STATE]->(partialStateSet1),
+       (partialSetMusicalTimelinePoint2)-[:POINT_STATE]->(partialStateSet2),
+       (partialSetMusicalTimelinePoint3)-[:POINT_STATE]->(partialStateSet3),
 // HAS_PARTIALSET: 1
        (soundSource0)-[:HAS_PARTIALSET]->(partialSet0),
 // HAS_PARTIAL: 2
        (partialSet0)-[:HAS_PARTIAL]->(partial0),
        (partialSet0)-[:HAS_PARTIAL]->(partial1),
-// HAS_MUSICAL_TIMELINE: 1
-       (partialSet0)-[:HAS_MUSICAL_TIMELINE]->(partialSetMusicalTimeline0),
-// POINT_AT: 4
-       (partialSetMusicalTimelinePoint0)-[:POINT_AT {sync_point: 0, offset_seconds: 0.0}]->(tempoMap0),
-       (partialSetMusicalTimelinePoint1)-[:POINT_AT {sync_point: 1920, offset_seconds: 0.0}]->(tempoMap0),
-       (partialSetMusicalTimelinePoint2)-[:POINT_AT {sync_point: 3840, offset_seconds: 0.0}]->(tempoMap0),
-       (partialSetMusicalTimelinePoint3)-[:POINT_AT {sync_point: 7680, offset_seconds: 0.0}]->(tempoMap0),
-// POINT_STATE: 4
-       (partialSetMusicalTimelinePoint0)-[:POINT_STATE]->(partialStateSet0),
-       (partialSetMusicalTimelinePoint1)-[:POINT_STATE]->(partialStateSet1),
-       (partialSetMusicalTimelinePoint2)-[:POINT_STATE]->(partialStateSet2),
-       (partialSetMusicalTimelinePoint3)-[:POINT_STATE]->(partialStateSet3),
 // MEMBER_OF_SET_MANY_ONE: 7
        (partialState0)-[:MEMBER_OF_SET_MANY_ONE]->(partialStateSet0),
        (partialState1)-[:MEMBER_OF_SET_MANY_ONE]->(partialStateSet0),

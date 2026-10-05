@@ -129,9 +129,9 @@ def test_a_non_state_set_reference_is_refused(tree):
         resolve(tree, {}, "tempo_maps/main")
 
 
-def test_spatial_properties_are_not_in_this_version(tree):
+def test_spatial_properties_on_a_partial_are_refused(tree):
     p = hzl("partial_state_set", "state_sets/p", "partial_states:\n  - partial_state: {identifier: a, frequency: 1.0, azimuth: 0.0}")
-    with pytest.raises(HzlError, match="spatial position is not in this version"):
+    with pytest.raises(HzlError, match="spatial position belongs to a sound_source, not a partial"):
         resolve(tree, {"state_sets/p": p}, "state_sets/p")
 
 

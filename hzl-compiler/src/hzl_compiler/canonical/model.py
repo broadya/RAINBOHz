@@ -169,6 +169,40 @@ class PartialStateRow(Row):
 
 
 @dataclass(frozen=True)
+class SpatialPositionMusicalTimelineRow(Row):
+    """A `SpatialPositionMusicalTimeline`, a source's position; it has no columns of its own."""
+
+    TABLE: ClassVar[str] = "SpatialPositionMusicalTimeline"
+
+
+@dataclass(frozen=True)
+class SpatialPositionMusicalTimelinePointRow(Row):
+    """A `SpatialPositionMusicalTimelinePoint`: the curves out of this point, per property."""
+
+    TABLE: ClassVar[str] = "SpatialPositionMusicalTimelinePoint"
+    azimuth_curve_type: int
+    azimuth_curve_amount: float
+    elevation_curve_type: int
+    elevation_curve_amount: float
+    distance_curve_type: int
+    distance_curve_amount: float
+
+
+@dataclass(frozen=True)
+class SpatialPositionStateRow(Row):
+    """A `SpatialPositionState`: degrees, degrees and metres, each NULL for "no envelope node here".
+
+    These are the canonical model's units; the transform converts azimuth
+    and elevation to radians (rendering-engine/docs/transform.md §6.8).
+    """
+
+    TABLE: ClassVar[str] = "SpatialPositionState"
+    azimuth: float | None
+    elevation: float | None
+    distance: float | None
+
+
+@dataclass(frozen=True)
 class LabelRow(Row):
     """A `Label`."""
 
@@ -187,6 +221,9 @@ TABLE_ORDER = (
     LabelRow.TABLE,
     SoundEntityRow.TABLE,
     SoundSourceRow.TABLE,
+    SpatialPositionMusicalTimelineRow.TABLE,
+    SpatialPositionMusicalTimelinePointRow.TABLE,
+    SpatialPositionStateRow.TABLE,
     PartialSetRow.TABLE,
     PartialRow.TABLE,
     PartialSetMusicalTimelineRow.TABLE,

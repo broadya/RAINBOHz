@@ -1,0 +1,22 @@
+# HzL twin of engine-db/examples/spatial-musical-score.cypher: a fifth,
+# A 440 and E 660 as two partial sets in one sound source, orbiting the
+# listener for ten seconds.
+#
+# The hand-written score gives the partials as physical timelines and only
+# the position in musical time. Here everything is musical, on a tempo map
+# that holds 60 BPM at 960 ticks per beat, so a beat is a second and 96
+# ticks are 0.1 s, and every point falls on the same sample as there.
+# Compiled with channel mode 1 it renders to the same stereo frames.
+#
+#   hzlc compile scores/spatial_score.yaml --channel-mode 1 -o build/spatial-score.cypher
+score:
+  hzl_version: "0.1.0"
+  hzl_type: score
+  name: spatial_score
+  namespace: scores
+  layer: "0: base"
+  labels: []
+  tempo_map: {namespace: tempo_maps, name: steady}
+  sound_entities:
+    - sound_entity: {namespace: entities, name: orbit}
+      position: "0:0"

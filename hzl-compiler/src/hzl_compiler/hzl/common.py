@@ -29,6 +29,16 @@ MAX_AMPLITUDE_DB = 0.0
 MIN_PHASE_DEG = -180.0
 MAX_PHASE_DEG = 180.0
 
+# SpatialPositionState, in the canonical model's units (rendering-engine/docs/
+# transform.md §6.8): azimuth degrees anticlockwise from the front, elevation
+# degrees up from the horizontal plane, distance metres.
+MIN_AZIMUTH_DEG = -180.0
+MAX_AZIMUTH_DEG = 180.0
+MIN_ELEVATION_DEG = -90.0
+MAX_ELEVATION_DEG = 90.0
+MIN_DISTANCE_M = 1.0
+MAX_DISTANCE_M = 16384.0
+
 
 class FreeRun(Enum):
     """The one HzL phase that is not a number: `phase: free`."""
@@ -44,14 +54,16 @@ FREE_RUN = FreeRun.FREE
 # for the default, which plays no role in phase.
 Phase = float | FreeRun | None
 
-# Properties the PoC had and this version does not carry. Each is refused
-# with a message rather than dropped, so that a composer who writes one is
-# told it had no effect. The reason text follows the key.
+# Properties the PoC had on partial states and this version does not carry
+# there. Each is refused with a message rather than dropped, so that a
+# composer who writes one is told it had no effect. Spatial position belongs
+# to a sound source, not a partial, and is written as its trajectory.
+_ON_THE_SOURCE = "spatial position belongs to a sound_source, not a partial; write it in the source's trajectory"
 NOT_IN_THIS_VERSION = {
-    "azimuth": "spatial position is not in this version of the compiler; leave it out",
-    "elevation": "spatial position is not in this version of the compiler; leave it out",
-    "distance": "spatial position is not in this version of the compiler; leave it out",
-    "pan": "spatial position is not in this version of the compiler; leave it out",
+    "azimuth": _ON_THE_SOURCE,
+    "elevation": _ON_THE_SOURCE,
+    "distance": _ON_THE_SOURCE,
+    "pan": "pan is not in HzL; write an azimuth in the source's trajectory, and the channel mode makes the stereo image",
 }
 
 
@@ -143,6 +155,31 @@ def check_phase(value: float, where: Where) -> float:
         raise where.error(
             f"phase is in degrees and must lie in [{MIN_PHASE_DEG:g}, {MAX_PHASE_DEG:g}], got {value!r}"
         )
+    return value
+
+
+def check_in_range(name: str, unit: str, low: float, high: float, value: float, where: Where) -> float:
+    """Checks a value is finite and within [low, high].
+
+    Out of range is refused, not wrapped or clamped: wraparound is for
+    modulators, which do not exist yet.
+
+    Args:
+        name: The property, for the message.
+        unit: Its unit, for the message.
+        low: Smallest value allowed, in `unit`.
+        high: Largest value allowed, in `unit`.
+        value: The value as written, in `unit`.
+        where: Where it was written.
+
+    Returns:
+        `value`, unchanged.
+
+    Raises:
+        HzlError: if the value is outside the range or not finite.
+    """
+    if not (math.isfinite(value) and low <= value <= high):
+        raise where.error(f"{name} is in {unit} and must lie in [{low:g}, {high:g}], got {value!r}")
     return value
 
 

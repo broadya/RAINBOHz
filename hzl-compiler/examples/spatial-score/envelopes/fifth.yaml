@@ -1,0 +1,27 @@
+# E at 660.0 Hz: fades in over 0.1 s to -18.0 dB, holds, and fades out over the last 0.1 s.
+envelope:
+  hzl_version: "0.1.0"
+  hzl_type: envelope
+  name: fifth
+  namespace: envelopes
+  layer: "0: base"
+  initial_partial_state_set: {namespace: state_sets, name: fifth_start}
+  envelope_stages:
+    - envelope_stage:
+        duration: "0:96"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: state_sets, name: fifth_full}
+    - envelope_stage:
+        duration: "9:768"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: state_sets, name: fifth_full}
+    - envelope_stage:
+        duration: "0:96"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: state_sets, name: fifth_end}

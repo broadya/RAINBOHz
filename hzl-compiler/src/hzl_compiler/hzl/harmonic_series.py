@@ -15,6 +15,7 @@ from ..ref import Ref
 from ..source import SourceTree
 from .common import (
     HEADER_KEYS,
+    NOT_IN_THIS_VERSION,
     Header,
     Phase,
     check_amplitude,
@@ -72,7 +73,7 @@ def parse_harmonic_series(node: Node) -> HarmonicSeries:
     """
     reject_not_in_this_version(node)
     for key in ("azimuth_expression", "elevation_expression", "distance_expression"):
-        node.reject(key, f"{key.split('_')[0]} is not in this version of the compiler; leave it out")
+        node.reject(key, NOT_IN_THIS_VERSION[key.split("_")[0]])
     node.only(
         *HEADER_KEYS,
         "base_frequency",

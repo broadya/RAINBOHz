@@ -1,7 +1,7 @@
 """Lowers a score to the canonical model: level L0.
 
 The score names the tempo map and places sound entities; entities place
-sources; sources place envelopes. Every placement is exact tick arithmetic
+sources; sources place envelopes and carry a position. Every placement is exact tick arithmetic
 on the one tempo map, and every object becomes one row with its edges.
 """
 
@@ -22,6 +22,9 @@ from ..canonical.model import (
     ScoreRow,
     SoundEntityRow,
     SoundSourceRow,
+    SpatialPositionMusicalTimelinePointRow,
+    SpatialPositionMusicalTimelineRow,
+    SpatialPositionStateRow,
     TempoMapPointRow,
     TempoMapRow,
 )
@@ -32,12 +35,24 @@ from ..hzl.score import Score, load_score
 from ..hzl.sound_entity import load_sound_entity
 from ..hzl.sound_source import load_sound_source
 from ..hzl.tempo_map import load_tempo_map
+from ..hzl.trajectory import load_trajectory
 from ..ref import Ref
 from ..source import SourceTree
 from .state_sets import StateSetResolver
 from .timeline import PartialSetTimeline, lower_envelope
+from .trajectory import PositionPoint, default_position, lower_trajectory
 
-CHANNEL_MODES = {0: "mono", 1: "stereo", 2: "FOA B-format"}
+# EngineConfig.channelMode, numbered as engine-schema.cypher numbers them.
+CHANNEL_MODES = {
+    0: "mono",
+    1: "stereo from M/S",
+    2: "stereo from X/Y",
+    3: "M/S",
+    4: "Blumlein",
+    5: "Blumlein rotated 45 degrees",
+    6: "FOA A-format",
+    7: "FOA B-format",
+}
 
 
 @dataclass(frozen=True)
@@ -46,7 +61,7 @@ class EngineOptions:
 
     Attributes:
         sample_rate: Hz, positive.
-        channel_mode: 0 mono, 1 stereo, 2 first-order Ambisonics B-format.
+        channel_mode: One of `CHANNEL_MODES`, 0 to 7.
     """
 
     sample_rate: int = 48000
@@ -105,6 +120,11 @@ def lower_score(tree: SourceTree, ref: Ref, options: EngineOptions = EngineOptio
             source_start = entity_start + source_placement.offset.to_ticks(tpb, source_placement.where.at("offset"))
             source_key = model.add(SoundSourceRow(source.header.qualified_name))
             model.link("HAS_SOUNDSOURCE", entity_key, source_key)
+            if source.trajectory is None:
+                position = default_position()
+            else:
+                position = lower_trajectory(load_trajectory(tree, source.trajectory), tpb)
+            _add_position(model, source_key, map_key, position, source_start)
             for envelope_placement in source.envelopes:
                 if envelope_placement.ref in placed:
                     raise envelope_placement.where.error(
@@ -169,6 +189,45 @@ def _add_timeline(model: Model, source_key: NodeKey, map_key: NodeKey, timeline:
             state_key = model.add(PartialStateRow(values.frequency, values.amplitude, phase, free_run))
             model.link("MEMBER_OF_SET_MANY_ONE", state_key, set_key_at_point)
             model.link("STATE_OF", state_key, partial_keys[identifier])
+
+
+def _add_position(model: Model, source_key: NodeKey, map_key: NodeKey, points: tuple[PositionPoint, ...], start_ticks: int) -> None:
+    """Adds a source's spatial position timeline to `model`.
+
+    Args:
+        model: Modified: rows and edges are appended.
+        source_key: The `SoundSource` the timeline belongs to.
+        map_key: The `TempoMap` every point's `POINT_AT` leads to.
+        points: The lowered trajectory, or the default position.
+        start_ticks: Position of the source's start on the map, where the
+            first point goes.
+    """
+    timeline_key = model.add(SpatialPositionMusicalTimelineRow())
+    model.link("HAS_MUSICAL_TIMELINE", source_key, timeline_key)
+    previous = timeline_key
+    for point in points:
+        point_key = model.add(
+            SpatialPositionMusicalTimelinePointRow(
+                azimuth_curve_type=point.azimuth_curve.type.value,
+                azimuth_curve_amount=point.azimuth_curve.amount,
+                elevation_curve_type=point.elevation_curve.type.value,
+                elevation_curve_amount=point.elevation_curve.amount,
+                distance_curve_type=point.distance_curve.type.value,
+                distance_curve_amount=point.distance_curve.amount,
+            )
+        )
+        model.link("NEXT_POINT", previous, point_key)
+        previous = point_key
+        model.link(
+            "POINT_AT",
+            point_key,
+            map_key,
+            sync_point=start_ticks + point.offset_ticks,
+            offset_seconds=0.0 if point.offset_seconds is None else point.offset_seconds,
+        )
+        state = point.position
+        state_key = model.add(SpatialPositionStateRow(state.azimuth, state.elevation, state.distance))
+        model.link("POINT_STATE", point_key, state_key)
 
 
 def _phase_columns(phase: Phase) -> tuple[float | None, bool | None]:

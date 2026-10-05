@@ -1,0 +1,11 @@
+# One source, so one position: both partial sets move together.
+sound_source:
+  hzl_version: "0.1.0"
+  hzl_type: sound_source
+  name: orbiting
+  namespace: sources
+  layer: "0: base"
+  trajectory: {namespace: trajectories, name: orbit}
+  envelopes:
+    - envelope: {namespace: envelopes, name: root}
+    - envelope: {namespace: envelopes, name: fifth}

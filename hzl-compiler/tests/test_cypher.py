@@ -4,7 +4,7 @@ import pytest
 
 from hzl_compiler.canonical.cypher import emit_cypher, literal
 from hzl_compiler.cli import main
-from hzl_compiler.lower.score import lower_score
+from hzl_compiler.lower.score import EngineOptions, lower_score
 from hzl_compiler.source import SourceTree
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
@@ -42,6 +42,16 @@ def test_tempo_map_twin_matches_the_expected_script():
     tree, ref = SourceTree.from_file(EXAMPLES / "tempo-map-score" / "scores" / "tempo_map_score.yaml")
     script = emit_cypher(lower_score(tree, ref))
     expected = (EXPECTED / "tempo-map-score.cypher").read_text(encoding="utf-8")
+    assert strip_comments(script) == strip_comments(expected)
+
+
+def test_spatial_twin_matches_the_expected_script():
+    # Rendered with channel mode 1, this script gives the frames of
+    # engine-db/examples/spatial-musical-score.cypher to within 2e-12
+    # (checked by hand on 2026-10-05); this test keeps the script fixed.
+    tree, ref = SourceTree.from_file(EXAMPLES / "spatial-score" / "scores" / "spatial_score.yaml")
+    script = emit_cypher(lower_score(tree, ref, EngineOptions(channel_mode=1)))
+    expected = (EXPECTED / "spatial-score.cypher").read_text(encoding="utf-8")
     assert strip_comments(script) == strip_comments(expected)
 
 

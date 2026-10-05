@@ -32,7 +32,7 @@ def test_placements_add_up_in_ticks_and_rows_are_linked(tree):
     assert model.rows["TempoMap"][0].name == "tempo_maps/main"
     assert [p.name for p in model.rows["Partial"]] == ["state_sets#a", "state_sets#b"]
     # entity at 1:0, source +0:480, envelope +1:0 -> 2400 ticks; a stage of 2:0 -> 4320
-    point_at = [e for e in model.edges if e.rel == "POINT_AT"]
+    point_at = [e for e in model.edges if e.rel == "POINT_AT" and e.src.table == "PartialSetMusicalTimelinePoint"]
     assert [e.properties["sync_point"] for e in point_at] == [2400, 4320]
     assert all(e.properties["offset_seconds"] == 0.0 for e in point_at)
     assert model.count("PartialStateSet") == 2 and model.count("PartialState") == 4
@@ -83,8 +83,8 @@ def test_ticks_beyond_the_beat_are_refused_where_written(tree):
         compile_(tree, {"entities/entity": bad})
 
 
-def test_spatial_position_on_a_source_is_not_in_this_version(tree):
-    with pytest.raises(HzlError, match="spatial position is not in this version"):
+def test_a_position_on_a_source_is_refused_in_favour_of_a_trajectory(tree):
+    with pytest.raises(HzlError, match="sound_source.position: a source's position is its trajectory"):
         compile_(tree, {"sources/source": BASE["sources/source"] + "  position: {azimuth: 0.0}\n"})
 
 
@@ -92,4 +92,5 @@ def test_engine_options_are_checked():
     with pytest.raises(ValueError):
         EngineOptions(sample_rate=0)
     with pytest.raises(ValueError):
-        EngineOptions(channel_mode=7)
+        EngineOptions(channel_mode=8)
+    assert EngineOptions(channel_mode=7).channel_mode == 7

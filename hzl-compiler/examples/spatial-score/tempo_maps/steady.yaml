@@ -1,0 +1,13 @@
+# 60 BPM throughout: one beat is one second.
+tempo_map:
+  hzl_version: "0.1.0"
+  hzl_type: tempo_map
+  name: steady
+  namespace: tempo_maps
+  layer: "0: base"
+  ticks_per_beat: 960
+  points:
+    - tempo_map_point:
+        position: "0:0"
+        tempo: 60.0
+        hold: true

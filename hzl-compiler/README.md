@@ -15,6 +15,7 @@ HzL source --> hzlc --> canonical model (Cypher) --> rendering-engine --> audio
 The hand-written scores in `engine-db/examples/` remain the engine's test
 route. `examples/tempo-map-score/` here is the HzL twin of one of them, and
 `make test-hzl-oracle` proves the two routes give the same audio.
+`examples/spatial-score/` is the twin of `spatial-musical-score.cypher`.
 
 ## Running it
 
@@ -53,12 +54,14 @@ src/hzl_compiler/
   hzl/                          one module per HzL file type: dataclass + parser + loader
   lower/state_sets.py           L3, L2: scale, harmonic_series, flattened cartesian product
   lower/timeline.py             L1: envelope -> a partial set's musical timeline
+  lower/trajectory.py           L1: trajectory -> a sound source's spatial position timeline
   lower/score.py                L0: score -> canonical model
   canonical/model.py            the canonical model as tables (the lowest HzL level)
   canonical/cypher.py           ...emitted as Cypher
   cli.py                        hzlc
-tests/                          pytest; tests/expected/ holds the golden script
+tests/                          pytest; tests/expected/ holds the golden scripts
 examples/tempo-map-score/       HzL twin of engine-db/examples/tempo-map-score.cypher
+examples/spatial-score/         HzL twin of engine-db/examples/spatial-musical-score.cypher (--channel-mode 1)
 examples/demo/                  every construct of this version, two sound entities
 docs/design.md                  how it works and why
 docs/hzl-reference.md           the language, this version
@@ -68,9 +71,11 @@ docs/hzl-reference.md           the language, this version
 
 ## Status
 
-First version, 2026-10-02; phase added 2026-10-03. Frequency, amplitude and
-phase; one tempo map per score; envelope stages apply `Update` only;
-`beats:ticks` time; amplitude in dB; phase in degrees or `free`. Spatial
-position, modulators, labels as selection, layers as an
+First version, 2026-10-02; phase added 2026-10-03; spatial position
+2026-10-05. Frequency, amplitude and phase per partial; spatial position
+per sound source, as a `trajectory`; one tempo map per score; envelope
+stages apply `Update` only; `beats:ticks` time; amplitude in dB; phase in
+degrees or `free`; azimuth and elevation in degrees, distance in metres.
+Spatial position per partial, modulators, labels as selection, layers as an
 ordering, several tempo maps and the Ninja build are not in this version.
 See `docs/design.md` §9 for the list and what each needs.

@@ -26,6 +26,7 @@ HZL_TYPES = (
     "sound_entity",
     "sound_source",
     "envelope",
+    "trajectory",
     "partial_state_set_transformation",
     "partial_state_set",
     "virtual_partial_state_set",

@@ -23,8 +23,8 @@ emits is exactly what the hand-written scores already were.
 
 | In this version | Not yet |
 | --- | --- |
-| `score`, `sound_entity`, `sound_source`, `tempo_map`, `envelope`, `partial_state_set`, `scale`, `harmonic_series`, `virtual_partial_state_set`, `partial_state_set_transformation` | Anything else |
-| Frequency (Hz), amplitude (dB) and phase (degrees, `free`) | Spatial position, modulators: refused where written |
+| `score`, `sound_entity`, `sound_source`, `tempo_map`, `envelope`, `trajectory`, `partial_state_set`, `scale`, `harmonic_series`, `virtual_partial_state_set`, `partial_state_set_transformation` | Anything else |
+| Frequency (Hz), amplitude (dB) and phase (degrees, `free`) per partial; spatial position (degrees, metres) per sound source (§5.6) | Spatial position per partial, modulators: refused where written |
 | One tempo map per score | Several maps and synchronisation points |
 | `Update` in envelope stages; the flattened cartesian product in virtual sets | A product inside a stage (partials born mid-timeline) |
 | Each envelope placed once per score | Instancing, which needs an instance-qualified partial name |
@@ -46,13 +46,14 @@ the next:
 L3  generators     scale, harmonic_series             -> partial_state_set
 L2  combinators    virtual_partial_state_set          -> partial_state_set
 L1  timelines      envelope                           -> a partial set's musical timeline
+                   trajectory                         -> a source's spatial position timeline
 L0  score          score + tempo_map + sound levels   -> canonical model, as tables
     emit           canonical model                    -> .cypher
 ```
 
 L3 and L2 live in `lower/state_sets.py`, behind a `StateSetResolver` that
 dispatches on a referenced file's type, caches results, and refuses a cycle
-of references. L1 is `lower/timeline.py`, L0 `lower/score.py`, the model
+of references. L1 is `lower/timeline.py` and `lower/trajectory.py`, L0 `lower/score.py`, the model
 `canonical/model.py` and the emitter `canonical/cypher.py`.
 
 Stages are separate functions, not separate processes, so that the Ninja
@@ -92,6 +93,7 @@ in HzL terms, rather than left for the engine to refuse: amplitude in
 | `phase` on a state | `PartialState.phase` and `phase_free_run` (§5.5) |
 | stage curve | `*_curve_type`, `*_curve_amount` on the point the stage starts from (§5.3) |
 | labels | `Label`, `HAS_LABEL` from `Partial` and `Score` |
+| `trajectory` on a source, or none | `SpatialPositionMusicalTimeline` (`HAS_MUSICAL_TIMELINE` from `SoundSource`), its points with `POINT_AT` and one `SpatialPositionState` each (§5.6) |
 
 ### 5.1 Time
 
@@ -160,6 +162,43 @@ NULL point at the lifeline's start from the transform (`rendering-engine/docs/tr
 the compiler, so a score that says nothing about phase compiles to default
 states only and sounds as it did before phase existed.
 
+### 5.6 Spatial position
+
+Added 2026-10-05, after the engine's spatial rendering and transform
+(`rendering-engine/docs/transform.md` §6.8, ADR 0020). The proof of concept
+enveloped azimuth, elevation and distance per partial; the engine has one
+position per `SoundSource`, applied to the sum of its partial sets. So the
+position is not a property of a state set but a timeline of the source's
+own, which HzL writes as a `trajectory` file (`hzl-reference.md` §8). The
+author chose a file over an inline form: HzL builds larger things from
+small reusable ones, and a path is worth reusing.
+
+It lowers as an envelope does, without state sets: the initial position
+is the first point, each stage the next, with the stage's curves on the
+point it starts from (§5.3) and only the properties the stage states. The
+first point starts at the source's start (`entity.position +
+source.offset`), so the transform's check that the position is defined
+before the source's earliest partial holds by construction.
+
+**Every source gets a timeline.** One that names no trajectory gets one
+point at its start, azimuth 0°, elevation 0°, distance 1 m (author,
+2026-10-05): the transform requires a position, and supplying a default is
+the compiler's job, not the engine's. This is also what the hand-written
+`tempo-map-score.cypher` has, so the oracle twin is unchanged. A trajectory
+used by several sources is emitted once per source; it makes no partials,
+so no naming question arises.
+
+Values are checked in HzL terms (`hzl/common.py`): azimuth [-180, 180]°,
+elevation [-90, 90]°, distance [1, 16384] m, refused out of range rather
+than wrapped, as the transform does. They are emitted in those units;
+the transform converts to radians.
+
+`examples/spatial-score` is the HzL twin of
+`engine-db/examples/spatial-musical-score.cypher`, with the partials
+written in musical time too. Compiled with `--channel-mode 1` it rendered
+to the hand-written score's frames within 2e-12 (2026-10-05);
+`tests/expected/spatial-score.cypher` fixes its output.
+
 ## 6. The lowest level: tables
 
 `canonical/model.py` holds the canonical model as `engine-db` is shaped: one
@@ -211,8 +250,12 @@ not started; its trigger is a score the single clause cannot carry.
 
 ## 9. Not yet, and what each needs
 
-- **Spatial position.** Belongs on `sound_source`, where
-  `SpatialPositionMusicalTimeline` hangs in the schema. Refused now.
+- **Spatial position per partial.** Spreading one set's partials in space
+  (harmonics fanned out, say) conflicts with one position per source. A
+  per-partial offset from the source's position is the likely route
+  (author, 2026-10-05); it needs the engine to stop applying gains once per
+  source (ADR 0020), and is a later step.
+- **Spatial modulators.** In the schema; nothing reads them yet.
 - **Several tempo maps.** The transform converts through one map per score;
   `TEMPO_MAP_SYNCHRONIZATION_POINT` is refused there too.
 - **A product inside a stage.** Partials born mid-timeline. The proof of

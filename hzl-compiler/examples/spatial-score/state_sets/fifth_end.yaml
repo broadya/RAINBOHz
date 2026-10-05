@@ -1,0 +1,8 @@
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: fifth_end
+  namespace: state_sets
+  layer: "0: base"
+  partial_states:
+    - partial_state: {identifier: E, frequency: 660.0, amplitude: -90.0}

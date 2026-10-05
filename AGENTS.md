@@ -236,7 +236,7 @@ disagree, that one wins.
 
 | Directory | Contents | Language | Status |
 | --- | --- | --- | --- |
-| `hzl-compiler/` | `hzl-compiler` | Python 3.12 | First version: score, tempo map, sound entity/source, envelope with `Update`, state sets, scale, harmonic series, flattened cartesian product; frequency and amplitude; emits Cypher |
+| `hzl-compiler/` | `hzl-compiler` | Python 3.12 | First version: score, tempo map, sound entity/source, envelope with `Update`, trajectory (a source's spatial position), state sets, scale, harmonic series, flattened cartesian product; frequency, amplitude and phase per partial, spatial position per source; emits Cypher |
 | `engine-db/` | `engine-db` — **the implementation** | Cypher DDL | Under construction; rendering concepts, plus the canonical tempo map and partial-set timelines the transform reads |
 | `canonical-db/` | Canonical model — **design artefact** | Cypher DDL | Loads cleanly; not the implementation |
 | `rendering-engine/` | `rendering-engine` | C++20 | Hosts and loads `engine-db`; transforms musical time to physical time (first version: one tempo map, frequency, amplitude, phase targets and spatial position); precomputes; renders frames to multi-channel WAV files (first version: linear curves, one spatial position per SoundSource, all eight channel modes, labels ignored); `batch` and `server` (REST) modes |
@@ -277,9 +277,9 @@ one of them, and `make test-hzl-oracle` proves the compiled route gives the
 same audio by the existing oracle. The compiler never edits the schema and
 emits only what the schema declares; a concept HzL needs that the schema lacks
 (labels on sound entities, provenance columns) is the author's schema edit
-first. The compiler refuses, with a "not in this version" error, every
-proof-of-concept property it does not yet carry (phase, spatial position)
-rather than dropping it silently.
+first. The compiler refuses, with an error saying why, every
+proof-of-concept property it does not carry (spatial position on a partial,
+`pan`) rather than dropping it silently.
 
 **`canonical-db/` is not a component, and is not loaded by anything.** It holds
 the composer-facing model as a design artefact: useful for understanding the
