@@ -1,5 +1,7 @@
 #include "rainbohz/rendering_engine/precomputation.hpp"
 
+#include "rainbohz/rendering_engine/spatial_gains.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -105,6 +107,42 @@ constexpr std::string_view kReadPhaseLinks =
     "MATCH (a:PhasePhysicalTimelinePoint)-[:NEXT_POINT]->(b:PhasePhysicalTimelinePoint) "
     "RETURN a.id, b.id;";
 
+// The SoundSource of each partial, through its PartialSet. HAS_PARTIAL and
+// HAS_PARTIALSET are ONE_MANY, so a partial has at most one row.
+constexpr std::string_view kReadPartialSources =
+    "MATCH (ss:SoundSource)-[:HAS_PARTIALSET]->(:PartialSet)-[:HAS_PARTIAL]->(p:Partial) "
+    "RETURN p.id, ss.id, ss.name;";
+
+// A SoundSource's spatial timelines (§7), read for their times and checked
+// for their values, so that the frame entries of §6.7 can lead into them.
+// One statement of each shape per kind, in kSpatialKinds order.
+constexpr std::array<std::string_view, 3> kReadSpatialHeads{
+    "MATCH (s:SoundSource)-[:HAS_PHYSICAL_TIMELINE]->(t:AzimuthPhysicalTimeline) "
+    "OPTIONAL MATCH (t)-[:NEXT_POINT]->(a:AzimuthPhysicalTimelinePoint) RETURN s.id, a.id;",
+    "MATCH (s:SoundSource)-[:HAS_PHYSICAL_TIMELINE]->(t:ElevationPhysicalTimeline) "
+    "OPTIONAL MATCH (t)-[:NEXT_POINT]->(a:ElevationPhysicalTimelinePoint) RETURN s.id, a.id;",
+    "MATCH (s:SoundSource)-[:HAS_PHYSICAL_TIMELINE]->(t:DistancePhysicalTimeline) "
+    "OPTIONAL MATCH (t)-[:NEXT_POINT]->(a:DistancePhysicalTimelinePoint) RETURN s.id, a.id;",
+};
+
+constexpr std::array<std::string_view, 3> kReadSpatialPoints{
+    "MATCH (a:AzimuthPhysicalTimelinePoint) "
+    "RETURN a.id, a.time, a.azimuth, a.azimuth_curve_type;",
+    "MATCH (a:ElevationPhysicalTimelinePoint) "
+    "RETURN a.id, a.time, a.elevation, a.elevation_curve_type;",
+    "MATCH (a:DistancePhysicalTimelinePoint) "
+    "RETURN a.id, a.time, a.distance, a.distance_curve_type;",
+};
+
+constexpr std::array<std::string_view, 3> kReadSpatialLinks{
+    "MATCH (a:AzimuthPhysicalTimelinePoint)-[:NEXT_POINT]->(b:AzimuthPhysicalTimelinePoint) "
+    "RETURN a.id, b.id;",
+    "MATCH (a:ElevationPhysicalTimelinePoint)-[:NEXT_POINT]->(b:ElevationPhysicalTimelinePoint) "
+    "RETURN a.id, b.id;",
+    "MATCH (a:DistancePhysicalTimelinePoint)-[:NEXT_POINT]->(b:DistancePhysicalTimelinePoint) "
+    "RETURN a.id, b.id;",
+};
+
 // Output from an earlier run, which is deleted before the new output is
 // written. A PartialSegmentPhysicalTimeline heads two lists: its integrable
 // segments and its compensation segments.
@@ -155,18 +193,24 @@ constexpr std::string_view kCreateFrameScope = "MATCH (p:Partial) WHERE p.id = $
                                                "MERGE (f:Frame {frame_number: CAST(k AS INT32)}) "
                                                "CREATE (p)-[:PARTIAL_IN_FRAME]->(f);";
 
-// One FrameEntry with its five edges, from the frame number and the ids of
-// the three list nodes it leads to (§6.7). One statement per frame; UNWIND
-// over a list parameter is the batching path if the count ever shows in a
-// profile (§10). The Frame node exists: kCreateFrameScope has just merged it.
+// One FrameEntry with its eight edges, from the frame number and the ids of
+// the six list nodes it leads to (§6.7): the partial's segment, amplitude
+// point and compensation segment, and its SoundSource's azimuth, elevation
+// and distance points. One statement per frame; UNWIND over a list parameter
+// is the batching path if the count ever shows in a profile (§10). The Frame
+// node exists: kCreateFrameScope has just merged it.
 constexpr std::string_view kCreateFrameEntry =
     "MATCH (f:Frame), (p:Partial), (s:PartialIntegrableSegment), "
-    "(a:AmplitudePhysicalTimelinePoint), (c:PartialPhaseCompensationSegment) "
+    "(a:AmplitudePhysicalTimelinePoint), (c:PartialPhaseCompensationSegment), "
+    "(az:AzimuthPhysicalTimelinePoint), (el:ElevationPhysicalTimelinePoint), "
+    "(d:DistancePhysicalTimelinePoint) "
     "WHERE f.frame_number = CAST($frame AS INT32) AND p.id = $partial "
     "AND s.id = $segment AND a.id = $point AND c.id = $compensation "
+    "AND az.id = $azimuth AND el.id = $elevation AND d.id = $distance "
     "CREATE (f)-[:FRAME_ENTRY]->(e:FrameEntry)-[:FRAME_ENTRY_PARTIAL]->(p), "
     "(e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(s), (e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(a), "
-    "(e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(c) "
+    "(e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(c), (e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(az), "
+    "(e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(el), (e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(d) "
     "RETURN e.id;";
 
 // One compensation segment, linked from the PartialSegmentPhysicalTimeline
@@ -279,6 +323,24 @@ struct Inputs {
     /// PhasePhysicalTimelinePoint NEXT_POINT links: id to next id.
     std::unordered_map<std::int64_t, std::int64_t> phaseNext;
 
+    /// For each partial in a set that a SoundSource aggregates, that source's
+    /// id and name.
+    std::unordered_map<std::int64_t,
+        std::vector<std::pair<std::int64_t, std::optional<std::string>>>>
+        partialSources;
+
+    /// Per spatial kind, in kSpatialKinds order: for each SoundSource with a
+    /// timeline of that kind, the head of each such timeline's point list
+    /// (nullopt for an empty one).
+    std::array<std::unordered_map<std::int64_t, std::vector<std::optional<std::int64_t>>>, 3>
+        spatialHeads;
+
+    /// Per spatial kind: every point, by id.
+    std::array<std::unordered_map<std::int64_t, SpatialPointRecord>, 3> spatialPoints;
+
+    /// Per spatial kind: NEXT_POINT links between points, id to next id.
+    std::array<std::unordered_map<std::int64_t, std::int64_t>, 3> spatialNext;
+
     /// For each partial with output from an earlier run, its timelines.
     std::unordered_map<std::int64_t, std::vector<ExistingPhysicalTimeline>> existing;
 
@@ -363,6 +425,27 @@ Inputs readInputs(EngineDb& db) {
     }
 
     inputs.phaseNext = readLinks(db, kReadPhaseLinks);
+
+    for (const DbRow& row : db.query(kReadPartialSources)) {
+        inputs.partialSources[requireInt64(row.at(0))].emplace_back(
+            requireInt64(row.at(1)), optionalString(row.at(2)));
+    }
+
+    for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
+        for (const DbRow& row : db.query(kReadSpatialHeads.at(k))) {
+            inputs.spatialHeads.at(k)[requireInt64(row.at(0))].push_back(optionalInt64(row.at(1)));
+        }
+        for (const DbRow& row : db.query(kReadSpatialPoints.at(k))) {
+            const SpatialPointRecord point{
+                .id = requireInt64(row.at(0)),
+                .time = optionalDouble(row.at(1)),
+                .value = optionalDouble(row.at(2)),
+                .curveType = optionalInt64(row.at(3)),
+            };
+            inputs.spatialPoints.at(k).emplace(point.id, point);
+        }
+        inputs.spatialNext.at(k) = readLinks(db, kReadSpatialLinks.at(k));
+    }
 
     for (const DbRow& row : db.query(kReadExistingPhysicalTimelines)) {
         inputs.existing[requireInt64(row.at(0))].push_back(ExistingPhysicalTimeline{
@@ -468,6 +551,11 @@ struct PartialOutput {
     /// entries' point indexes refer to.
     std::vector<std::int64_t> amplitudePointIds;
 
+    /// Ids of the points of the partial's SoundSource's spatial timelines,
+    /// in kSpatialKinds order and list order: what the frame entries'
+    /// spatial indexes refer to. Views of the run's SourceTimelines cache.
+    std::array<std::span<const std::int64_t>, 3> spatialPointIds;
+
     /// One frame entry per frame in scope.
     std::vector<FrameEntryTarget> entries;
 };
@@ -478,7 +566,7 @@ struct PartialOutput {
 /// segments, nominal frequencies and compensation segments, and the partial's
 /// PARTIAL_IN_FRAME edges; then creates the new timeline, segment chain and
 /// nominal frequencies, compensation chain, any missing Frame nodes, the new
-/// frame scope edges, and one FrameEntry per frame in scope with its five
+/// frame scope edges, and one FrameEntry per frame in scope with its eight
 /// edges.
 ///
 /// @param[in,out] db  Database to write. Modified only if every statement
@@ -573,6 +661,9 @@ void writePartial(EngineDb& db, const PartialOutput& output) {
                                    {"segment", segmentIds.at(entry.segment)},
                                    {"point", output.amplitudePointIds.at(entry.point)},
                                    {"compensation", compensationIds.at(entry.compensation)},
+                                   {"azimuth", output.spatialPointIds[0][entry.spatial[0]]},
+                                   {"elevation", output.spatialPointIds[1][entry.spatial[1]]},
+                                   {"distance", output.spatialPointIds[2][entry.spatial[2]]},
                                });
         if (rows.size() != 1) {
             throw EngineDbError{
@@ -583,10 +674,69 @@ void writePartial(EngineDb& db, const PartialOutput& output) {
     transaction.commit();
 }
 
+/// A SoundSource's three spatial timelines, walked and checked once per run
+/// and shared by every partial of the source (§7).
+struct SourceTimelines {
+    /// "SoundSource <name> (id <id>)", for messages.
+    std::string description;
+
+    /// Per kind, in kSpatialKinds order: the point ids in list order.
+    std::array<std::vector<std::int64_t>, 3> ids;
+
+    /// Per kind: the validated times, in the same order.
+    std::array<std::vector<SampleTime>, 3> times;
+
+    /// Why the timelines are unusable; nullopt when they are usable. Every
+    /// partial of the source fails with it.
+    std::optional<std::string> error;
+};
+
+/// The validated spatial timelines of every SoundSource seen so far in a run,
+/// by SoundSource.id.
+using SourceTimelineCache = std::unordered_map<std::int64_t, SourceTimelines>;
+
+/// Walks and checks one source's spatial timelines.
+///
+/// @param inputs       Everything read for the run.
+/// @param sourceId     SoundSource.id.
+/// @param description  How to name the source in messages.
+/// @return The timelines, or the reason they are unusable in `error`.
+SourceTimelines readSourceTimelines(
+    const Inputs& inputs, std::int64_t sourceId, std::string description) {
+    SourceTimelines result{
+        .description = std::move(description), .ids = {}, .times = {}, .error = std::nullopt};
+    try {
+        for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
+            const SpatialKind kind = kSpatialKinds.at(k);
+            const std::string timeline{spatialTimelineName(kind)};
+            const auto heads = inputs.spatialHeads.at(k).find(sourceId);
+            if (heads == inputs.spatialHeads.at(k).end()) {
+                throw PartialPrecomputationError{"it has no " + timeline};
+            }
+            if (heads->second.size() != 1) {
+                throw PartialPrecomputationError{"it has " + std::to_string(heads->second.size()) +
+                                                 " " + timeline + "s; exactly one is required"};
+            }
+            result.ids.at(k) = walkChain(heads->second.front(), inputs.spatialNext.at(k), timeline);
+            std::vector<SpatialPointRecord> records;
+            records.reserve(result.ids.at(k).size());
+            for (const std::int64_t pointId : result.ids.at(k)) {
+                records.push_back(inputs.spatialPoints.at(k).at(pointId));
+            }
+            result.times.at(k) = validateSpatialTimeline(kind, records);
+        }
+    } catch (const PartialPrecomputationError& e) {
+        result.error = e.what();
+    }
+    return result;
+}
+
 /// Precomputes and writes one partial.
 ///
 /// @param[in,out] db    Database to write the partial's output to.
 /// @param inputs        Everything read for the run.
+/// @param[in,out] sources  The spatial timelines of the sources checked so
+///                      far; gains the partial's source if it is new.
 /// @param partialId     Partial.id of the partial to precompute.
 /// @param frameSize     Frame size for its frame scope.
 /// @param[out] outcome  On success, its segmentCount, compensationCount,
@@ -595,8 +745,8 @@ void writePartial(EngineDb& db, const PartialOutput& output) {
 /// @throws PartialPrecomputationError  If the partial's inputs are invalid,
 ///         or it disappears while being written. Nothing has been written.
 /// @throws EngineDbError  If writing fails. Nothing has been written.
-void precomputePartial(EngineDb& db, const Inputs& inputs, std::int64_t partialId,
-    FrameSize frameSize, PartialOutcome& outcome) {
+void precomputePartial(EngineDb& db, const Inputs& inputs, SourceTimelineCache& sources,
+    std::int64_t partialId, FrameSize frameSize, PartialOutcome& outcome) {
     // Stage 1: this partial's inputs, from what was read in bulk.
     const auto oneHead = [&](const auto& heads, std::string_view timeline) {
         const auto found = heads.find(partialId);
@@ -635,6 +785,39 @@ void precomputePartial(EngineDb& db, const Inputs& inputs, std::int64_t partialI
     }
     const std::vector<PhaseTarget> targets = validatePhaseTimeline(phaseRecords, envelope);
 
+    // The SoundSource's spatial timelines, shared with its other partials,
+    // must cover this partial's lifeline (§7).
+    const auto source = inputs.partialSources.find(partialId);
+    if (source == inputs.partialSources.end()) {
+        throw PartialPrecomputationError{"it is in no PartialSet aggregated by a SoundSource"};
+    }
+    if (source->second.size() != 1) {
+        throw PartialPrecomputationError{"it is aggregated by " +
+                                         std::to_string(source->second.size()) +
+                                         " SoundSources; exactly one is required"};
+    }
+    const auto& [sourceId, sourceName] = source->second.front();
+    auto cached = sources.find(sourceId);
+    if (cached == sources.end()) {
+        cached = sources
+                     .emplace(sourceId, readSourceTimelines(inputs, sourceId,
+                                            "SoundSource " + sourceName.value_or("(unnamed)") +
+                                                " (id " + std::to_string(sourceId) + ")"))
+                     .first;
+    }
+    const SourceTimelines& spatial = cached->second;
+    if (spatial.error.has_value()) {
+        throw PartialPrecomputationError{"its " + spatial.description + ": " + *spatial.error};
+    }
+    for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
+        try {
+            checkSpatialCoverage(kSpatialKinds.at(k), spatial.times.at(k), envelope.front().time,
+                envelope.back().time);
+        } catch (const PartialPrecomputationError& e) {
+            throw PartialPrecomputationError{"its " + spatial.description + ": " + e.what()};
+        }
+    }
+
     // Stages 2 to 5, frame scope and frame entries: pure computation.
     const std::vector<SampleTime> boundaries = gatherBoundaries(envelope);
 
@@ -645,6 +828,7 @@ void precomputePartial(EngineDb& db, const Inputs& inputs, std::int64_t partialI
         .compensation = {},
         .frames = frameScope(boundaries.front(), boundaries.back(), frameSize),
         .amplitudePointIds = std::move(amplitudePointIds),
+        .spatialPointIds = {spatial.ids[0], spatial.ids[1], spatial.ids[2]},
         .entries = {},
     };
     // φ₀ may depend on the natural phase N₀, so the segments are integrated
@@ -653,8 +837,8 @@ void precomputePartial(EngineDb& db, const Inputs& inputs, std::int64_t partialI
     integrate(output.segments);
     integrate(output.segments, initialPhaseOf(output.segments, targets));
     output.compensation = buildCompensation(output.segments, targets);
-    output.entries = frameEntries(
-        output.segments, amplitudeTimes, output.compensation, output.frames, frameSize);
+    output.entries = frameEntries(output.segments, amplitudeTimes, output.compensation,
+        {spatial.times[0], spatial.times[1], spatial.times[2]}, output.frames, frameSize);
 
     if (const auto existing = inputs.existing.find(partialId); existing != inputs.existing.end()) {
         for (const ExistingPhysicalTimeline& physicalTimeline : existing->second) {
@@ -775,6 +959,103 @@ std::vector<SampleTime> validateAmplitudeTimes(
                 "; the two timelines must end together");
     }
     return times;
+}
+
+std::string_view spatialTimelineName(SpatialKind kind) noexcept {
+    switch (kind) {
+    case SpatialKind::Azimuth:
+        return "AzimuthPhysicalTimeline";
+    case SpatialKind::Elevation:
+        return "ElevationPhysicalTimeline";
+    case SpatialKind::Distance:
+        return "DistancePhysicalTimeline";
+    }
+    return "unknown";
+}
+
+std::string_view spatialValueName(SpatialKind kind) noexcept {
+    switch (kind) {
+    case SpatialKind::Azimuth:
+        return "azimuth";
+    case SpatialKind::Elevation:
+        return "elevation";
+    case SpatialKind::Distance:
+        return "distance";
+    }
+    return "unknown";
+}
+
+std::optional<std::string> spatialValueProblem(SpatialKind kind, double value) {
+    const std::string name{spatialValueName(kind)};
+    if (!std::isfinite(value)) {
+        return name + " is " + formatNumber(value) + ", which is not finite";
+    }
+    const auto outside = [&](double lo, double hi, std::string_view range) {
+        return value < lo || value > hi
+                   ? std::optional<std::string>{name + " " + formatNumber(value) + " is outside " +
+                                                std::string{range}}
+                   : std::nullopt;
+    };
+    switch (kind) {
+    case SpatialKind::Azimuth:
+        return outside(-std::numbers::pi, std::numbers::pi, "[-π, π] radians");
+    case SpatialKind::Elevation:
+        return outside(-std::numbers::pi / 2.0, std::numbers::pi / 2.0, "[-π/2, π/2] radians");
+    case SpatialKind::Distance:
+        return outside(kMinDistanceMetres, kMaxDistanceMetres, "[1, 16384] metres");
+    }
+    return std::nullopt;
+}
+
+std::vector<SampleTime> validateSpatialTimeline(
+    SpatialKind kind, std::span<const SpatialPointRecord> points) {
+    const std::string_view timeline = spatialTimelineName(kind);
+    if (points.empty()) {
+        throw PartialPrecomputationError{
+            "its " + std::string{timeline} + " has no points; at least 1 is required"};
+    }
+    std::vector<SampleTime> times;
+    times.reserve(points.size());
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        const SpatialPointRecord& record = points[i];
+        const SampleTime time{requireFinite(record.time, timeline, i, "time")};
+        if (i > 0 && !(time > times.back())) {
+            failAtPoint(timeline, i,
+                "time " + formatNumber(time.value()) + " is not after the previous point's time " +
+                    formatNumber(times.back().value()));
+        }
+        const double value = requireFinite(record.value, timeline, i, spatialValueName(kind));
+        if (const std::optional<std::string> problem = spatialValueProblem(kind, value)) {
+            failAtPoint(timeline, i, *problem);
+        }
+        if (i + 1 < points.size() && record.curveType != kLinearCurve) {
+            failAtPoint(timeline, i,
+                std::string{spatialValueName(kind)} + "_curve_type is " +
+                    (record.curveType.has_value() ? std::to_string(*record.curveType)
+                                                  : std::string{"NULL"}) +
+                    "; only " + std::to_string(kLinearCurve) +
+                    " (linear) is supported in this version");
+        }
+        times.push_back(time);
+    }
+    return times;
+}
+
+void checkSpatialCoverage(SpatialKind kind, std::span<const SampleTime> times,
+    SampleTime lifelineStart, SampleTime lifelineEnd) {
+    const std::string timeline{spatialTimelineName(kind)};
+    if (times.front() > lifelineStart) {
+        throw PartialPrecomputationError{
+            timeline + " starts at " + formatNumber(times.front().value()) +
+            ", after the partial's lifeline starts at " + formatNumber(lifelineStart.value()) +
+            "; it must cover the lifeline of every partial of the source"};
+    }
+    if (times.back() < lifelineEnd) {
+        throw PartialPrecomputationError{
+            timeline + " ends at " + formatNumber(times.back().value()) +
+            ", before the partial's lifeline ends at " + formatNumber(lifelineEnd.value()) +
+            "; it must cover the lifeline of every partial of the source"};
+    }
 }
 
 std::vector<PhaseTarget> validatePhaseTimeline(
@@ -987,9 +1268,26 @@ FrameRange frameScope(SampleTime start, SampleTime end, FrameSize size) {
 
 std::vector<FrameEntryTarget> frameEntries(std::span<const Segment> segments,
     std::span<const SampleTime> amplitudeTimes, std::span<const CompensationSegment> compensation,
-    FrameRange frames, FrameSize size) {
+    const std::array<std::span<const SampleTime>, 3>& spatialTimes, FrameRange frames,
+    FrameSize size) {
     std::vector<FrameEntryTarget> entries;
     const SampleTime lifelineStart = segments.front().startTime;
+
+    // A source's spatial entry depends on the frame alone, not on the
+    // partial: the last point at or before the frame's start, or the first
+    // point when the timeline starts inside the frame. Every partial of the
+    // source therefore leads to the same points. The timelines span all of
+    // the source's partials, so the cursor starts by binary search at the
+    // first frame's start.
+    std::array<std::size_t, 3> spatial{};
+    for (std::size_t k = 0; k < spatial.size(); ++k) {
+        const auto after =
+            std::ranges::upper_bound(spatialTimes.at(k), frameStart(frames.first, size));
+        spatial.at(k) =
+            after == spatialTimes.at(k).begin()
+                ? 0
+                : static_cast<std::size_t>(std::distance(spatialTimes.at(k).begin(), after) - 1);
+    }
 
     // The cursors only ever move forward, because the frame starts increase.
     std::size_t segment = 0;
@@ -1008,8 +1306,18 @@ std::vector<FrameEntryTarget> frameEntries(std::span<const Segment> segments,
         while (ramp + 1 < compensation.size() && compensation[ramp].endTime <= entryTime) {
             ++ramp;
         }
-        entries.push_back(FrameEntryTarget{
-            .frame = frame, .segment = segment, .point = point, .compensation = ramp});
+        for (std::size_t q = 0; q < spatial.size(); ++q) {
+            const std::span<const SampleTime> times = spatialTimes.at(q);
+            const SampleTime fs = frameStart(frame, size);
+            while (spatial.at(q) + 1 < times.size() && times[spatial.at(q) + 1] <= fs) {
+                ++spatial.at(q);
+            }
+        }
+        entries.push_back(FrameEntryTarget{.frame = frame,
+            .segment = segment,
+            .point = point,
+            .compensation = ramp,
+            .spatial = spatial});
     }
     return entries;
 }
@@ -1058,6 +1366,7 @@ PrecomputationReport precomputeAll(EngineDb& db) {
         resolveFrameSize(optionalInt64(config.front().at(0)), optionalInt64(config.front().at(1)));
 
     const Inputs inputs = readInputs(db);
+    SourceTimelineCache sources;
 
     // Partials are independent; id order only makes the report deterministic.
     for (const auto& [partialId, partialName] : inputs.partials) {
@@ -1071,7 +1380,7 @@ PrecomputationReport precomputeAll(EngineDb& db) {
             .entryCount = 0,
         };
         try {
-            precomputePartial(db, inputs, partialId, report.frameSize, outcome);
+            precomputePartial(db, inputs, sources, partialId, report.frameSize, outcome);
         } catch (const PartialPrecomputationError& e) {
             outcome.error = e.what();
         } catch (const EngineDbError& e) {

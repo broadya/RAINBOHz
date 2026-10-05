@@ -53,7 +53,6 @@ namespace rainbohz::rendering_engine {
 namespace {
 
 using transform::BeatsTicks;
-using transform::channelModeName;
 using transform::EngineParameters;
 using transform::FramePosition;
 using transform::parseBeatsTicks;

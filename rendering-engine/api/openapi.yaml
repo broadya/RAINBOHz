@@ -703,9 +703,19 @@ components:
           description: Samples per frame; one second's worth when EngineConfig.frameSize is NULL.
         channel_mode:
           type: string
-          enum: [mono, stereo, mid-side, foa-a-format, foa-b-format]
+          enum:
+            - mono
+            - stereo-from-mid-side
+            - stereo-from-xy
+            - mid-side
+            - blumlein-classic
+            - blumlein-rotated
+            - foa-a-format
+            - foa-b-format
           description: |
-            EngineConfig.channelMode 0 to 4: mono; stereo, derived from M/S
-            and decoded to stereo channels; M/S; first-order ambisonics in
-            A-format; and in B-format. Rendering implements only mono in this
-            version.
+            EngineConfig.channelMode 0 to 7, in that order: mono; stereo,
+            decoded from an M/S pair; stereo from an X/Y cardioid pair; M/S,
+            undecoded; Blumlein figure-8s at ±45°; Blumlein rotated by 45°
+            (M and S figure-8s); first-order ambisonics in A-format; and in
+            AmbiX B-format. A frame's WAV file has as many channels as the
+            mode has outputs.

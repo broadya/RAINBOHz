@@ -11,8 +11,11 @@
 #include "rainbohz/rendering_engine/precomputation.hpp"
 #include "rainbohz/rendering_engine/script_loader.hpp"
 
+#include "test_support.hpp"
+
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -38,6 +41,7 @@ namespace {
 using rainbohz::rendering_engine::AmplitudePointRecord;
 using rainbohz::rendering_engine::buildCompensation;
 using rainbohz::rendering_engine::buildSegments;
+using rainbohz::rendering_engine::checkSpatialCoverage;
 using rainbohz::rendering_engine::compensationAt;
 using rainbohz::rendering_engine::compensationFrom;
 using rainbohz::rendering_engine::CompensationSegment;
@@ -70,11 +74,19 @@ using rainbohz::rendering_engine::resolveFrameSize;
 using rainbohz::rendering_engine::SampleDuration;
 using rainbohz::rendering_engine::SampleTime;
 using rainbohz::rendering_engine::Segment;
+using rainbohz::rendering_engine::SpatialKind;
+using rainbohz::rendering_engine::SpatialPointRecord;
 using rainbohz::rendering_engine::validateAmplitudeTimes;
 using rainbohz::rendering_engine::validateFrequencyEnvelope;
 using rainbohz::rendering_engine::validatePhaseTimeline;
+using rainbohz::rendering_engine::validateSpatialTimeline;
 using rainbohz::rendering_engine::walkChain;
 using rainbohz::rendering_engine::wrapHalfOpen;
+using rainbohz::rendering_engine::test::addSoundSource;
+using rainbohz::rendering_engine::test::SpatialTestPoint;
+using rainbohz::rendering_engine::test::stillAzimuth;
+using rainbohz::rendering_engine::test::stillDistance;
+using rainbohz::rendering_engine::test::stillElevation;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -179,8 +191,15 @@ enum class Amplitude : std::uint8_t {
 void addPartial(EngineDb& db, const std::string& name, const std::vector<ScorePoint>& points,
     Amplitude amplitude = Amplitude::Matching, const std::vector<double>& amplitudeTimes = {},
     PhaseTimeline phase = PhaseTimeline::Default) {
-    db.execute("CREATE (:Partial {name: '" + name +
-               "'})-[:HAS_PHYSICAL_TIMELINE]->(:FrequencyPhysicalTimeline);");
+    // Every partial is in one set of one still source, which precomputation
+    // needs for the spatial frame entries; the first partial creates them.
+    if (db.query("MATCH (s:PartialSet {name: 'Set'}) RETURN s.id;").empty()) {
+        addSoundSource(db, "Source");
+        db.execute("MATCH (s:SoundSource {name: 'Source'}) "
+                   "CREATE (s)-[:HAS_PARTIALSET]->(:PartialSet {name: 'Set'});");
+    }
+    db.execute("MATCH (s:PartialSet {name: 'Set'}) CREATE (s)-[:HAS_PARTIAL]->(:Partial {name: '" +
+               name + "'})-[:HAS_PHYSICAL_TIMELINE]->(:FrequencyPhysicalTimeline);");
     if (points.empty()) {
         return;
     }
@@ -489,6 +508,82 @@ TEST(ValidateAmplitudeTimes, TimesMustStrictlyIncreaseAndBeFinite) {
         validateAmplitudeTimes(unset, workedExampleEnvelope()), PartialPrecomputationError);
 }
 
+// ---------------------------------------------------------------------------
+// validateSpatialTimeline and checkSpatialCoverage
+// ---------------------------------------------------------------------------
+
+/// A spatial point record for the pure tests.
+///
+/// @param time       Samples.
+/// @param value      Radians or metres.
+/// @param curveType  The curve to the next point.
+/// @return The record.
+SpatialPointRecord spatialRecord(double time, double value, std::int64_t curveType = 0) {
+    return SpatialPointRecord{.id = 0, .time = time, .value = value, .curveType = curveType};
+}
+
+TEST(ValidateSpatialTimeline, AcceptsAValidTimelineOfEachKind) {
+    EXPECT_EQ(validateSpatialTimeline(
+                  SpatialKind::Azimuth, std::vector{spatialRecord(0.0, -std::numbers::pi),
+                                            spatialRecord(10.0, std::numbers::pi)})
+                  .size(),
+        2U);
+    EXPECT_NO_THROW(validateSpatialTimeline(
+        SpatialKind::Elevation, std::vector{spatialRecord(0.0, -std::numbers::pi / 2.0),
+                                    spatialRecord(10.0, std::numbers::pi / 2.0)}));
+    EXPECT_NO_THROW(validateSpatialTimeline(
+        SpatialKind::Distance, std::vector{spatialRecord(0.0, 1.0), spatialRecord(10.0, 16384.0)}));
+    // One point is a valid timeline on its own; coverage is a separate check.
+    EXPECT_NO_THROW(
+        validateSpatialTimeline(SpatialKind::Distance, std::vector{spatialRecord(5.0, 2.0)}));
+}
+
+TEST(ValidateSpatialTimeline, RefusesValuesOutOfRange) {
+    EXPECT_THROW(validateSpatialTimeline(SpatialKind::Azimuth,
+                     std::vector{spatialRecord(0.0, 0.0), spatialRecord(10.0, 3.2)}),
+        PartialPrecomputationError);
+    EXPECT_THROW(
+        validateSpatialTimeline(SpatialKind::Elevation, std::vector{spatialRecord(0.0, -1.6)}),
+        PartialPrecomputationError);
+    EXPECT_THROW(
+        validateSpatialTimeline(SpatialKind::Distance, std::vector{spatialRecord(0.0, 0.5)}),
+        PartialPrecomputationError);
+    EXPECT_THROW(
+        validateSpatialTimeline(SpatialKind::Distance, std::vector{spatialRecord(0.0, 20000.0)}),
+        PartialPrecomputationError);
+}
+
+TEST(ValidateSpatialTimeline, RefusesNoPointsNullsDisorderAndCurves) {
+    EXPECT_THROW(validateSpatialTimeline(SpatialKind::Azimuth, std::vector<SpatialPointRecord>{}),
+        PartialPrecomputationError);
+    std::vector<SpatialPointRecord> unset{spatialRecord(0.0, 0.0)};
+    unset[0].value = std::nullopt;
+    EXPECT_THROW(validateSpatialTimeline(SpatialKind::Azimuth, unset), PartialPrecomputationError);
+    EXPECT_THROW(validateSpatialTimeline(SpatialKind::Azimuth,
+                     std::vector{spatialRecord(10.0, 0.0), spatialRecord(10.0, 0.1)}),
+        PartialPrecomputationError);
+    EXPECT_THROW(validateSpatialTimeline(SpatialKind::Azimuth,
+                     std::vector{spatialRecord(0.0, 0.0, 3), spatialRecord(10.0, 0.1)}),
+        PartialPrecomputationError);
+    // The last point's curve type has no effect and is not checked.
+    EXPECT_NO_THROW(validateSpatialTimeline(
+        SpatialKind::Azimuth, std::vector{spatialRecord(0.0, 0.0), spatialRecord(10.0, 0.1, 3)}));
+}
+
+TEST(CheckSpatialCoverage, TheTimelineMustSpanTheLifeline) {
+    const std::vector<SampleTime> times{SampleTime{100.0}, SampleTime{500.0}};
+    EXPECT_NO_THROW(
+        checkSpatialCoverage(SpatialKind::Azimuth, times, SampleTime{100.0}, SampleTime{500.0}));
+    EXPECT_NO_THROW(
+        checkSpatialCoverage(SpatialKind::Azimuth, times, SampleTime{200.0}, SampleTime{300.0}));
+    EXPECT_THROW(
+        checkSpatialCoverage(SpatialKind::Azimuth, times, SampleTime{99.5}, SampleTime{300.0}),
+        PartialPrecomputationError);
+    EXPECT_THROW(
+        checkSpatialCoverage(SpatialKind::Distance, times, SampleTime{200.0}, SampleTime{500.5}),
+        PartialPrecomputationError);
+}
+
 // The worked example of docs/precomputation.md section 5: frames 0, 1 and 2
 // enter segments 0, 1 and 1, and every frame's amplitude entry is the point
 // at 0 when the only other point is at the end.
@@ -499,8 +594,11 @@ TEST(FrameEntries, WorkedExample) {
     const std::vector<SampleTime> amplitude{SampleTime{0.0}, SampleTime{120000.0}};
     const std::vector<CompensationSegment> compensation{flat(0.0, 120000.0)};
 
-    const std::vector<FrameEntryTarget> entries = frameEntries(segments, amplitude, compensation,
-        FrameRange{.first = FrameNumber{0}, .last = FrameNumber{2}}, FrameSize{48000});
+    const std::vector<SampleTime> place{SampleTime{0.0}, SampleTime{120000.0}};
+
+    const std::vector<FrameEntryTarget> entries =
+        frameEntries(segments, amplitude, compensation, {place, place, place},
+            FrameRange{.first = FrameNumber{0}, .last = FrameNumber{2}}, FrameSize{48000});
 
     ASSERT_EQ(entries.size(), 3U);
     EXPECT_EQ(entries[0].frame.value(), 0);
@@ -527,8 +625,18 @@ TEST(FrameEntries, EntryTimeIsTheLaterOfLifelineAndFrameStart) {
     const std::vector<CompensationSegment> compensation{
         flat(500.0, 1200.0), flat(1200.0, 2000.0), flat(2000.0, 2500.0)};
 
-    const std::vector<FrameEntryTarget> entries = frameEntries(segments, amplitude, compensation,
-        FrameRange{.first = FrameNumber{0}, .last = FrameNumber{2}}, FrameSize{1000});
+    // The source's timelines span more than this partial: they start before
+    // it. The azimuth has a point between frame 0's start and the partial's,
+    // and one exactly at frame 1's start; the distance starts inside frame 0.
+    const std::vector<SampleTime> azimuth{SampleTime{0.0}, SampleTime{300.0}, SampleTime{1000.0},
+        SampleTime{1700.0}, SampleTime{3000.0}};
+    const std::vector<SampleTime> elevation{SampleTime{-100.0}, SampleTime{9000.0}};
+    const std::vector<SampleTime> distance{
+        SampleTime{200.0}, SampleTime{2000.5}, SampleTime{5000.0}};
+
+    const std::vector<FrameEntryTarget> entries =
+        frameEntries(segments, amplitude, compensation, {azimuth, elevation, distance},
+            FrameRange{.first = FrameNumber{0}, .last = FrameNumber{2}}, FrameSize{1000});
 
     ASSERT_EQ(entries.size(), 3U);
     // Frame 0: t* = max(500, 0) = 500 -> segment 0, point 0, compensation 0.
@@ -540,6 +648,14 @@ TEST(FrameEntries, EntryTimeIsTheLaterOfLifelineAndFrameStart) {
     EXPECT_EQ(entries[1].segment, 0U);
     EXPECT_EQ(entries[1].point, 1U);
     EXPECT_EQ(entries[1].compensation, 0U);
+    // The spatial entries depend on the frame, not on t*: the last point at
+    // or before the frame's start, else the first point. Azimuth 0 (at 0, not
+    // the point at 300 that t* = 500 would give), 2 (exactly at 1000), 3
+    // (1700); elevation 0 throughout; distance 0 in frame 0 (its first point,
+    // at 200, inside the frame), then 0, 0 (2000.5 is after 2000).
+    EXPECT_EQ(entries[0].spatial, (std::array<std::size_t, 3>{0, 0, 0}));
+    EXPECT_EQ(entries[1].spatial, (std::array<std::size_t, 3>{2, 0, 0}));
+    EXPECT_EQ(entries[2].spatial, (std::array<std::size_t, 3>{3, 0, 0}));
     // Frame 2: t* = 2000 -> segment 1, point 2 (at 2000), compensation 2,
     // which starts exactly at the frame's start.
     EXPECT_EQ(entries[2].segment, 1U);
@@ -969,7 +1085,9 @@ TEST_F(PrecomputationDb, RebuildingIsIdempotent) {
     EXPECT_EQ(count(db, "MATCH (f:Frame) RETURN count(f);"), 3);
     EXPECT_EQ(count(db, "MATCH (e:FrameEntry) RETURN count(e);"), 3);
     EXPECT_EQ(count(db, "MATCH (c:PartialPhaseCompensationSegment) RETURN count(c);"), 1);
-    EXPECT_EQ(count(db, "MATCH ()-[r:FRAME_ENTRY_PHYSICAL_TIMELINE]->() RETURN count(r);"), 9);
+    // Six per entry: segment, amplitude point, compensation segment, and the
+    // source's azimuth, elevation and distance points.
+    EXPECT_EQ(count(db, "MATCH ()-[r:FRAME_ENTRY_PHYSICAL_TIMELINE]->() RETURN count(r);"), 18);
 }
 
 TEST_F(PrecomputationDb, RebuildingReplacesTheCompensationSegments) {
@@ -1029,6 +1147,118 @@ TEST_F(PrecomputationDb, EachFrameEntryLeadsToTheCoveringCompensationSegment) {
     EXPECT_EQ(entryStart(0), 0.0);
     EXPECT_EQ(entryStart(1), 0.0);
     EXPECT_EQ(entryStart(2), 60000.0);
+}
+
+/// Creates the source and set that addPartial() puts its partials in, with
+/// the given spatial timelines, before any partial is added.
+///
+/// @param[in,out] db  Database holding no partial yet.
+/// @param azimuth     (time, radians) points; empty for no timeline.
+/// @param elevation   (time, radians) points; empty for no timeline.
+/// @param distance    (time, metres) points; empty for no timeline.
+void addSourceAndSet(EngineDb& db, const std::vector<SpatialTestPoint>& azimuth,
+    const std::vector<SpatialTestPoint>& elevation, const std::vector<SpatialTestPoint>& distance) {
+    addSoundSource(db, "Source", azimuth, elevation, distance);
+    db.execute("MATCH (s:SoundSource {name: 'Source'}) "
+               "CREATE (s)-[:HAS_PARTIALSET]->(:PartialSet {name: 'Set'});");
+}
+
+/// The time of the spatial point a frame's entry leads to.
+///
+/// @param db      The precomputed database, holding one partial.
+/// @param kind    "Azimuth", "Elevation" or "Distance".
+/// @param frame   The frame.
+/// @return The time of the point.
+double spatialEntryTime(EngineDb& db, const std::string& kind, int frame) {
+    return optionalDouble(
+        db.query("MATCH (:Frame {frame_number: CAST($frame AS INT32)})-[:FRAME_ENTRY]->"
+                 "(:FrameEntry)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(a:" +
+                     kind + "PhysicalTimelinePoint) RETURN a.time;",
+              {{"frame", static_cast<std::int64_t>(frame)}})
+            .at(0)
+            .at(0))
+        .value();
+}
+
+// Each frame's entry leads to the last point of each of the source's
+// timelines at or before the frame's entry time, as for amplitude; the
+// timelines span more than the partial.
+TEST_F(PrecomputationDb, EachFrameEntryLeadsToTheSourcesSpatialPoints) {
+    addSourceAndSet(db,
+        {{0.0, 0.0}, {500.0, 0.5}, {48000.0, 1.0}, {100000.0, 2.0}, {500000.0, 2.0}},
+        {{-10.0, 0.0}, {500000.0, 0.0}}, {{0.0, 1.0}, {96000.5, 2.0}, {200000.0, 3.0}});
+    addPartial(db, "P", {at(1000.0, 0.1), at(144000.0, 0.1)});
+    ASSERT_TRUE(precomputeAll(db).ok()) << precomputeAll(db).partials[0].error.value_or("");
+
+    // Frames 0, 1 and 2 start at 0, 48000 and 96000. Frame 0's azimuth entry
+    // is the point at 0, not the one at 500, although the partial starts at
+    // 1000: the entry is the frame's, not the partial's.
+    EXPECT_EQ(spatialEntryTime(db, "Azimuth", 0), 0.0);
+    EXPECT_EQ(spatialEntryTime(db, "Azimuth", 1), 48000.0);
+    EXPECT_EQ(spatialEntryTime(db, "Azimuth", 2), 48000.0);
+    EXPECT_EQ(spatialEntryTime(db, "Elevation", 2), -10.0);
+    EXPECT_EQ(spatialEntryTime(db, "Distance", 2), 0.0) << "96000.5 is after 96000";
+    EXPECT_EQ(count(db, "MATCH ()-[r:FRAME_ENTRY_PHYSICAL_TIMELINE]->() RETURN count(r);"), 18);
+}
+
+// Two partials of one source share its timelines: both have entries into
+// them, and neither copies them.
+TEST_F(PrecomputationDb, PartialsOfOneSourceShareItsTimelines) {
+    addPartial(db, "A", {at(0.0, 0.1), at(48000.0, 0.1)});
+    addPartial(db, "B", {at(24000.0, 0.1), at(96000.0, 0.1)});
+    ASSERT_TRUE(precomputeAll(db).ok());
+    EXPECT_EQ(count(db, "MATCH (a:AzimuthPhysicalTimelinePoint) RETURN count(a);"), 2);
+    EXPECT_EQ(count(db, "MATCH (:FrameEntry)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->"
+                        "(:AzimuthPhysicalTimelinePoint) RETURN count(*);"),
+        3);
+}
+
+/// The single partial's precomputation error, with the source set up first.
+///
+/// @param db         An empty database with the fixture's config.
+/// @param azimuth    The source's azimuth points.
+/// @param elevation  The source's elevation points.
+/// @param distance   The source's distance points.
+/// @return The error; empty if the partial succeeded.
+std::string spatialFailure(EngineDb& db, const std::vector<SpatialTestPoint>& azimuth,
+    const std::vector<SpatialTestPoint>& elevation, const std::vector<SpatialTestPoint>& distance) {
+    addSourceAndSet(db, azimuth, elevation, distance);
+    addPartial(db, "P", {at(100.0, 0.1), at(1000.0, 0.1)});
+    const PrecomputationReport report = precomputeAll(db);
+    return report.partials.at(0).error.value_or("");
+}
+
+TEST_F(PrecomputationDb, ASourceWithoutASpatialTimelineFailsItsPartials) {
+    const std::string error = spatialFailure(db, stillAzimuth(), {}, stillDistance());
+    EXPECT_NE(error.find("SoundSource Source"), std::string::npos) << error;
+    EXPECT_NE(error.find("no ElevationPhysicalTimeline"), std::string::npos) << error;
+    EXPECT_EQ(count(db, "MATCH (e:FrameEntry) RETURN count(e);"), 0);
+}
+
+TEST_F(PrecomputationDb, ASpatialValueOutOfRangeFailsThePartial) {
+    const std::string error =
+        spatialFailure(db, stillAzimuth(), stillElevation(), {{0.0, 1.0}, {2000.0, 0.5}});
+    EXPECT_NE(error.find("distance 0.5 is outside"), std::string::npos) << error;
+}
+
+TEST_F(PrecomputationDb, ASpatialTimelineThatDoesNotCoverThePartialFails) {
+    const std::string late =
+        spatialFailure(db, {{200.0, 0.0}, {2000.0, 0.0}}, stillElevation(), stillDistance());
+    EXPECT_NE(late.find("starts at 200"), std::string::npos) << late;
+}
+
+TEST_F(PrecomputationDb, ASpatialTimelineEndingTooEarlyFails) {
+    const std::string early =
+        spatialFailure(db, stillAzimuth(), {{0.0, 0.0}, {999.0, 0.0}}, stillDistance());
+    EXPECT_NE(early.find("ends at 999"), std::string::npos) << early;
+}
+
+TEST_F(PrecomputationDb, ASpatialCurveOtherThanLinearFails) {
+    addSourceAndSet(db, stillAzimuth(), stillElevation(), stillDistance());
+    db.execute("MATCH (a:AzimuthPhysicalTimelinePoint {time: 0.0}) SET a.azimuth_curve_type = 2;");
+    addPartial(db, "P", {at(100.0, 0.1), at(1000.0, 0.1)});
+    const std::string error = precomputeAll(db).partials.at(0).error.value_or("");
+    EXPECT_NE(error.find("azimuth_curve_type is 2"), std::string::npos) << error;
 }
 
 TEST_F(PrecomputationDb, ANullStartPutsTheBackDerivedPhaseInTheFirstSegment) {

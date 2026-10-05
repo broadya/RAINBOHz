@@ -6,16 +6,19 @@
 #include "rainbohz/rendering_engine/wav_writer.hpp"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <iomanip>
+#include <iterator>
 #include <map>
 #include <optional>
 #include <span>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -28,7 +31,7 @@
 /// @brief Renders requested frames to WAV files: the gather, validation, the
 /// per-frame loop, summation and the report.
 ///
-/// Implements docs/rendering.md sections 6.1, 6.3 and 9. The file is
+/// Implements docs/rendering.md sections 6.1, 6.3, 8.5 and 9. The file is
 /// organised as:
 ///
 ///   - fixed Cypher queries, prepared once by EngineDb and always bound with
@@ -37,10 +40,13 @@
 ///     column is nullable;
 ///   - the gather for one frame: the entry query, one list-node query per
 ///     list type, and the frontier walk that follows NEXT_POINT one hop per
-///     query for every partial still inside the frame;
-///   - validation of one partial's gathered data into a PartialData;
-///   - the run: per frame, gather, group by partial set, plan and render each
-///     set (frame_plan.hpp), sum, write.
+///     query for every partial still inside the frame, and for every
+///     SoundSource's spatial timelines once;
+///   - validation of one partial's gathered data into a PartialData, and of
+///     one source's into a SourceData;
+///   - the run: per frame, gather, group by source and then by partial set,
+///     plan and render each set to mono (frame_plan.hpp), sum each source's
+///     sets, spread the sum over the channels by the source's position, write.
 ///
 /// The gather is the only layer that touches engine-db, and it finishes
 /// before the frame is prepared.
@@ -61,11 +67,13 @@ constexpr std::string_view kReadConfig =
 // Query 1 of §6.3: the frame's entries, each with its partial and the set
 // aggregating it. Both are OPTIONAL so that an entry leading nowhere, or a
 // partial in no set, is seen and refused rather than silently dropped.
-constexpr std::string_view kReadEntries = "MATCH (f:Frame)-[:FRAME_ENTRY]->(e:FrameEntry) "
-                                          "WHERE f.frame_number = CAST($frame AS INT32) "
-                                          "OPTIONAL MATCH (e)-[:FRAME_ENTRY_PARTIAL]->(p:Partial) "
-                                          "OPTIONAL MATCH (ps:PartialSet)-[:HAS_PARTIAL]->(p) "
-                                          "RETURN e.id, p.id, p.name, ps.id ORDER BY p.id, e.id;";
+constexpr std::string_view kReadEntries =
+    "MATCH (f:Frame)-[:FRAME_ENTRY]->(e:FrameEntry) "
+    "WHERE f.frame_number = CAST($frame AS INT32) "
+    "OPTIONAL MATCH (e)-[:FRAME_ENTRY_PARTIAL]->(p:Partial) "
+    "OPTIONAL MATCH (ps:PartialSet)-[:HAS_PARTIAL]->(p) "
+    "OPTIONAL MATCH (ss:SoundSource)-[:HAS_PARTIALSET]->(ps) "
+    "RETURN e.id, p.id, p.name, ps.id, ss.id, ss.name ORDER BY p.id, e.id;";
 
 // Query 2: each entry's segment with its nominal frequency, and whether the
 // segment has a predecessor segment (an entry segment starting after the
@@ -92,6 +100,29 @@ constexpr std::string_view kReadEntryCompensation =
     "WHERE f.frame_number = CAST($frame AS INT32) "
     "RETURN e.id, c.id, c.start_time, c.end_time, c.start_phase_delta, c.end_phase_delta;";
 
+// Each entry's point on its SoundSource's azimuth, elevation and distance
+// timelines, in kSpatialKinds order, and whether it has a predecessor point
+// (an entry after the frame's start must be the first point of its list).
+// The same for every partial of a source; rendering walks from it once per
+// source.
+constexpr std::array<std::string_view, 3> kReadEntrySpatial{
+    "MATCH (f:Frame)-[:FRAME_ENTRY]->(e:FrameEntry)"
+    "-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(a:AzimuthPhysicalTimelinePoint) "
+    "WHERE f.frame_number = CAST($frame AS INT32) "
+    "OPTIONAL MATCH (prev:AzimuthPhysicalTimelinePoint)-[:NEXT_POINT]->(a) "
+    "RETURN e.id, a.id, a.time, a.azimuth, a.azimuth_curve_type, prev.id;",
+    "MATCH (f:Frame)-[:FRAME_ENTRY]->(e:FrameEntry)"
+    "-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(a:ElevationPhysicalTimelinePoint) "
+    "WHERE f.frame_number = CAST($frame AS INT32) "
+    "OPTIONAL MATCH (prev:ElevationPhysicalTimelinePoint)-[:NEXT_POINT]->(a) "
+    "RETURN e.id, a.id, a.time, a.elevation, a.elevation_curve_type, prev.id;",
+    "MATCH (f:Frame)-[:FRAME_ENTRY]->(e:FrameEntry)"
+    "-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(a:DistancePhysicalTimelinePoint) "
+    "WHERE f.frame_number = CAST($frame AS INT32) "
+    "OPTIONAL MATCH (prev:DistancePhysicalTimelinePoint)-[:NEXT_POINT]->(a) "
+    "RETURN e.id, a.id, a.time, a.distance, a.distance_curve_type, prev.id;",
+};
+
 // Query 3: one hop along NEXT_POINT for every node still walking, by
 // primary-key lookup (engine_db.hpp, DbParameter, on why UNWIND).
 constexpr std::string_view kNextSegments =
@@ -113,12 +144,24 @@ constexpr std::string_view kNextCompensation =
     "(b:PartialPhaseCompensationSegment) "
     "RETURN a.id, b.id, b.start_time, b.end_time, b.start_phase_delta, b.end_phase_delta;";
 
-/// The value of AmplitudePhysicalTimelinePoint.amplitude_curve_type for a linear
-/// curve: the only one this version renders.
-constexpr std::int64_t kLinearAmplitudeCurve = 0;
+constexpr std::array<std::string_view, 3> kNextSpatial{
+    "UNWIND $ids AS id "
+    "MATCH (a:AzimuthPhysicalTimelinePoint {id: id})-[:NEXT_POINT]->"
+    "(b:AzimuthPhysicalTimelinePoint) "
+    "RETURN a.id, b.id, b.time, b.azimuth, b.azimuth_curve_type;",
+    "UNWIND $ids AS id "
+    "MATCH (a:ElevationPhysicalTimelinePoint {id: id})-[:NEXT_POINT]->"
+    "(b:ElevationPhysicalTimelinePoint) "
+    "RETURN a.id, b.id, b.time, b.elevation, b.elevation_curve_type;",
+    "UNWIND $ids AS id "
+    "MATCH (a:DistancePhysicalTimelinePoint {id: id})-[:NEXT_POINT]->"
+    "(b:DistancePhysicalTimelinePoint) "
+    "RETURN a.id, b.id, b.time, b.distance, b.distance_curve_type;",
+};
 
-/// The only channel mode this version renders: mono.
-constexpr std::int64_t kMonoChannelMode = 0;
+/// The value of a `*_curve_type` for a linear curve: the only one this
+/// version renders, for amplitude and for spatial position.
+constexpr std::int64_t kLinearCurveType = 0;
 
 // ---------------------------------------------------------------------------
 // Records, as read
@@ -160,12 +203,31 @@ struct CompensationRecord {
     bool hasSuccessor = false;
 };
 
+/// An azimuth, elevation or distance point as read.
+struct SpatialRecord {
+    std::int64_t id = 0;
+    std::optional<double> time;
+    std::optional<double> value;
+    std::optional<std::int64_t> curveType;
+    /// Whether the point has a NEXT_POINT successor. Set by the walk.
+    bool hasSuccessor = false;
+    /// Whether the point has a predecessor point. Read for entry points only.
+    bool hasPredecessor = false;
+};
+
 /// Everything gathered for one FrameEntry, before validation.
 struct EntryRecord {
     std::int64_t entryId = 0;
     std::optional<std::int64_t> partialId;
     std::optional<std::string> partialName;
     std::vector<std::int64_t> partialSetIds;
+    /// The SoundSource(s) aggregating the partial's set(s), distinct.
+    std::vector<std::int64_t> soundSourceIds;
+    /// The (first) source's name.
+    std::optional<std::string> soundSourceName;
+    /// Per spatial kind, in kSpatialKinds order: the entry's point(s) on its
+    /// source's timeline. Not walked: the source's walk is shared.
+    std::array<std::vector<SpatialRecord>, 3> spatial;
     /// The entry segment(s) and, after the walk, their successors in order.
     std::vector<SegmentRecord> segments;
     /// Whether the (first) entry segment has a predecessor segment.
@@ -179,6 +241,46 @@ struct EntryRecord {
     /// leave a broken partial alone and report it afterwards.
     std::optional<std::string> failure;
 };
+
+/// Everything gathered for one SoundSource's spatial timelines in a frame,
+/// before validation: one walk per kind, shared by every partial of the
+/// source, from the earliest entry point any of them has.
+struct SourceRecord {
+    std::int64_t soundSourceId = 0;
+    /// "SoundSource <name> (id <id>)", for messages.
+    std::string description;
+    /// Per spatial kind: the earliest entry point and, after the walk, its
+    /// successors in order.
+    std::array<std::vector<SpatialRecord>, 3> points;
+    /// The failure found during the gather, if any. Every partial of the
+    /// source fails with it.
+    std::optional<std::string> failure;
+};
+
+/// Everything the gather produced for one frame.
+struct GatheredFrame {
+    /// One record per FrameEntry, ordered by partial id.
+    std::vector<EntryRecord> entries;
+    /// One record per SoundSource of the entries, by SoundSource.id.
+    std::map<std::int64_t, SourceRecord> sources;
+};
+
+/// Reads the spatial point columns of a row.
+///
+/// @param row   A row of a kReadEntrySpatial or kNextSpatial query.
+/// @param from  Index of the point's id column.
+/// @return The record, with hasSuccessor false.
+/// @throws EngineDbError  If a column is of the wrong type.
+SpatialRecord spatialFromRow(const DbRow& row, std::size_t from) {
+    return SpatialRecord{
+        .id = requireInt64(row.at(from)),
+        .time = optionalDouble(row.at(from + 1)),
+        .value = optionalDouble(row.at(from + 2)),
+        .curveType = optionalInt64(row.at(from + 3)),
+        .hasSuccessor = false,
+        .hasPredecessor = false,
+    };
+}
 
 /// Reads the segment columns of a row, which every segment query returns in
 /// the same order from column `from`.
@@ -245,22 +347,25 @@ CompensationRecord compensationFromRow(const DbRow& row, std::size_t from) {
 /// a node records a failure on its entry, as walkChain does; a node whose
 /// time is NULL ends its walk, and validation reports it.
 ///
-/// @tparam Record     SegmentRecord, PointRecord or CompensationRecord.
+/// @tparam Record     SegmentRecord, PointRecord, CompensationRecord or
+///                    SpatialRecord.
+/// @tparam Owner      What holds the lists and a `failure`: EntryRecord, or
+///                    SourceRecord for the spatial timelines.
 /// @param[in,out] db  Database to read.
-/// @param cypher      kNextSegments, kNextPoints or kNextCompensation.
+/// @param cypher      kNextSegments, kNextPoints, kNextCompensation or one of
+///                    kNextSpatial.
 /// @param frameEnd    The frame's end, source time.
-/// @param[in,out] entries  The entries. Each one's list grows by the nodes
+/// @param[in,out] entries  The owners. Each one's list grows by the nodes
 ///                         walked; `hasSuccessor` is set on every node found
 ///                         to have one.
-/// @param list        Selects the list on an entry: its segments, points or
-///                    compensation segments.
+/// @param list        Selects the list on an owner.
 /// @param startOf     The start time of a record, or nullopt when NULL.
 /// @param fromRow     Builds a record from a result row, from column 1.
 /// @param what        The list's name, for failure messages.
 /// @throws EngineDbError  If a query fails.
-template <typename Record, typename List, typename StartOf, typename FromRow>
+template <typename Record, typename Owner, typename List, typename StartOf, typename FromRow>
 void walkFrontier(EngineDb& db, std::string_view cypher, SampleTime frameEnd,
-    std::vector<EntryRecord>& entries, List list, StartOf startOf, FromRow fromRow,
+    std::vector<Owner>& entries, List list, StartOf startOf, FromRow fromRow,
     std::string_view what) {
     // Which entry each frontier node belongs to, and the nodes each entry
     // has seen (the cycle check).
@@ -269,7 +374,7 @@ void walkFrontier(EngineDb& db, std::string_view cypher, SampleTime frameEnd,
     std::vector<std::int64_t> frontier;
 
     const auto stillWalking = [&](std::size_t i) {
-        EntryRecord& entry = entries[i];
+        Owner& entry = entries[i];
         if (entry.failure.has_value() || list(entry).empty()) {
             return false;
         }
@@ -292,7 +397,7 @@ void walkFrontier(EngineDb& db, std::string_view cypher, SampleTime frameEnd,
         std::unordered_map<std::int64_t, std::size_t> nextOwner;
         for (const DbRow& row : db.query(cypher, {{"ids", frontier}})) {
             const std::size_t i = owner.at(requireInt64(row.at(0)));
-            EntryRecord& entry = entries[i];
+            Owner& entry = entries[i];
             Record record = fromRow(row, 1);
             list(entry).back().hasSuccessor = true;
             if (!seen[i].insert(record.id).second) {
@@ -311,16 +416,110 @@ void walkFrontier(EngineDb& db, std::string_view cypher, SampleTime frameEnd,
     }
 }
 
+/// Marks every entry that leads to other than exactly one node of each list
+/// type as failed, so that the walks leave it alone and validation reports
+/// it.
+///
+/// @param[in,out] entries  The entries as read. `failure` is set on each
+///                         miscounted one that has none yet.
+void markMiscountedEntries(std::vector<EntryRecord>& entries) {
+    for (EntryRecord& entry : entries) {
+        if (entry.segments.size() != 1 || entry.points.size() != 1 ||
+            entry.compensation.size() != 1) {
+            entry.failure = "its FrameEntry leads to " + std::to_string(entry.segments.size()) +
+                            " segment(s), " + std::to_string(entry.points.size()) +
+                            " amplitude point(s) and " + std::to_string(entry.compensation.size()) +
+                            " phase compensation segment(s); exactly one of each is required, "
+                            "so it was not precomputed, or not for this frame";
+        }
+        for (std::size_t k = 0; k < kSpatialKinds.size() && !entry.failure.has_value(); ++k) {
+            if (entry.spatial.at(k).size() != 1) {
+                entry.failure = "its FrameEntry leads to " +
+                                std::to_string(entry.spatial.at(k).size()) + " " +
+                                std::string{spatialTimelineName(kSpatialKinds.at(k))} +
+                                " point(s); exactly one is required, so it was not "
+                                "precomputed, or not for this frame";
+            }
+        }
+    }
+}
+
+/// Gathers the spatial timelines of the sources a frame's entries lead to
+/// (§6.3).
+///
+/// A source's entry points depend on the frame alone, so every partial of
+/// the source leads to the same three; a disagreement is a stale entry and
+/// fails the source. Each source's timelines are then walked once, however
+/// many partials it has, from those points. Entries that already failed, or
+/// whose set is not in exactly one source, contribute nothing.
+///
+/// @param[in,out] db  Database to read.
+/// @param entries     The frame's entries, walked.
+/// @param frameEnd    The frame's end, source time.
+/// @return One record per source, by SoundSource.id.
+/// @throws EngineDbError  If a query fails.
+std::map<std::int64_t, SourceRecord> gatherSources(
+    EngineDb& db, const std::vector<EntryRecord>& entries, SampleTime frameEnd) {
+    std::map<std::int64_t, SourceRecord> bySource;
+    for (const EntryRecord& entry : entries) {
+        if (entry.failure.has_value() || entry.soundSourceIds.size() != 1) {
+            continue;
+        }
+        const std::int64_t sourceId = entry.soundSourceIds.front();
+        auto [found, added] = bySource.try_emplace(sourceId);
+        SourceRecord& source = found->second;
+        if (added) {
+            source.soundSourceId = sourceId;
+            source.description = "SoundSource " + entry.soundSourceName.value_or("(unnamed)") +
+                                 " (id " + std::to_string(sourceId) + ")";
+        }
+        for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
+            const SpatialRecord& candidate = entry.spatial.at(k).front();
+            std::vector<SpatialRecord>& start = source.points.at(k);
+            if (start.empty()) {
+                start.assign(1, candidate);
+            } else if (start.front().id != candidate.id) {
+                source.failure = "its partials' FrameEntry nodes lead to different " +
+                                 std::string{spatialTimelineName(kSpatialKinds.at(k))} +
+                                 " points (ids " + std::to_string(start.front().id) + " and " +
+                                 std::to_string(candidate.id) +
+                                 "); every partial of a source must share them, so the entries "
+                                 "are stale";
+            }
+        }
+    }
+    std::vector<SourceRecord> sources;
+    sources.reserve(bySource.size());
+    for (auto& [id, source] : bySource) {
+        sources.push_back(std::move(source));
+    }
+    for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
+        walkFrontier<SpatialRecord>(
+            db, kNextSpatial.at(k), frameEnd, sources,
+            [k](SourceRecord& r) -> std::vector<SpatialRecord>& { return r.points.at(k); },
+            [](const SpatialRecord& p) { return p.time; }, spatialFromRow,
+            spatialTimelineName(kSpatialKinds.at(k)));
+    }
+
+    std::map<std::int64_t, SourceRecord> result;
+    for (SourceRecord& source : sources) {
+        const std::int64_t id = source.soundSourceId;
+        result.emplace(id, std::move(source));
+    }
+    return result;
+}
+
 /// Gathers everything frame `frame` needs, unvalidated (§6.3).
 ///
 /// @param[in,out] db  Database to read. Not modified.
 /// @param frame       The frame.
 /// @param size        Frame size.
-/// @return One record per FrameEntry of the frame, ordered by partial id.
-///         Empty when there is no Frame node or it has no entries.
+/// @return One record per FrameEntry of the frame, ordered by partial id,
+///         and one per SoundSource they lead to. Empty when there is no
+///         Frame node or it has no entries.
 /// @throws EngineDbError  If a query fails or returns a value of an
 ///         unexpected type.
-std::vector<EntryRecord> gatherFrame(EngineDb& db, FrameNumber frame, FrameSize size) {
+GatheredFrame gatherFrame(EngineDb& db, FrameNumber frame, FrameSize size) {
     const SampleTime frameEnd =
         frameStart(frame, size) + SampleDuration{static_cast<double>(size.value())};
     const DbParameters byFrame{{"frame", static_cast<std::int64_t>(frame.value())}};
@@ -336,14 +535,28 @@ std::vector<EntryRecord> gatherFrame(EngineDb& db, FrameNumber frame, FrameSize 
                 .partialId = optionalInt64(row.at(1)),
                 .partialName = optionalString(row.at(2)),
                 .partialSetIds = {},
+                .soundSourceIds = {},
+                .soundSourceName = std::nullopt,
+                .spatial = {},
                 .segments = {},
                 .entrySegmentHasPredecessor = false,
                 .points = {},
                 .compensation = {},
                 .failure = std::nullopt});
         }
+        EntryRecord& entry = entries[found->second];
         if (const std::optional<std::int64_t> setId = optionalInt64(row.at(3))) {
-            entries[found->second].partialSetIds.push_back(*setId);
+            if (std::ranges::find(entry.partialSetIds, *setId) == entry.partialSetIds.end()) {
+                entry.partialSetIds.push_back(*setId);
+            }
+        }
+        if (const std::optional<std::int64_t> sourceId = optionalInt64(row.at(4))) {
+            if (std::ranges::find(entry.soundSourceIds, *sourceId) == entry.soundSourceIds.end()) {
+                entry.soundSourceIds.push_back(*sourceId);
+                if (entry.soundSourceIds.size() == 1) {
+                    entry.soundSourceName = optionalString(row.at(5));
+                }
+            }
         }
     }
 
@@ -359,19 +572,15 @@ std::vector<EntryRecord> gatherFrame(EngineDb& db, FrameNumber frame, FrameSize 
         entries[byEntry.at(requireInt64(row.at(0)))].compensation.push_back(
             compensationFromRow(row, 1));
     }
-
-    // An entry with other than one node of a list type fails validation;
-    // the walk must not extend it as if it were sound.
-    for (EntryRecord& entry : entries) {
-        if (entry.segments.size() != 1 || entry.points.size() != 1 ||
-            entry.compensation.size() != 1) {
-            entry.failure = "its FrameEntry leads to " + std::to_string(entry.segments.size()) +
-                            " segment(s), " + std::to_string(entry.points.size()) +
-                            " amplitude point(s) and " + std::to_string(entry.compensation.size()) +
-                            " phase compensation segment(s); exactly one of each is required, "
-                            "so it was not precomputed, or not for this frame";
+    for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
+        for (const DbRow& row : db.query(kReadEntrySpatial.at(k), byFrame)) {
+            SpatialRecord point = spatialFromRow(row, 1);
+            point.hasPredecessor = optionalInt64(row.at(5)).has_value();
+            entries[byEntry.at(requireInt64(row.at(0)))].spatial.at(k).push_back(point);
         }
     }
+
+    markMiscountedEntries(entries);
 
     walkFrontier<SegmentRecord>(
         db, kNextSegments, frameEnd, entries,
@@ -387,7 +596,9 @@ std::vector<EntryRecord> gatherFrame(EngineDb& db, FrameNumber frame, FrameSize 
         [](EntryRecord& e) -> std::vector<CompensationRecord>& { return e.compensation; },
         [](const CompensationRecord& c) { return c.startTime; }, compensationFromRow,
         "PartialPhaseCompensationSegment list");
-    return entries;
+
+    std::map<std::int64_t, SourceRecord> sources = gatherSources(db, entries, frameEnd);
+    return GatheredFrame{.entries = std::move(entries), .sources = std::move(sources)};
 }
 
 // ---------------------------------------------------------------------------
@@ -538,12 +749,12 @@ std::vector<AmplitudePoint> validateAmplitude(const EntryRecord& entry, SampleTi
                                      " is not later than the previous point's time " +
                                      formatNumber(amplitude.back().time.value())};
         }
-        if (i + 1 < entry.points.size() && record.curveType != kLinearAmplitudeCurve) {
+        if (i + 1 < entry.points.size() && record.curveType != kLinearCurveType) {
             throw PartialRenderError{
                 where + ": amplitude_curve_type is " +
                 (record.curveType.has_value() ? std::to_string(*record.curveType)
                                               : std::string{"NULL"}) +
-                "; only " + std::to_string(kLinearAmplitudeCurve) +
+                "; only " + std::to_string(kLinearCurveType) +
                 " (linear) is supported in this version"};
         }
         amplitude.push_back(AmplitudePoint{.time = time, .amplitude = value});
@@ -700,6 +911,11 @@ PartialData validateEntry(const EntryRecord& entry, FrameNumber frame, FrameSize
                                  std::to_string(entry.partialSetIds.size()) +
                                  " PartialSets; exactly one is required"};
     }
+    if (entry.soundSourceIds.size() != 1) {
+        throw PartialRenderError{"its PartialSet is aggregated by " +
+                                 std::to_string(entry.soundSourceIds.size()) +
+                                 " SoundSources; exactly one is required"};
+    }
 
     const SampleTime fs = frameStart(frame, size);
     const SampleTime fe = fs + SampleDuration{static_cast<double>(size.value())};
@@ -708,6 +924,7 @@ PartialData validateEntry(const EntryRecord& entry, FrameNumber frame, FrameSize
         .partialId = *entry.partialId,
         .partialName = entry.partialName,
         .partialSetId = entry.partialSetIds.front(),
+        .soundSourceId = entry.soundSourceIds.front(),
         .segments = validateSegments(entry),
         .amplitude = {},
         .compensation = {},
@@ -719,6 +936,174 @@ PartialData validateEntry(const EntryRecord& entry, FrameNumber frame, FrameSize
     return data;
 }
 
+/// Checks one of a source's walked spatial timelines (§9).
+///
+/// @param kind     Which timeline.
+/// @param records  The walk: the earliest entry point and its successors.
+/// @return The values in typed form: one (time, value) pair per point, the
+///         value as read.
+/// @throws PartialRenderError  If a time or value is NULL, not finite or out
+///         of range, the times do not strictly increase, or a point but the
+///         last walked has a curve other than linear.
+std::vector<std::pair<SampleTime, double>> validateSpatialPoints(
+    SpatialKind kind, std::span<const SpatialRecord> records) {
+    const std::string timeline{spatialTimelineName(kind)};
+    std::vector<std::pair<SampleTime, double>> points;
+    points.reserve(records.size());
+    for (std::size_t i = 0; i < records.size(); ++i) {
+        const SpatialRecord& record = records[i];
+        const std::string where = timeline + " point (id " + std::to_string(record.id) + ")";
+        const SampleTime time{requireFinite(record.time, where, "time")};
+        const double value = requireFinite(record.value, where, spatialValueName(kind));
+        if (const std::optional<std::string> problem = spatialValueProblem(kind, value)) {
+            throw PartialRenderError{where + ": " + *problem};
+        }
+        if (i > 0 && !(time > points.back().first)) {
+            throw PartialRenderError{where + ": time " + formatNumber(time.value()) +
+                                     " is not later than the previous point's time " +
+                                     formatNumber(points.back().first.value())};
+        }
+        if (i + 1 < records.size() && record.curveType != kLinearCurveType) {
+            throw PartialRenderError{
+                where + ": " + std::string{spatialValueName(kind)} + "_curve_type is " +
+                (record.curveType.has_value() ? std::to_string(*record.curveType)
+                                              : std::string{"NULL"}) +
+                "; only " + std::to_string(kLinearCurveType) +
+                " (linear) is supported in this version"};
+        }
+        points.emplace_back(time, value);
+    }
+    return points;
+}
+
+/// The times of a list of validated spatial points.
+///
+/// @tparam Point  AzimuthPoint, ElevationPoint or DistancePoint.
+/// @param points  The points.
+/// @return Their times, in order.
+template <typename Point>
+std::vector<SampleTime> timesOf(const std::vector<Point>& points) {
+    std::vector<SampleTime> times;
+    times.reserve(points.size());
+    for (const Point& point : points) {
+        times.push_back(point.time);
+    }
+    return times;
+}
+
+/// Checks that a source's entry point is where the frame's rendering of it
+/// starts (§9): the last point at or before the frame's start, or, when the
+/// timeline starts inside the frame, its first point.
+///
+/// @param kind    Which timeline.
+/// @param walk    The walk from the entry point; its first is the entry.
+/// @param times   The walk's validated times, index for index.
+/// @param fs      The frame's start.
+/// @throws PartialRenderError  If the entry is after the frame's start but
+///         not the first point of its timeline, or at or before it but not
+///         the last such point. Either means the FrameEntry is stale.
+void validateSourceEntryPoint(SpatialKind kind, std::span<const SpatialRecord> walk,
+    std::span<const SampleTime> times, SampleTime fs) {
+    const std::string timeline{spatialTimelineName(kind)};
+    if (times.front() > fs && walk.front().hasPredecessor) {
+        throw PartialRenderError{"its " + timeline + " entry point at " +
+                                 formatNumber(times.front().value()) +
+                                 " is after the frame's start " + formatNumber(fs.value()) +
+                                 " but is not the first point; the FrameEntry is stale"};
+    }
+    if (times.front() <= fs && times.size() > 1 && !(times[1] > fs)) {
+        throw PartialRenderError{"its " + timeline + " entry point's piece ends at " +
+                                 formatNumber(times[1].value()) +
+                                 ", at or before the frame's start " + formatNumber(fs.value()) +
+                                 "; the FrameEntry is stale"};
+    }
+}
+
+/// Checks a source's gathered spatial timelines and converts them to typed
+/// values (§9).
+///
+/// @param source  What the gather produced for the source, walked.
+/// @param fs      The frame's start.
+/// @return The source's validated timelines for the frame.
+/// @throws PartialRenderError  If the gather recorded a failure, as
+///         validateSpatialPoints(), or as validateSourceEntryPoint(). The
+///         message does not name the source.
+SourceData validateSource(const SourceRecord& source, SampleTime fs) {
+    if (source.failure.has_value()) {
+        throw PartialRenderError{*source.failure};
+    }
+    SourceData data{
+        .soundSourceId = source.soundSourceId, .azimuth = {}, .elevation = {}, .distance = {}};
+    for (const auto& [time, value] :
+        validateSpatialPoints(SpatialKind::Azimuth, source.points[0])) {
+        data.azimuth.push_back(AzimuthPoint{.time = time, .azimuth = Azimuth{value}});
+    }
+    for (const auto& [time, value] :
+        validateSpatialPoints(SpatialKind::Elevation, source.points[1])) {
+        data.elevation.push_back(ElevationPoint{.time = time, .elevation = Elevation{value}});
+    }
+    for (const auto& [time, value] :
+        validateSpatialPoints(SpatialKind::Distance, source.points[2])) {
+        data.distance.push_back(DistancePoint{.time = time, .distance = Metres{value}});
+    }
+    validateSourceEntryPoint(SpatialKind::Azimuth, source.points[0], timesOf(data.azimuth), fs);
+    validateSourceEntryPoint(SpatialKind::Elevation, source.points[1], timesOf(data.elevation), fs);
+    validateSourceEntryPoint(SpatialKind::Distance, source.points[2], timesOf(data.distance), fs);
+    return data;
+}
+
+/// Checks a partial against its source's spatial timelines (§9).
+///
+/// The source's entry points are shared and were checked once, against the
+/// frame's start (validateSourceEntryPoint()). What is left is per partial:
+/// each timeline must cover the partial within the frame. It must start at
+/// or before the partial's entry time `t* = max(b₀, fs)`, and where the walk
+/// shows it ending inside the frame, it must not end before the partial's
+/// lifeline does.
+///
+/// @param entry      The partial's gathered entry, for its entry point ids.
+/// @param data       The partial's validated data.
+/// @param source     The source's gathered walk, for the ids and successor
+///                   flags.
+/// @param validated  The source's validated timelines, index for index with
+///                   the walk.
+/// @param fs         The frame's start.
+/// @param fe         The frame's end.
+/// @throws PartialRenderError  If the partial's entry is not the source's
+///         (which gatherSources() rules out), or a timeline starts after `t*`
+///         or is shown to end before the partial's lifeline.
+void validateSourceEntry(const EntryRecord& entry, const PartialData& data,
+    const SourceRecord& source, const SourceData& validated, SampleTime fs, SampleTime fe) {
+    const SampleTime entryTime = std::max(data.segments.front().startTime, fs);
+    // Where the partial needs a position to: its lifeline's end if the
+    // frame shows it, otherwise the frame's end.
+    const SampleTime reach = std::min(data.segments.back().endTime, fe);
+    const std::array<std::vector<SampleTime>, 3> times{
+        timesOf(validated.azimuth), timesOf(validated.elevation), timesOf(validated.distance)};
+    for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
+        const std::string timeline{spatialTimelineName(kSpatialKinds.at(k))};
+        const std::vector<SpatialRecord>& walk = source.points.at(k);
+        const std::vector<SampleTime>& t = times.at(k);
+        if (entry.spatial.at(k).front().id != walk.front().id) {
+            throw PartialRenderError{
+                "its " + timeline + " entry point is not its source's; the FrameEntry is stale"};
+        }
+        if (t.front() > entryTime) {
+            throw PartialRenderError{
+                "its source's " + timeline + " starts at " + formatNumber(t.front().value()) +
+                ", after the partial's entry time " + formatNumber(entryTime.value()) +
+                "; it must cover the lifeline of every partial of the source"};
+        }
+        if (!walk.back().hasSuccessor && t.back() < reach) {
+            throw PartialRenderError{"its source's " + timeline + " ends at " +
+                                     formatNumber(t.back().value()) + ", before " +
+                                     formatNumber(reach.value()) +
+                                     ", which the partial's lifeline reaches; it must cover the "
+                                     "lifeline of every partial of the source"};
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The run (§6.1)
 // ---------------------------------------------------------------------------
@@ -727,15 +1112,16 @@ PartialData validateEntry(const EntryRecord& entry, FrameNumber frame, FrameSize
 struct Config {
     SampleRate sampleRate{0};
     FrameSize frameSize{0};
+    ChannelMode channelMode = ChannelMode::Mono;
 };
 
 /// Reads and checks the EngineConfig.
 ///
 /// @param[in,out] db  Database to read.
-/// @return The sample rate and frame size.
+/// @return The sample rate, frame size and channel mode.
 /// @throws RenderingError  If there is not exactly one EngineConfig, its
 ///         sampleRate is NULL or not positive, its frame size is unusable,
-///         or its channelMode is not mono.
+///         or its channelMode is NULL or not 0 to 7.
 /// @throws EngineDbError  If the query fails.
 Config readConfig(EngineDb& db) {
     const std::vector<DbRow> rows = db.query(kReadConfig);
@@ -753,13 +1139,17 @@ Config readConfig(EngineDb& db) {
                              (sampleRate.has_value() ? std::to_string(*sampleRate) : "NULL") +
                              "; a positive sample rate is needed to render"};
     }
-    if (channelMode != kMonoChannelMode) {
-        throw RenderingError{"EngineConfig.channelMode is " +
-                             (channelMode.has_value() ? std::to_string(*channelMode) : "NULL") +
-                             "; only 0 (mono) is implemented in this version"};
+    if (!channelMode.has_value()) {
+        throw RenderingError{"EngineConfig.channelMode is NULL; it must be 0 to 7"};
     }
     Config config{.sampleRate = SampleRate{static_cast<std::int32_t>(*sampleRate)},
-        .frameSize = FrameSize{0}};
+        .frameSize = FrameSize{0},
+        .channelMode = ChannelMode::Mono};
+    try {
+        config.channelMode = channelModeFromInt(*channelMode);
+    } catch (const std::invalid_argument& e) {
+        throw RenderingError{std::string{"EngineConfig."} + e.what()};
+    }
     try {
         config.frameSize = resolveFrameSize(frameSize, sampleRate);
     } catch (const PrecomputationError& e) {
@@ -807,32 +1197,66 @@ void removeQuietly(const std::filesystem::path& file) noexcept {
     std::filesystem::remove(file, ignored);
 }
 
-/// The partials of one frame, validated and grouped by partial set, in set
-/// id order.
-using PartialsBySet = std::map<std::int64_t, std::vector<PartialData>>;
+/// The validated inputs of one frame, grouped for rendering: by SoundSource,
+/// then by partial set, both in id order.
+struct ValidatedFrame {
+    /// Per source, its partials grouped by set.
+    std::map<std::int64_t, std::map<std::int64_t, std::vector<PartialData>>> bySource;
 
-/// Validates every entry of a frame (§9), recording failures.
+    /// Per source, its validated spatial timelines.
+    std::map<std::int64_t, SourceData> sources;
+};
+
+/// Validates every entry of a frame and the sources they lead to (§9),
+/// recording failures.
 ///
-/// @param entries        The gathered entries.
+/// A source whose timelines fail validation fails every partial of it, with
+/// the source named in the reason.
+///
+/// @param gathered       The gathered entries and sources.
 /// @param frame          The frame.
 /// @param size           Frame size.
 /// @param[in,out] known  Partials already reported as failed, by id; grows.
 /// @param[in,out] outcome  Gains a newFailures entry for each partial failing
 ///                         for the first time, and its error when any partial
 ///                         failed.
-/// @return The validated partials by set; empty when the frame failed.
-PartialsBySet validateFrame(const std::vector<EntryRecord>& entries, FrameNumber frame,
-    FrameSize size, std::unordered_set<std::int64_t>& known, FrameOutcome& outcome) {
-    PartialsBySet bySet;
+/// @return The validated frame; empty when the frame failed.
+ValidatedFrame validateFrame(const GatheredFrame& gathered, FrameNumber frame, FrameSize size,
+    std::unordered_set<std::int64_t>& known, FrameOutcome& outcome) {
+    const SampleTime fs = frameStart(frame, size);
+    const SampleTime fe = fs + SampleDuration{static_cast<double>(size.value())};
+
+    // Each source once, however many partials it has.
+    ValidatedFrame result;
+    std::map<std::int64_t, std::string> sourceFailures;
+    for (const auto& [sourceId, source] : gathered.sources) {
+        try {
+            result.sources.emplace(sourceId, validateSource(source, fs));
+        } catch (const PartialRenderError& e) {
+            sourceFailures.emplace(sourceId, "its " + source.description + ": " + e.what());
+        }
+    }
+
     std::unordered_set<std::int64_t> seenPartials;
     std::vector<std::string> failed;
-    for (const EntryRecord& entry : entries) {
+    for (const EntryRecord& entry : gathered.entries) {
         try {
             if (entry.partialId.has_value() && !seenPartials.insert(*entry.partialId).second) {
                 throw PartialRenderError{"it has more than one FrameEntry for this frame"};
             }
             PartialData data = validateEntry(entry, frame, size);
-            bySet[data.partialSetId].push_back(std::move(data));
+            if (const auto failure = sourceFailures.find(data.soundSourceId);
+                failure != sourceFailures.end()) {
+                throw PartialRenderError{failure->second};
+            }
+            const SourceRecord& source = gathered.sources.at(data.soundSourceId);
+            try {
+                validateSourceEntry(
+                    entry, data, source, result.sources.at(data.soundSourceId), fs, fe);
+            } catch (const PartialRenderError& e) {
+                throw PartialRenderError{"its " + source.description + ": " + e.what()};
+            }
+            result.bySource[data.soundSourceId][data.partialSetId].push_back(std::move(data));
         } catch (const PartialRenderError& e) {
             failed.push_back(describe(entry));
             if (!entry.partialId.has_value() || known.insert(*entry.partialId).second) {
@@ -851,50 +1275,74 @@ PartialsBySet validateFrame(const std::vector<EntryRecord>& entries, FrameNumber
             error += (i == 0 ? "" : ", ") + failed[i];
         }
         outcome.error = error + " failed validation";
-        bySet.clear();
+        result = {};
     }
-    return bySet;
+    return result;
 }
 
-/// Renders a frame's sets into the frame buffer and writes the files (§6.4,
-/// §7, §5).
+/// Scratch buffers reused between sets, sources and frames, so that a frame
+/// allocates nothing once the first has been rendered.
+struct Buffers {
+    /// The frame, interleaved by channel.
+    std::vector<SampleValue> frame;
+    /// One source's mono sum.
+    std::vector<SampleValue> source;
+    /// One set's mono samples.
+    std::vector<SampleValue> set;
+};
+
+/// Renders a frame's sources into the frame buffer and writes the files (§6.4,
+/// §7, §8.5, §5).
 ///
-/// @param bySet       The frame's validated partials by set.
-/// @param config      Sample rate and frame size.
+/// Each source's sets are rendered to mono and summed; the sum is spread
+/// over the output channels by the source's position, once.
+///
+/// @param validated   The frame's validated partials and sources.
+/// @param config      Sample rate, frame size and channel mode.
 /// @param rollOff     Band edges for the run.
 /// @param outputDir   Where files go.
-/// @param perSetWav   Whether to write per-set files.
-/// @param[in,out] outcome      Gains the set and partial counts, the peak,
-///                             the file and the set files.
-/// @param[in,out] frameBuffer  Scratch of one frame, zeroed here.
-/// @param[in,out] setBuffer    Scratch of one frame, reused between sets.
+/// @param perSetWav   Whether to write per-set files: mono, before the
+///                    spatial stage.
+/// @param[in,out] outcome  Gains the source, set and partial counts, the
+///                         peak over every channel, the file and the set
+///                         files.
+/// @param[in,out] buffers  Scratch, resized and zeroed here.
 /// @throws WavWriteError  If a file cannot be written.
 /// @throws std::invalid_argument  If a plan's precondition fails, which
 ///         validation rules out.
-void renderSets(const PartialsBySet& bySet, const Config& config, const RollOff& rollOff,
+void renderSources(const ValidatedFrame& validated, const Config& config, const RollOff& rollOff,
     const std::filesystem::path& outputDir, bool perSetWav, FrameOutcome& outcome,
-    std::vector<SampleValue>& frameBuffer, std::vector<SampleValue>& setBuffer) {
+    Buffers& buffers) {
     const auto frameSize = static_cast<std::size_t>(config.frameSize.value());
-    frameBuffer.assign(frameSize, 0);
-    setBuffer.resize(frameSize);
-    for (const auto& [setId, partials] : bySet) {
-        const PartialSetPlan plan =
-            planPartialSet(setId, partials, outcome.frame, config.frameSize);
-        std::ranges::fill(setBuffer, 0);
-        renderPartialSet(plan, rollOff, setBuffer);
-        if (perSetWav) {
-            const std::filesystem::path setFile = outputDir / setFileName(outcome.frame, setId);
-            writeFloatWav(setFile, config.sampleRate, 1, setBuffer);
-            outcome.setFiles.emplace_back(setId, setFile);
+    const std::size_t channels = channelCount(config.channelMode);
+    buffers.frame.assign(frameSize * channels, 0);
+    buffers.source.resize(frameSize);
+    buffers.set.resize(frameSize);
+    for (const auto& [sourceId, sets] : validated.bySource) {
+        std::ranges::fill(buffers.source, 0);
+        for (const auto& [setId, partials] : sets) {
+            const PartialSetPlan plan =
+                planPartialSet(setId, partials, outcome.frame, config.frameSize);
+            std::ranges::fill(buffers.set, 0);
+            renderPartialSet(plan, rollOff, buffers.set);
+            if (perSetWav) {
+                const std::filesystem::path setFile = outputDir / setFileName(outcome.frame, setId);
+                writeFloatWav(setFile, config.sampleRate, 1, buffers.set);
+                outcome.setFiles.emplace_back(setId, setFile);
+            }
+            addInto(buffers.source, buffers.set);
+            ++outcome.setCount;
+            outcome.partialCount += partials.size();
         }
-        addInto(frameBuffer, setBuffer);
-        ++outcome.setCount;
-        outcome.partialCount += partials.size();
+        const SoundSourcePlan plan =
+            planSoundSource(validated.sources.at(sourceId), outcome.frame, config.frameSize);
+        spatialiseSource(plan, config.channelMode, buffers.source, buffers.frame);
+        ++outcome.sourceCount;
     }
-    outcome.peak = peakOf(frameBuffer);
+    outcome.peak = peakOf(buffers.frame);
 
     const std::filesystem::path file = outputDir / frameFileName(outcome.frame);
-    writeFloatWav(file, config.sampleRate, 1, frameBuffer);
+    writeFloatWav(file, config.sampleRate, static_cast<std::int32_t>(channels), buffers.frame);
     outcome.file = file;
 }
 
@@ -907,17 +1355,16 @@ void renderSets(const PartialsBySet& bySet, const Config& config, const RollOff&
 /// @param outputDir      Where files go.
 /// @param perSetWav      Whether to write per-set files.
 /// @param[in,out] known  Partials already reported as failed, by id; grows.
-/// @param[in,out] frameBuffer  Scratch of one frame, reused between frames.
-/// @param[in,out] setBuffer    Scratch of one frame, reused between sets.
+/// @param[in,out] buffers  Scratch, reused between frames.
 /// @return The frame's outcome.
 /// @throws Nothing: every failure is recorded in the outcome.
 FrameOutcome renderOneFrame(EngineDb& db, const Config& config, const RollOff& rollOff,
     FrameNumber frame, const std::filesystem::path& outputDir, bool perSetWav,
-    std::unordered_set<std::int64_t>& known, std::vector<SampleValue>& frameBuffer,
-    std::vector<SampleValue>& setBuffer) {
+    std::unordered_set<std::int64_t>& known, Buffers& buffers) {
     FrameOutcome outcome{.frame = frame,
         .error = std::nullopt,
         .newFailures = {},
+        .sourceCount = 0,
         .setCount = 0,
         .partialCount = 0,
         .peak = 0,
@@ -925,14 +1372,15 @@ FrameOutcome renderOneFrame(EngineDb& db, const Config& config, const RollOff& r
         .setFiles = {}};
 
     // Gather and validate (§6.3, §9). A database failure fails the frame.
-    std::vector<EntryRecord> entries;
+    GatheredFrame gathered;
     try {
-        entries = gatherFrame(db, frame, config.frameSize);
+        gathered = gatherFrame(db, frame, config.frameSize);
     } catch (const EngineDbError& e) {
         outcome.error = std::string{"engine-db: "} + e.what();
         return outcome;
     }
-    const PartialsBySet bySet = validateFrame(entries, frame, config.frameSize, known, outcome);
+    const ValidatedFrame validated =
+        validateFrame(gathered, frame, config.frameSize, known, outcome);
     if (outcome.error.has_value()) {
         return outcome;
     }
@@ -940,7 +1388,7 @@ FrameOutcome renderOneFrame(EngineDb& db, const Config& config, const RollOff& r
     // Prepare, render, sum and write (§6.4, §7, §5). A frame that cannot be
     // written has no file, and no per-set file either.
     try {
-        renderSets(bySet, config, rollOff, outputDir, perSetWav, outcome, frameBuffer, setBuffer);
+        renderSources(validated, config, rollOff, outputDir, perSetWav, outcome, buffers);
     } catch (const WavWriteError& e) {
         outcome.error = e.what();
     } catch (const std::invalid_argument& e) {
@@ -992,14 +1440,13 @@ RenderingReport renderFrames(EngineDb& db, const RenderRequest& request,
     RenderingReport report;
     report.sampleRate = config.sampleRate;
     report.frameSize = config.frameSize;
+    report.channelMode = config.channelMode;
 
     std::unordered_set<std::int64_t> known;
-    std::vector<SampleValue> frameBuffer;
-    std::vector<SampleValue> setBuffer;
+    Buffers buffers;
     for (const FrameRequest& requested : request.frames) {
-        report.frames.push_back(
-            renderOneFrame(db, config, rollOff, FrameNumber{requested.frameNumber}, outputDir,
-                perSetWav, known, frameBuffer, setBuffer));
+        report.frames.push_back(renderOneFrame(db, config, rollOff,
+            FrameNumber{requested.frameNumber}, outputDir, perSetWav, known, buffers));
     }
     return report;
 }

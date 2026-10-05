@@ -1,7 +1,8 @@
 #pragma once
 
 // Rendering: the samples of each requested frame, from the partials in scope
-// for it, written as a WAV file per frame (docs/rendering.md).
+// for it, spread over the output channels by each SoundSource's position and
+// written as a multi-channel WAV file per frame (docs/rendering.md).
 //
 // Any frame can be rendered on its own: nothing rendered before a frame is
 // needed to render it, because precomputation has made every partial's phase
@@ -10,12 +11,14 @@
 //
 // This is the only piece of rendering that takes an EngineDb, and it only
 // reads. Per frame it gathers the frame's FrameEntry nodes and what follows
-// them along the lists, validates each partial (section 9), and hands the
+// them along the lists, validates each partial and its source (section 9),
+// and hands the
 // result to frame_plan.hpp, which does everything after that over in-memory
 // data. Errors are exceptions, thrown at gather and caught per partial; a
 // frame's failure is a consequence recorded in the report, not a second
 // exception. Nothing on the render path after the gather throws.
 
+#include "rainbohz/rendering_engine/channel_mode.hpp"
 #include "rainbohz/rendering_engine/engine_db.hpp"
 #include "rainbohz/rendering_engine/render_request.hpp"
 #include "rainbohz/rendering_engine/sample_value.hpp"
@@ -33,8 +36,7 @@
 namespace rainbohz::rendering_engine {
 
 /// Thrown when rendering cannot run at all: the configuration every frame
-/// needs is missing or unusable, or a channel mode this version does not
-/// implement is configured. Nothing has been written.
+/// needs is missing or unusable. Nothing has been written.
 class RenderingError : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;
@@ -79,13 +81,16 @@ struct FrameOutcome {
     /// with their reasons. Reported once each, in this frame.
     std::vector<PartialFailure> newFailures;
 
+    /// How many SoundSources contributed. Zero for a silent frame.
+    std::size_t sourceCount = 0;
+
     /// How many partial sets contributed. Zero for a silent frame.
     std::size_t setCount = 0;
 
     /// How many partials contributed.
     std::size_t partialCount = 0;
 
-    /// The largest absolute sample value in the frame.
+    /// The largest absolute sample value in the frame, over every channel.
     SampleValue peak = 0;
 
     /// The file written; empty on failure.
@@ -105,6 +110,10 @@ struct RenderingReport {
 
     /// The frame size every frame was rendered with.
     FrameSize frameSize{0};
+
+    /// EngineConfig.channelMode: how many channels each frame's file has,
+    /// and what they are.
+    ChannelMode channelMode = ChannelMode::Mono;
 
     /// One outcome per requested frame, in request order.
     std::vector<FrameOutcome> frames;
@@ -143,9 +152,12 @@ std::string setFileName(FrameNumber frame, std::int64_t partialSetId);
 ///
 /// Reads the EngineConfig once, then for each requested frame in request
 /// order: gathers the frame's inputs through its FrameEntry nodes (section
-/// 6.3), validates every partial in scope (section 9), renders each partial
-/// set into its own buffer (frame_plan.hpp), sums the sets, and writes
-/// `outputDir / frameFileName(k)`. Each frame's file is complete before the
+/// 6.3), validates every partial in scope and its SoundSource's spatial
+/// timelines (section 9), renders each partial set into its own mono buffer
+/// (frame_plan.hpp), sums each source's sets, spreads each source's sum over
+/// the output channels by its position (section 8.5), and writes
+/// `outputDir / frameFileName(k)` with one channel per output of the
+/// channel mode. Each frame's file is complete before the
 /// next starts. A frame with nothing in scope, including one for which no
 /// Frame node exists, is written as a full-length file of zeros.
 ///
@@ -162,11 +174,13 @@ std::string setFileName(FrameNumber frame, std::int64_t partialSetId);
 /// @param request    The frames to render.
 /// @param outputDir  Where the files go. Must exist.
 /// @param perSetWav  Whether to also write each contributing partial set's
-///                   buffer, before summing, as `setFileName()`.
+///                   buffer, before summing and spatialisation, as
+///                   `setFileName()`. These files are always mono.
 /// @return One outcome per requested frame, in request order.
 /// @throws RenderingError  If there is not exactly one EngineConfig; its
 ///         sampleRate is NULL or not positive; its frame size is unusable;
-///         or its channelMode is not 0. Nothing has been written.
+///         or its channelMode is NULL or not 0 to 7. Nothing has been
+///         written.
 /// @throws EngineDbError  If reading the configuration fails. A database
 ///         failure while gathering a frame fails that frame instead.
 /// @note Side effect: writes WAV files into `outputDir`, replacing any of the

@@ -39,6 +39,10 @@ add_executable(rendering_engine_tests
     test_script_loader.cpp
     test_segment_maths.cpp
     test_server.cpp
+    test_spatial_gains.cpp
+    test_spatial_gains_oracle.cpp
+    test_spatial_maths.cpp
+    test_spatialise.cpp
     test_units.cpp
     test_wav_writer.cpp
     transform/test_musical_units.cpp
@@ -75,6 +79,7 @@ target_compile_definitions(rendering_engine_tests
         RE_TEST_TWO_SETS_STATE="${RE_TWO_SETS_STATE_FILE}"
         RE_TEST_TEMPO_MAP_STATE="${RE_TEMPO_MAP_STATE_FILE}"
         RE_TEST_OFFSET_COLLISION_STATE="${RE_OFFSET_COLLISION_STATE_FILE}"
+        RE_SPATIAL_ORACLE_CSV="${CMAKE_CURRENT_SOURCE_DIR}/oracle/spatial_gains.csv"
 )
 
 gtest_discover_tests(rendering_engine_tests

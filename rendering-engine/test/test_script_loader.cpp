@@ -293,8 +293,8 @@ TEST(ScriptLoader, ExampleScoreLoadsOnTopOfTheRealSchema) {
     // what distinguishes the two, so the size of the example is asserted here
     // rather than the statement count.
     const Census census = db.census();
-    EXPECT_EQ(census.totalNodes, 14);
-    EXPECT_EQ(census.totalRelationships, 12);
+    EXPECT_EQ(census.totalNodes, 23);
+    EXPECT_EQ(census.totalRelationships, 21);
 }
 
 // The example is a score, not a handful of disconnected nodes: one partial,
@@ -310,9 +310,13 @@ TEST(ScriptLoader, ExampleScoreHasTheShapeOfAScore) {
     EXPECT_EQ(rowsIn(census.nodes, "AmplitudePhysicalTimelinePoint"), 2);
     EXPECT_EQ(rowsIn(census.nodes, "FrequencyPhysicalTimelinePoint"), 2);
     EXPECT_EQ(rowsIn(census.nodes, "PhasePhysicalTimelinePoint"), 1);
+    EXPECT_EQ(rowsIn(census.nodes, "AzimuthPhysicalTimelinePoint"), 2);
+    EXPECT_EQ(rowsIn(census.nodes, "ElevationPhysicalTimelinePoint"), 2);
+    EXPECT_EQ(rowsIn(census.nodes, "DistancePhysicalTimelinePoint"), 2);
 
-    // An amplitude, a frequency and a phase timeline, on the one partial.
-    EXPECT_EQ(rowsIn(census.relationships, "HAS_PHYSICAL_TIMELINE"), 3);
+    // An amplitude, a frequency and a phase timeline, on the one partial;
+    // an azimuth, an elevation and a distance timeline on its source.
+    EXPECT_EQ(rowsIn(census.relationships, "HAS_PHYSICAL_TIMELINE"), 6);
 
     // Score -> SoundEntity -> SoundSource -> PartialSet -> Partial.
     EXPECT_EQ(rowsIn(census.relationships, "HAS_SOUNDENTITY"), 1);
@@ -320,9 +324,9 @@ TEST(ScriptLoader, ExampleScoreHasTheShapeOfAScore) {
     EXPECT_EQ(rowsIn(census.relationships, "HAS_PARTIALSET"), 1);
     EXPECT_EQ(rowsIn(census.relationships, "HAS_PARTIAL"), 1);
 
-    // Three linked lists: a head edge and one link edge each for amplitude
-    // and frequency, a head edge alone for phase.
-    EXPECT_EQ(rowsIn(census.relationships, "NEXT_POINT"), 5);
+    // Six linked lists: a head edge and one link edge each for amplitude,
+    // frequency, azimuth, elevation and distance, a head edge alone for phase.
+    EXPECT_EQ(rowsIn(census.relationships, "NEXT_POINT"), 11);
 }
 
 } // namespace

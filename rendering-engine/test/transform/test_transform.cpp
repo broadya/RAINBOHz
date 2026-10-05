@@ -9,6 +9,8 @@
 #include "rainbohz/rendering_engine/script_loader.hpp"
 #include "rainbohz/rendering_engine/transform/transform.hpp"
 
+#include "../test_support.hpp"
+
 #include <gtest/gtest.h>
 
 #include <cstddef>
@@ -42,6 +44,7 @@ using rainbohz::rendering_engine::precomputeAll;
 using rainbohz::rendering_engine::requireInt64;
 using rainbohz::rendering_engine::SampleTime;
 using rainbohz::rendering_engine::wrapHalfOpen;
+using rainbohz::rendering_engine::test::addSpatialTimelines;
 using rainbohz::rendering_engine::transform::collapseFreeRuns;
 using rainbohz::rendering_engine::transform::fitToLifeline;
 using rainbohz::rendering_engine::transform::Knot;
@@ -236,6 +239,9 @@ void addScore(EngineDb& db, double tempo = 120.0, bool lastHolds = true) {
                literal(tempo) + ", hold: " + (lastHolds ? "true" : "false") +
                "}) CREATE (s)-[:HAS_SOUNDENTITY]->(:SoundEntity {name: 'E'})"
                "-[:HAS_SOUNDSOURCE]->(:SoundSource {name: 'SS'});");
+    // The transform does not write the source's position yet; precomputation
+    // needs one, so the source is still and straight ahead.
+    addSpatialTimelines(db, "SS");
 }
 
 /// The property map of a PartialState, with NULL values left out.

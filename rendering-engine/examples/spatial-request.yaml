@@ -1,0 +1,17 @@
+# Render request for engine-db/examples/spatial-score.cypher: every frame of
+# the ten-second orbit, as stereo WAV files.
+#
+#   make run-rendering-engine RE_STATE=engine-db/examples/spatial-score.cypher \
+#       RE_REQUEST=rendering-engine/examples/spatial-request.yaml
+
+frames:
+  - frame: 0
+  - frame: 1
+  - frame: 2
+  - frame: 3
+  - frame: 4
+  - frame: 5
+  - frame: 6
+  - frame: 7
+  - frame: 8
+  - frame: 9

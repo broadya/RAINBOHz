@@ -26,6 +26,7 @@
 // Ladybug's parked edge-hop cost; both are accepted for now (docs/server.md
 // section 8).
 
+#include "rainbohz/rendering_engine/channel_mode.hpp"
 #include "rainbohz/rendering_engine/engine_db.hpp"
 #include "rainbohz/rendering_engine/units.hpp"
 
@@ -139,22 +140,6 @@ struct TempoMapPointPage {
     /// this page ends the list.
     std::optional<std::int64_t> nextAfter;
 };
-
-/// EngineConfig.channelMode, numbered as the schema numbers it.
-enum class ChannelMode : std::uint8_t {
-    Mono,       ///< 0
-    Stereo,     ///< 1, derived from M/S and decoded to stereo channels
-    MidSide,    ///< 2, M/S
-    FoaAFormat, ///< 3, first-order ambisonics, A-format
-    FoaBFormat, ///< 4, first-order ambisonics, B-format
-};
-
-/// The name of a channel mode as the REST API spells it.
-///
-/// @param mode  A channel mode.
-/// @return `"mono"`, `"stereo"`, `"mid-side"`, `"foa-a-format"` or
-///         `"foa-b-format"`.
-std::string_view channelModeName(ChannelMode mode) noexcept;
 
 /// The engine parameters: what EngineConfig holds, resolved.
 struct EngineParameters {

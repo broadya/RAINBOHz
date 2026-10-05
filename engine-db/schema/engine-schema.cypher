@@ -1135,6 +1135,90 @@ CREATE NODE TABLE PhasePhysicalTimelinePoint (
 );
 
 // ============================================================
+// AzimuthPhysicalTimelinePoint: A point within an AzimuthPhysicalTimeline.
+// Defines the azimuth of a single partial for that timeline at a given
+// point in time.
+//
+// Curve types, INT8:
+// 0 linear
+// 1 step
+// 2 accelerate     implemented as sin(3π/2) to sin(2π)
+// 3 decelerate     implemented as sin(0) to sin(π/2)
+// 4 s-curve        implemented assin(-π/2) to sin(π/2)
+//
+// Curve amount, FLOAT (has no effect if type is linear)
+// 0 linear
+// 0.5 50/50 mix linear/curve
+// 1 curve
+//
+// azimuth     radians,   Valid range [-π,π]
+// ============================================================
+CREATE NODE TABLE AzimuthPhysicalTimelinePoint (
+    id                          SERIAL,
+    time                        DOUBLE,
+    azimuth_curve_type        INT8 DEFAULT 0,
+    azimuth_curve_amount      FLOAT DEFAULT 0.0,
+    azimuth                   DOUBLE,
+    PRIMARY KEY (id)
+);
+
+// ============================================================
+// ElevationPhysicalTimelinePoint: A point within an ElevationPhysicalTimeline.
+// Defines the elevation of a single partial for that timeline at a given
+// point in time.
+//
+// Curve types, INT8:
+// 0 linear
+// 1 step
+// 2 accelerate     implemented as sin(3π/2) to sin(2π)
+// 3 decelerate     implemented as sin(0) to sin(π/2)
+// 4 s-curve        implemented assin(-π/2) to sin(π/2)
+//
+// Curve amount, FLOAT (has no effect if type is linear)
+// 0 linear
+// 0.5 50/50 mix linear/curve
+// 1 curve
+//
+// elevation     radians,   Valid range [-π/2,π/2]
+// ============================================================
+CREATE NODE TABLE ElevationPhysicalTimelinePoint (
+    id                          SERIAL,
+    time                        DOUBLE,
+    elevation_curve_type        INT8 DEFAULT 0,
+    elevation_curve_amount      FLOAT DEFAULT 0.0,
+    elevation                   DOUBLE,
+    PRIMARY KEY (id)
+);
+
+// ============================================================
+// DistancePhysicalTimelinePoint: A point within a DistancePhysicalTimeline.
+// Defines the distance of a single partial for that timeline at a given
+// point in time.
+//
+// Curve types, INT8:
+// 0 linear
+// 1 step
+// 2 accelerate     implemented as sin(3π/2) to sin(2π)
+// 3 decelerate     implemented as sin(0) to sin(π/2)
+// 4 s-curve        implemented assin(-π/2) to sin(π/2)
+//
+// Curve amount, FLOAT (has no effect if type is linear)
+// 0 linear
+// 0.5 50/50 mix linear/curve
+// 1 curve
+//
+// distance     metres,   Valid range [1,16384]
+// ============================================================
+CREATE NODE TABLE DistancePhysicalTimelinePoint (
+    id                          SERIAL,
+    time                        DOUBLE,
+    distance_curve_type        INT8 DEFAULT 0,
+    distance_curve_amount      FLOAT DEFAULT 0.0,
+    distance                   FLOAT,
+    PRIMARY KEY (id)
+);
+
+// ============================================================
 // FrequencyModulatorPhysicalTimelinePoint: An point within a FrequencyModulatorPhysicalTimeline.
 // Defines the modulator state for that timeline at a given
 // point in time.
@@ -1227,6 +1311,30 @@ CREATE NODE TABLE FrequencyPhysicalTimeline (
 // PhasePhysicalTimeline: The timeline of the phase of a Partial
 // ============================================================
 CREATE NODE TABLE PhasePhysicalTimeline (
+    id SERIAL,
+    PRIMARY KEY (id)
+);
+
+// ============================================================
+// AzimuthPhysicalTimeline: The timeline of the azimuth of a SoundSource
+// ============================================================
+CREATE NODE TABLE AzimuthPhysicalTimeline (
+    id SERIAL,
+    PRIMARY KEY (id)
+);
+
+// ============================================================
+// ElevationPhysicalTimeline: The timeline of the elevation of a SoundSource
+// ============================================================
+CREATE NODE TABLE ElevationPhysicalTimeline (
+    id SERIAL,
+    PRIMARY KEY (id)
+);
+
+// ============================================================
+// DistancePhysicalTimeline: The timeline of the distance of a SoundSource
+// ============================================================
+CREATE NODE TABLE DistancePhysicalTimeline (
     id SERIAL,
     PRIMARY KEY (id)
 );
@@ -1458,6 +1566,9 @@ CREATE REL TABLE NEXT_POINT (
     FROM AmplitudePhysicalTimeline TO AmplitudePhysicalTimelinePoint,
     FROM FrequencyPhysicalTimeline TO FrequencyPhysicalTimelinePoint,
     FROM PhasePhysicalTimeline TO PhasePhysicalTimelinePoint,
+    FROM AzimuthPhysicalTimeline TO AzimuthPhysicalTimelinePoint,
+    FROM ElevationPhysicalTimeline TO ElevationPhysicalTimelinePoint,
+    FROM DistancePhysicalTimeline TO DistancePhysicalTimelinePoint,
     FROM FrequencyModulatorPhysicalTimeline TO FrequencyModulatorPhysicalTimelinePoint,
     FROM AmplitudeModulatorPhysicalTimeline TO AmplitudeModulatorPhysicalTimelinePoint,
     FROM PhaseModulatorPhysicalTimeline TO PhaseModulatorPhysicalTimelinePoint,
@@ -1477,6 +1588,9 @@ CREATE REL TABLE NEXT_POINT (
     FROM AmplitudePhysicalTimelinePoint TO AmplitudePhysicalTimelinePoint,
     FROM FrequencyPhysicalTimelinePoint TO FrequencyPhysicalTimelinePoint,
     FROM PhasePhysicalTimelinePoint TO PhasePhysicalTimelinePoint,
+    FROM AzimuthPhysicalTimelinePoint TO AzimuthPhysicalTimelinePoint,
+    FROM ElevationPhysicalTimelinePoint TO ElevationPhysicalTimelinePoint,
+    FROM DistancePhysicalTimelinePoint TO DistancePhysicalTimelinePoint,
     FROM FrequencyModulatorPhysicalTimelinePoint TO FrequencyModulatorPhysicalTimelinePoint,
     FROM AmplitudeModulatorPhysicalTimelinePoint TO AmplitudeModulatorPhysicalTimelinePoint,
     FROM PhaseModulatorPhysicalTimelinePoint TO PhaseModulatorPhysicalTimelinePoint,
@@ -1500,6 +1614,9 @@ CREATE REL TABLE HAS_PHYSICAL_TIMELINE (
     FROM Partial TO AmplitudePhysicalTimeline,
     FROM Partial TO FrequencyPhysicalTimeline,
     FROM Partial TO PhasePhysicalTimeline,
+    FROM SoundSource TO AzimuthPhysicalTimeline,
+    FROM SoundSource TO ElevationPhysicalTimeline,
+    FROM SoundSource TO DistancePhysicalTimeline,
     FROM Partial TO PartialSegmentPhysicalTimeline,
     ONE_ONE
 );
@@ -1600,6 +1717,9 @@ CREATE REL TABLE FRAME_ENTRY_PHYSICAL_TIMELINE (
     FROM FrameEntry TO PartialIntegrableSegment,
     FROM FrameEntry TO PartialPhaseCompensationSegment,
     FROM FrameEntry TO AmplitudePhysicalTimelinePoint,
+    FROM FrameEntry TO AzimuthPhysicalTimelinePoint,
+    FROM FrameEntry TO ElevationPhysicalTimelinePoint,
+    FROM FrameEntry TO DistancePhysicalTimelinePoint,
     MANY_MANY
 );
 
@@ -1662,8 +1782,8 @@ CREATE REL TABLE POINT_AT (
 //
 // Channel mode, INT8:
 // 0 mono
-// 1 stereo, derived from M/S
-// 2 stereo, dervied from X/Y pair
+// 1 stereo, derived from M/S pair
+// 2 stereo, derived from X/Y pair
 // 3 M/S
 // 4 Blumlein classic
 // 5 Blumlein rotated 45 degrees

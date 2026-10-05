@@ -132,6 +132,36 @@ const CompensationSegment& coveringCompensation(
     return segments[cursor];
 }
 
+/// The piece of a spatial timeline covering `start`, as a value and gradient
+/// re-based to `start`, advancing a forward-only cursor.
+///
+/// Before the first point, or from the last point on, the value is held at
+/// that point's with a zero gradient (frame_plan.hpp, buildSpatialSegments).
+///
+/// @param points        A timeline's points, in time order. Not empty.
+/// @param start         A spatial segment's start.
+/// @param[in,out] cursor  Index of the last point at or before `start`, or 0;
+///                      moves forward.
+/// @param valueOf       Reads a point's value.
+/// @param gradientOf    The gradient of the piece between two points.
+/// @param valueAt       The value `tau` along a piece from a start value and
+///                      gradient.
+/// @return The value at `start` and the gradient that holds from there.
+template <typename Point, typename ValueOf, typename GradientOf, typename ValueAt>
+auto coveringSpatialPiece(std::span<const Point> points, SampleTime start, std::size_t& cursor,
+    ValueOf valueOf, GradientOf gradientOf, ValueAt valueAt) {
+    while (cursor + 1 < points.size() && points[cursor + 1].time <= start) {
+        ++cursor;
+    }
+    const Point& from = points[cursor];
+    using Gradient = decltype(gradientOf(from, from));
+    if (start < from.time || cursor + 1 == points.size()) {
+        return std::pair{valueOf(from), Gradient{}};
+    }
+    const Gradient gradient = gradientOf(from, points[cursor + 1]);
+    return std::pair{valueAt(valueOf(from), gradient, start - from.time), gradient};
+}
+
 } // namespace
 
 std::vector<RenderSegment> buildRenderSegments(
@@ -274,6 +304,111 @@ void renderPartialSet(
         }
 
         renderChunk(block, active, first, last, edges, out);
+    }
+}
+
+std::vector<SpatialSegment> buildSpatialSegments(
+    const SourceData& source, FrameNumber frame, FrameSize size) {
+    const SampleTime fs = frameStart(frame, size);
+    const SampleTime fe = fs + SampleDuration{static_cast<double>(size.value())};
+    std::vector<SampleTime> bounds{fs, fe};
+    const auto add = [&](SampleTime t) {
+        if (strictlyInside(t, fs, fe)) {
+            bounds.push_back(t);
+        }
+    };
+    for (const AzimuthPoint& point : source.azimuth) {
+        add(point.time);
+    }
+    for (const ElevationPoint& point : source.elevation) {
+        add(point.time);
+    }
+    for (const DistancePoint& point : source.distance) {
+        add(point.time);
+    }
+    std::ranges::sort(bounds);
+    const auto duplicates = std::ranges::unique(bounds);
+    bounds.erase(duplicates.begin(), duplicates.end());
+
+    std::vector<SpatialSegment> result;
+    result.reserve(bounds.size() - 1);
+    std::size_t azimuthCursor = 0;
+    std::size_t elevationCursor = 0;
+    std::size_t distanceCursor = 0;
+    for (std::size_t i = 0; i + 1 < bounds.size(); ++i) {
+        const SampleTime start = bounds[i];
+        const auto [azimuth, azimuthSlope] = coveringSpatialPiece(
+            std::span<const AzimuthPoint>{source.azimuth}, start, azimuthCursor,
+            [](const AzimuthPoint& p) { return p.azimuth; },
+            [](const AzimuthPoint& a, const AzimuthPoint& b) {
+                return azimuthGradient(a.azimuth, b.azimuth, b.time - a.time);
+            },
+            azimuthAt);
+        const auto [elevation, elevationSlope] = coveringSpatialPiece(
+            std::span<const ElevationPoint>{source.elevation}, start, elevationCursor,
+            [](const ElevationPoint& p) { return p.elevation; },
+            [](const ElevationPoint& a, const ElevationPoint& b) {
+                return elevationGradient(a.elevation, b.elevation, b.time - a.time);
+            },
+            elevationAt);
+        const auto [distance, distanceSlope] = coveringSpatialPiece(
+            std::span<const DistancePoint>{source.distance}, start, distanceCursor,
+            [](const DistancePoint& p) { return p.distance; },
+            [](const DistancePoint& a, const DistancePoint& b) {
+                return distanceGradient(a.distance, b.distance, b.time - a.time);
+            },
+            distanceAt);
+        result.push_back(SpatialSegment{.start = start,
+            .end = bounds[i + 1],
+            .position = NominalPosition{.startAzimuth = azimuth,
+                .azimuthGradient = azimuthSlope,
+                .startElevation = elevation,
+                .elevationGradient = elevationSlope,
+                .startDistance = distance,
+                .distanceGradient = distanceSlope}});
+    }
+    return result;
+}
+
+SoundSourcePlan planSoundSource(const SourceData& source, FrameNumber frame, FrameSize size) {
+    SoundSourcePlan plan{
+        .soundSourceId = source.soundSourceId,
+        // The source clock: the identity map in this version (§6.4, step 1).
+        .sourceTimeAtFrameStart = frameStart(frame, size),
+        .sourceRate = 1.0,
+        .spatial = buildSpatialSegments(source, frame, size),
+        .cuts = {},
+    };
+    std::vector<std::int32_t> cuts{0, size.value()};
+    for (const SpatialSegment& segment : plan.spatial) {
+        const double offset =
+            (segment.start - plan.sourceTimeAtFrameStart).value() / plan.sourceRate;
+        cuts.push_back(static_cast<std::int32_t>(
+            std::clamp(std::ceil(offset), 0.0, static_cast<double>(size.value()))));
+    }
+    std::ranges::sort(cuts);
+    const auto duplicates = std::ranges::unique(cuts);
+    cuts.erase(duplicates.begin(), duplicates.end());
+    plan.cuts.reserve(cuts.size());
+    for (const std::int32_t cut : cuts) {
+        plan.cuts.emplace_back(cut);
+    }
+    return plan;
+}
+
+void spatialiseSource(const SoundSourcePlan& plan, ChannelMode mode,
+    std::span<const SampleValue> mono, std::span<SampleValue> interleaved) {
+    std::size_t cursor = 0;
+    for (std::size_t c = 0; c + 1 < plan.cuts.size(); ++c) {
+        const SampleIndex first = plan.cuts[c];
+        const SampleTime at = plan.sourceTimeAtFrameStart +
+                              SampleDuration{static_cast<double>(first.value()) * plan.sourceRate};
+        while (cursor + 1 < plan.spatial.size() && plan.spatial[cursor].end <= at) {
+            ++cursor;
+        }
+        const SpatialSegment& segment = plan.spatial[cursor];
+        spatialiseChunk(SpatialAnchor{.position = segment.position, .tau = at - segment.start},
+            mode, mono, first, plan.cuts[c + 1], interleaved);
     }
 }
 

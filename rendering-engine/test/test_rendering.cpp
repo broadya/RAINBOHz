@@ -41,20 +41,25 @@
 
 namespace {
 
+using rainbohz::rendering_engine::ChannelMode;
 using rainbohz::rendering_engine::EngineDb;
 using rainbohz::rendering_engine::frameFileName;
 using rainbohz::rendering_engine::FrameOutcome;
 using rainbohz::rendering_engine::FrameRequest;
 using rainbohz::rendering_engine::loadCypherFile;
+using rainbohz::rendering_engine::PartialFailure;
 using rainbohz::rendering_engine::precomputeAll;
 using rainbohz::rendering_engine::renderFrames;
 using rainbohz::rendering_engine::RenderingError;
 using rainbohz::rendering_engine::RenderingReport;
 using rainbohz::rendering_engine::RenderRequest;
+using rainbohz::rendering_engine::requireInt64;
 using rainbohz::rendering_engine::SampleValue;
 using rainbohz::rendering_engine::setFileName;
+using rainbohz::rendering_engine::test::addSoundSource;
 using rainbohz::rendering_engine::test::freshDirectory;
 using rainbohz::rendering_engine::test::readFloatWav;
+using rainbohz::rendering_engine::test::SpatialTestPoint;
 using rainbohz::rendering_engine::test::WavContents;
 
 /// Formats a double as a Cypher literal that reads back exactly.
@@ -83,6 +88,16 @@ void expectSum(const std::vector<SampleValue>& whole, const std::vector<SampleVa
     const std::vector<SampleValue>& b) {
     for (std::size_t n = 0; n < whole.size(); n += 1001) {
         EXPECT_NEAR(whole[n], a[n] + b[n], 1e-6) << n;
+    }
+}
+
+/// Checks that one buffer equals another, at the same stride as expectSum().
+///
+/// @param actual    The samples found.
+/// @param expected  The samples wanted, the same length.
+void expectNear(const std::vector<SampleValue>& actual, const std::vector<SampleValue>& expected) {
+    for (std::size_t n = 0; n < actual.size(); n += 1001) {
+        EXPECT_NEAR(actual[n], expected[n], 1e-6) << n;
     }
 }
 
@@ -122,11 +137,18 @@ protected:
         db.execute("CREATE (:EngineConfig {sampleRate: 48000, channelMode: 0});");
     }
 
-    /// Adds a partial set.
+    /// Adds a partial set to a sound source, creating the source, still and
+    /// straight ahead, if it does not exist.
     ///
-    /// @param name  PartialSet.name.
-    void addSet(const std::string& name) {
-        db.execute("CREATE (:PartialSet {name: '" + name + "'});");
+    /// @param name    PartialSet.name.
+    /// @param source  SoundSource.name.
+    void addSet(const std::string& name, const std::string& source = "Source") {
+        if (db.query("MATCH (s:SoundSource {name: $name}) RETURN s.id;", {{"name", source}})
+                .empty()) {
+            addSoundSource(db, source);
+        }
+        db.execute("MATCH (s:SoundSource {name: '" + source +
+                   "'}) CREATE (s)-[:HAS_PARTIALSET]->(:PartialSet {name: '" + name + "'});");
     }
 
     /// Adds a partial with its three timelines to a set.
@@ -464,8 +486,198 @@ TEST_F(RenderingDb, NoPerSetFilesByDefault) {
     EXPECT_FALSE(std::filesystem::exists(dir / "frame-000000.set-000000.wav"));
 }
 
-TEST_F(RenderingDb, ChannelModeOtherThanMonoIsFatal) {
-    db.execute("MATCH (c:EngineConfig) SET c.channelMode = 1;");
+// ---------------------------------------------------------------------------
+// The spatial stage (docs/rendering.md section 8.5)
+// ---------------------------------------------------------------------------
+
+/// Sets the EngineConfig's channel mode.
+///
+/// @param[in,out] db  The fixture's database.
+/// @param mode        EngineConfig.channelMode.
+void setChannelMode(EngineDb& db, int mode) {
+    db.execute("MATCH (c:EngineConfig) SET c.channelMode = " + std::to_string(mode) + ";");
+}
+
+/// A still position as spatial timeline points spanning every test.
+///
+/// @param value  The azimuth, elevation or distance.
+/// @return Two points, at 0 and far beyond any test's score.
+std::vector<SpatialTestPoint> still(double value) {
+    return {{0.0, value}, {1.0e12, value}};
+}
+
+/// Checks one sample of a level source 2 m away in B-format: W = m/2,
+/// Y = sin(az)·m/2, Z = 0, X = cos(az)·m/2, for m the mono sample.
+///
+/// @param interleaved  The frame's four channels.
+/// @param mono         The source's mono samples.
+/// @param n            The sample.
+/// @param azimuth      The source's azimuth at the sample, radians.
+void expectBFormat(const std::vector<SampleValue>& interleaved,
+    const std::vector<SampleValue>& mono, std::size_t n, double azimuth) {
+    const double m = static_cast<double>(mono[n]) / 2.0;
+    EXPECT_NEAR(interleaved[(4 * n) + 0], m, 1e-6) << "W at " << n;
+    EXPECT_NEAR(interleaved[(4 * n) + 1], std::sin(azimuth) * m, 1e-6) << "Y at " << n;
+    EXPECT_NEAR(interleaved[(4 * n) + 2], 0.0, 1e-6) << "Z at " << n;
+    EXPECT_NEAR(interleaved[(4 * n) + 3], std::cos(azimuth) * m, 1e-6) << "X at " << n;
+}
+
+// In B-format a source 2 m away sweeping from 0 to 1 rad across frame 1
+// gives W = m/2, Y = sin(az)·m/2, Z = 0, X = cos(az)·m/2, m the mono signal,
+// which the per-set file is.
+TEST_F(RenderingDb, ASweepInBFormatIsTheMonoSignalTimesItsGains) {
+    setChannelMode(db, 7);
+    addSoundSource(db, "Sweep", {{0.0, 0.0}, {48000.0, 0.0}, {96000.0, 1.0}, {1.0e12, 1.0}},
+        still(0.0), still(2.0));
+    addSet("S", "Sweep");
+    addPartial("S", "p", {{0.0, 0.1}, {200000.0, 0.1}}, {{0.0, -6.0}, {200000.0, -6.0}});
+    precompute();
+
+    const RenderingReport report = render({1}, true);
+    ASSERT_TRUE(report.ok()) << firstError(report);
+    EXPECT_EQ(report.channelMode, ChannelMode::FoaBFormat);
+    const FrameOutcome& frame = report.frames[0];
+    EXPECT_EQ(frame.sourceCount, 1U);
+    const WavContents wav = readFloatWav(frame.file);
+    ASSERT_EQ(wav.channels, 4U);
+    ASSERT_EQ(wav.samples.size(), 4U * 48000U);
+    const std::vector<SampleValue> mono = readFloatWav(frame.setFiles.at(0).second).samples;
+    ASSERT_EQ(readFloatWav(frame.setFiles.at(0).second).channels, 1U) << "per-set files are mono";
+
+    for (std::size_t n = 0; n < 48000; n += 997) {
+        expectBFormat(wav.samples, mono, n, static_cast<double>(n) / 48000.0);
+    }
+}
+
+// Two sets of one source are summed, then spatialised once; two sources
+// hard left and hard right land in one channel each.
+TEST_F(RenderingDb, SetsOfASourceShareItsPositionAndSourcesKeepTheirOwn) {
+    setChannelMode(db, 1);
+    const double left = std::numbers::pi / 2.0;
+    addSoundSource(db, "Left", still(left), still(0.0), still(1.0));
+    addSoundSource(db, "Right", still(-left), still(0.0), still(1.0));
+    addSet("A", "Left");
+    addSet("B", "Left");
+    addSet("C", "Right");
+    addPartial("A", "a", {{0.0, 0.1}, {100000.0, 0.1}}, {{0.0, -6.0}, {100000.0, -6.0}});
+    addPartial("B", "b", {{0.0, 0.3}, {100000.0, 0.3}}, {{0.0, -12.0}, {100000.0, -12.0}});
+    addPartial("C", "c", {{0.0, 0.2}, {100000.0, 0.2}}, {{0.0, -9.0}, {100000.0, -9.0}});
+    precompute();
+
+    const RenderingReport report = render({0}, true);
+    ASSERT_TRUE(report.ok()) << firstError(report);
+    const FrameOutcome& frame = report.frames[0];
+    EXPECT_EQ(frame.sourceCount, 2U);
+    EXPECT_EQ(frame.setCount, 3U);
+    const std::vector<SampleValue> whole = readFloatWav(frame.file).samples;
+    ASSERT_EQ(frame.setFiles.size(), 3U);
+    const std::vector<SampleValue> a = readFloatWav(frame.setFiles[0].second).samples;
+    const std::vector<SampleValue> b = readFloatWav(frame.setFiles[1].second).samples;
+    const std::vector<SampleValue> c = readFloatWav(frame.setFiles[2].second).samples;
+    // Hard left in decoded M/S is gain 1 in L and 0 in R (to rounding of
+    // cos(π/2)), and the reverse for hard right.
+    std::vector<SampleValue> leftChannel(48000);
+    std::vector<SampleValue> rightChannel(48000);
+    for (std::size_t n = 0; n < 48000; ++n) {
+        leftChannel[n] = whole[2 * n];
+        rightChannel[n] = whole[(2 * n) + 1];
+    }
+    expectSum(leftChannel, a, b);
+    expectNear(rightChannel, c);
+}
+
+TEST_F(RenderingDb, AStaleSpatialEntryIsDetected) {
+    addSoundSource(
+        db, "Moving", {{0.0, 0.0}, {60000.0, 0.5}, {1.0e12, 0.5}}, still(0.0), still(1.0));
+    addSet("S", "Moving");
+    addPartial("S", "p", {{0.0, 0.1}, {100000.0, 0.1}}, {{0.0, -6.0}, {100000.0, -6.0}});
+    precompute();
+    // Move frame 0's azimuth entry to the point at 60000, after its start.
+    db.execute("MATCH (:Frame {frame_number: 0})-[:FRAME_ENTRY]->(e:FrameEntry)"
+               "-[r:FRAME_ENTRY_PHYSICAL_TIMELINE]->(:AzimuthPhysicalTimelinePoint) DELETE r;");
+    db.execute("MATCH (:Frame {frame_number: 0})-[:FRAME_ENTRY]->(e:FrameEntry), "
+               "(a:AzimuthPhysicalTimelinePoint {time: 60000.0}) "
+               "CREATE (e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(a);");
+
+    const RenderingReport report = render({0, 1});
+    ASSERT_EQ(report.frames.size(), 2U);
+    EXPECT_FALSE(report.frames[0].ok());
+    ASSERT_EQ(report.frames[0].newFailures.size(), 1U);
+    EXPECT_NE(report.frames[0].newFailures[0].reason.find("SoundSource Moving"), std::string::npos)
+        << report.frames[0].newFailures[0].reason;
+    EXPECT_TRUE(report.frames[1].ok()) << firstError(report);
+}
+
+// Partials starting at different times inside a frame share their source's
+// entry points, which are the frame's; both render.
+TEST_F(RenderingDb, PartialsStartingInsideAFrameShareTheSourcesEntry) {
+    addSoundSource(
+        db, "Moving", {{0.0, 0.0}, {20000.0, 0.5}, {1.0e12, 0.5}}, still(0.0), still(1.0));
+    addSet("S", "Moving");
+    addPartial(
+        "S", "early", {{10000.0, 0.1}, {100000.0, 0.1}}, {{10000.0, -6.0}, {100000.0, -6.0}});
+    addPartial("S", "late", {{30000.0, 0.2}, {100000.0, 0.2}}, {{30000.0, -6.0}, {100000.0, -6.0}});
+    precompute();
+    EXPECT_EQ(requireInt64(
+                  db.query("MATCH (:Frame {frame_number: 0})-[:FRAME_ENTRY]->"
+                           "(:FrameEntry)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->"
+                           "(a:AzimuthPhysicalTimelinePoint) RETURN count(DISTINCT a);")
+                      .at(0)
+                      .at(0)),
+        1);
+
+    const RenderingReport report = render({0});
+    ASSERT_TRUE(report.ok()) << firstError(report);
+    EXPECT_EQ(report.frames[0].partialCount, 2U);
+}
+
+TEST_F(RenderingDb, PartialsOfASourceLeadingToDifferentSpatialPointsAreStale) {
+    addSoundSource(
+        db, "Moving", {{0.0, 0.0}, {20000.0, 0.5}, {1.0e12, 0.5}}, still(0.0), still(1.0));
+    addSet("S", "Moving");
+    addPartial("S", "p", {{0.0, 0.1}, {100000.0, 0.1}}, {{0.0, -6.0}, {100000.0, -6.0}});
+    addPartial("S", "q", {{0.0, 0.2}, {100000.0, 0.2}}, {{0.0, -6.0}, {100000.0, -6.0}});
+    precompute();
+    // Move q's frame 0 azimuth entry to the point at 20000.
+    db.execute("MATCH (:Frame {frame_number: 0})-[:FRAME_ENTRY]->(e:FrameEntry)"
+               "-[:FRAME_ENTRY_PARTIAL]->(:Partial {name: 'q'}) "
+               "MATCH (e)-[r:FRAME_ENTRY_PHYSICAL_TIMELINE]->(:AzimuthPhysicalTimelinePoint) "
+               "DELETE r;");
+    db.execute("MATCH (:Frame {frame_number: 0})-[:FRAME_ENTRY]->(e:FrameEntry)"
+               "-[:FRAME_ENTRY_PARTIAL]->(:Partial {name: 'q'}), "
+               "(a:AzimuthPhysicalTimelinePoint {time: 20000.0}) "
+               "CREATE (e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(a);");
+
+    const RenderingReport report = render({0});
+    ASSERT_EQ(report.frames[0].newFailures.size(), 2U);
+    EXPECT_NE(report.frames[0].newFailures[0].reason.find("lead to different"), std::string::npos)
+        << report.frames[0].newFailures[0].reason;
+}
+
+TEST_F(RenderingDb, ABadSpatialValueFailsEveryPartialOfItsSource) {
+    addSoundSource(db, "Bad", still(0.0), still(0.0), still(1.0));
+    addSet("S", "Bad");
+    addSet("T", "Good");
+    addPartial("S", "p", {{0.0, 0.1}, {100000.0, 0.1}}, {{0.0, -6.0}, {100000.0, -6.0}});
+    addPartial("S", "q", {{0.0, 0.2}, {100000.0, 0.2}}, {{0.0, -6.0}, {100000.0, -6.0}});
+    addPartial("T", "r", {{0.0, 0.3}, {100000.0, 0.3}}, {{0.0, -6.0}, {100000.0, -6.0}});
+    precompute();
+    db.execute("MATCH (:SoundSource {name: 'Bad'})-[:HAS_PHYSICAL_TIMELINE]->"
+               "(:DistancePhysicalTimeline)-[:NEXT_POINT]->(d:DistancePhysicalTimelinePoint) "
+               "SET d.distance = 0.5;");
+
+    const RenderingReport report = render({0});
+    ASSERT_EQ(report.frames[0].newFailures.size(), 2U);
+    for (const PartialFailure& failure : report.frames[0].newFailures) {
+        EXPECT_NE(failure.reason.find("distance 0.5 is outside"), std::string::npos)
+            << failure.reason;
+    }
+}
+
+TEST_F(RenderingDb, AnUnknownOrNullChannelModeIsFatal) {
+    db.execute("MATCH (c:EngineConfig) SET c.channelMode = 8;");
+    EXPECT_THROW(render({0}), RenderingError);
+    db.execute("MATCH (c:EngineConfig) SET c.channelMode = NULL;");
     EXPECT_THROW(render({0}), RenderingError);
 }
 

@@ -65,13 +65,16 @@ struct ListType {
 /// These are checked whether or not the engine uses them yet: a cycle or a
 /// merge is a structural defect in any list, and the check is the same for
 /// all of them.
-constexpr std::array<ListType, 14> kListTypes{{
+constexpr std::array<ListType, 17> kListTypes{{
     {.timeline = "PartialSegmentPhysicalTimeline", .node = "PartialIntegrableSegment"},
     {.timeline = "PartialSegmentPhysicalTimeline", .node = "PartialPhaseCompensationSegment"},
     {.timeline = "SpatialPositionMusicalTimeline", .node = "SpatialPositionMusicalTimelinePoint"},
     {.timeline = "AmplitudePhysicalTimeline", .node = "AmplitudePhysicalTimelinePoint"},
     {.timeline = "FrequencyPhysicalTimeline", .node = "FrequencyPhysicalTimelinePoint"},
     {.timeline = "PhasePhysicalTimeline", .node = "PhasePhysicalTimelinePoint"},
+    {.timeline = "AzimuthPhysicalTimeline", .node = "AzimuthPhysicalTimelinePoint"},
+    {.timeline = "ElevationPhysicalTimeline", .node = "ElevationPhysicalTimelinePoint"},
+    {.timeline = "DistancePhysicalTimeline", .node = "DistancePhysicalTimelinePoint"},
     {.timeline = "FrequencyModulatorPhysicalTimeline",
         .node = "FrequencyModulatorPhysicalTimelinePoint"},
     {.timeline = "AmplitudeModulatorPhysicalTimeline",
@@ -142,8 +145,8 @@ struct RangeRule {
 ///
 /// @return The rules, in the order their checks are reported. Valid for the
 ///         whole program.
-const std::array<RangeRule, 23>& rangeRules() {
-    static const std::array<RangeRule, 23> kRules{{
+const std::array<RangeRule, 35>& rangeRules() {
+    static const std::array<RangeRule, 35> kRules{{
         {.table = "EngineConfig",
             .column = "frameSize",
             .nullable = true,
@@ -158,7 +161,7 @@ const std::array<RangeRule, 23>& rangeRules() {
             .column = "channelMode",
             .nullable = false,
             .min = Bound{.value = 0.0, .inclusive = true},
-            .max = Bound{.value = 4.0, .inclusive = true}},
+            .max = Bound{.value = 7.0, .inclusive = true}},
         {.table = "FrequencyPhysicalTimelinePoint",
             .column = "time",
             .nullable = false,
@@ -209,6 +212,66 @@ const std::array<RangeRule, 23>& rangeRules() {
             .nullable = true,
             .min = Bound{.value = -std::numbers::pi, .inclusive = true},
             .max = Bound{.value = std::numbers::pi, .inclusive = true}},
+        {.table = "AzimuthPhysicalTimelinePoint",
+            .column = "time",
+            .nullable = false,
+            .min = Bound{.value = 0.0, .inclusive = true},
+            .max = std::nullopt},
+        {.table = "AzimuthPhysicalTimelinePoint",
+            .column = "azimuth",
+            .nullable = false,
+            .min = Bound{.value = -std::numbers::pi, .inclusive = true},
+            .max = Bound{.value = std::numbers::pi, .inclusive = true}},
+        {.table = "AzimuthPhysicalTimelinePoint",
+            .column = "azimuth_curve_type",
+            .nullable = false,
+            .min = Bound{.value = 0.0, .inclusive = true},
+            .max = Bound{.value = 4.0, .inclusive = true}},
+        {.table = "AzimuthPhysicalTimelinePoint",
+            .column = "azimuth_curve_amount",
+            .nullable = false,
+            .min = Bound{.value = 0.0, .inclusive = true},
+            .max = Bound{.value = 1.0, .inclusive = true}},
+        {.table = "ElevationPhysicalTimelinePoint",
+            .column = "time",
+            .nullable = false,
+            .min = Bound{.value = 0.0, .inclusive = true},
+            .max = std::nullopt},
+        {.table = "ElevationPhysicalTimelinePoint",
+            .column = "elevation",
+            .nullable = false,
+            .min = Bound{.value = -std::numbers::pi / 2.0, .inclusive = true},
+            .max = Bound{.value = std::numbers::pi / 2.0, .inclusive = true}},
+        {.table = "ElevationPhysicalTimelinePoint",
+            .column = "elevation_curve_type",
+            .nullable = false,
+            .min = Bound{.value = 0.0, .inclusive = true},
+            .max = Bound{.value = 4.0, .inclusive = true}},
+        {.table = "ElevationPhysicalTimelinePoint",
+            .column = "elevation_curve_amount",
+            .nullable = false,
+            .min = Bound{.value = 0.0, .inclusive = true},
+            .max = Bound{.value = 1.0, .inclusive = true}},
+        {.table = "DistancePhysicalTimelinePoint",
+            .column = "time",
+            .nullable = false,
+            .min = Bound{.value = 0.0, .inclusive = true},
+            .max = std::nullopt},
+        {.table = "DistancePhysicalTimelinePoint",
+            .column = "distance",
+            .nullable = false,
+            .min = Bound{.value = 1.0, .inclusive = true},
+            .max = Bound{.value = 16384.0, .inclusive = true}},
+        {.table = "DistancePhysicalTimelinePoint",
+            .column = "distance_curve_type",
+            .nullable = false,
+            .min = Bound{.value = 0.0, .inclusive = true},
+            .max = Bound{.value = 4.0, .inclusive = true}},
+        {.table = "DistancePhysicalTimelinePoint",
+            .column = "distance_curve_amount",
+            .nullable = false,
+            .min = Bound{.value = 0.0, .inclusive = true},
+            .max = Bound{.value = 1.0, .inclusive = true}},
         {.table = "TempoMap",
             .column = "ticks_per_beat",
             .nullable = false,
@@ -461,7 +524,7 @@ IntegrityCheck checkSetMembership(EngineDb& db) {
 }
 
 /// The first and last node times of every list of one timeline type, by
-/// partial.
+/// owner.
 ///
 /// Walks each list in C++ from its head, stopping silently at a revisited
 /// node: cycles are the list checks' business, and a list that loops still
@@ -470,14 +533,17 @@ IntegrityCheck checkSetMembership(EngineDb& db) {
 /// @param db        Database to read.
 /// @param timeline  The timeline table, e.g. "FrequencyPhysicalTimeline".
 /// @param node      Its node table, which has a `time` column.
-/// @return For each partial with such a timeline, the `time` of the list's
+/// @param owner     The table holding the timeline by HAS_PHYSICAL_TIMELINE:
+///                  "Partial", or "SoundSource" for the spatial timelines.
+/// @return For each owner with such a timeline, the `time` of the list's
 ///         first node and of its last, either of which is nullopt when NULL
 ///         or when the list is empty.
 /// @throws EngineDbError  If a query fails.
 std::unordered_map<std::int64_t, std::pair<std::optional<double>, std::optional<double>>> listEnds(
-    EngineDb& db, const std::string& timeline, const std::string& node) {
+    EngineDb& db, const std::string& timeline, const std::string& node,
+    const std::string& owner = "Partial") {
     std::unordered_map<std::int64_t, std::optional<std::int64_t>> headOfPartial;
-    std::string headsQuery = "MATCH (p:Partial)-[:HAS_PHYSICAL_TIMELINE]->(t:";
+    std::string headsQuery = "MATCH (p:" + owner + ")-[:HAS_PHYSICAL_TIMELINE]->(t:";
     headsQuery += timeline;
     headsQuery += ") OPTIONAL MATCH (t)-[:NEXT_POINT]->(n:";
     headsQuery += node;
@@ -557,6 +623,95 @@ IntegrityCheck checkLifelineEquality(EngineDb& db) {
             check.add("Partial " + std::to_string(partial) +
                       ": AmplitudePhysicalTimeline ends at " + describeTime(aLast) +
                       " but FrequencyPhysicalTimeline ends at " + describeTime(fLast));
+        }
+    }
+    return check;
+}
+
+/// The span of time each SoundSource's partials cover: the earliest start
+/// and the latest end of their lifelines.
+///
+/// The lifeline is the FrequencyPhysicalTimeline's first and last times. A
+/// partial without one, or with a NULL time at an end, contributes nothing
+/// to that end; a source whose partials all lack one is present with both
+/// ends nullopt.
+///
+/// @param db  Database to read.
+/// @return Per SoundSource.id with at least one partial, the span's start
+///         and end, in id order.
+/// @throws EngineDbError  If a query fails.
+std::map<std::int64_t, std::pair<std::optional<double>, std::optional<double>>> sourceSpans(
+    EngineDb& db) {
+    const auto lifelines =
+        listEnds(db, "FrequencyPhysicalTimeline", "FrequencyPhysicalTimelinePoint");
+    std::map<std::int64_t, std::pair<std::optional<double>, std::optional<double>>> spans;
+    for (const DbRow& row :
+        db.query("MATCH (ss:SoundSource)-[:HAS_PARTIALSET]->(:PartialSet)-[:HAS_PARTIAL]->"
+                 "(p:Partial) RETURN ss.id, p.id;")) {
+        auto& [start, end] = spans[requireInt64(row.at(0))];
+        const auto lifeline = lifelines.find(requireInt64(row.at(1)));
+        if (lifeline == lifelines.end()) {
+            continue;
+        }
+        const auto& [first, last] = lifeline->second;
+        if (first.has_value()) {
+            start = std::min(start.value_or(*first), *first);
+        }
+        if (last.has_value()) {
+            end = std::max(end.value_or(*last), *last);
+        }
+    }
+    return spans;
+}
+
+/// Checks that every SoundSource with partials has an azimuth, an elevation
+/// and a distance timeline, each starting at or before the earliest start of
+/// its partials' lifelines and ending at or after the latest end.
+///
+/// A source's timelines are shared by all of its partials (docs/rendering.md
+/// section 8.5), so they must cover all of them. The values and curve types
+/// are range rules, and the order of the times is precomputation's and
+/// rendering's to check.
+///
+/// @param db  Database to check.
+/// @return The check's outcome, one violation per missing timeline or
+///         uncovered end, by kind and then in source id order.
+/// @throws EngineDbError  If a query fails.
+IntegrityCheck checkSourceTimelines(EngineDb& db) {
+    IntegrityCheck check{.name = "every SoundSource with partials has azimuth, elevation and "
+                                 "distance timelines that cover its partials' lifelines",
+        .violationCount = 0,
+        .violations = {}};
+    const auto spans = sourceSpans(db);
+    const auto describeTime = [](const std::optional<double>& time) {
+        return time.has_value() ? formatNumber(*time) : std::string{"NULL"};
+    };
+    for (const std::string kind : {"Azimuth", "Elevation", "Distance"}) {
+        const std::string timeline = kind + "PhysicalTimeline";
+        const auto ends = listEnds(db, timeline, timeline + "Point", "SoundSource");
+        for (const auto& [source, span] : spans) {
+            const std::string name = "SoundSource " + std::to_string(source) + ": ";
+            const auto found = ends.find(source);
+            if (found == ends.end()) {
+                std::string message = name;
+                message += "it has partials but no " + timeline;
+                check.add(std::move(message));
+                continue;
+            }
+            const auto& [first, last] = found->second;
+            const auto& [start, end] = span;
+            if (start.has_value() && (!first.has_value() || *first > *start)) {
+                std::string message = name;
+                message += timeline + " starts at " + describeTime(first);
+                message += ", after its partials' earliest start " + formatNumber(*start);
+                check.add(std::move(message));
+            }
+            if (end.has_value() && (!last.has_value() || *last < *end)) {
+                std::string message = name;
+                message += timeline + " ends at " + describeTime(last);
+                message += ", before its partials' latest end " + formatNumber(*end);
+                check.add(std::move(message));
+            }
         }
     }
     return check;
@@ -1138,6 +1293,7 @@ IntegrityReport checkIntegrity(EngineDb& db) {
     }
     report.checks.push_back(checkSetMembership(db));
     report.checks.push_back(checkLifelineEquality(db));
+    report.checks.push_back(checkSourceTimelines(db));
     report.checks.push_back(checkTempoMapShape(db));
     report.checks.push_back(checkPointAt(db));
     report.checks.push_back(checkMusicalOrder(db));

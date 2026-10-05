@@ -9,6 +9,8 @@
 #include "rainbohz/rendering_engine/integrity.hpp"
 #include "rainbohz/rendering_engine/script_loader.hpp"
 
+#include "test_support.hpp"
+
 #include <gtest/gtest.h>
 
 #include <cstddef>
@@ -46,6 +48,7 @@ using rainbohz::rendering_engine::kMaxReportedViolations;
 using rainbohz::rendering_engine::ListDefects;
 using rainbohz::rendering_engine::loadCypherFile;
 using rainbohz::rendering_engine::requireInt64;
+using rainbohz::rendering_engine::test::addSoundSource;
 
 using IdMap = std::unordered_map<std::int64_t, std::int64_t>;
 
@@ -88,6 +91,8 @@ std::string failures(const IntegrityReport& report) {
 /// An in-memory engine-db with the real schema, one EngineConfig, and one
 /// partial in one PartialSet whose FrequencyPhysicalTimeline has three sound points
 /// at times 0, 10 and 20, and whose AmplitudePhysicalTimeline has two, at 0 and 20.
+/// The set's SoundSource has azimuth, elevation and distance timelines of two
+/// points each, at 0 and 20.
 class IntegrityDb : public ::testing::Test {
 protected:
     /// Applies the schema and builds the sound score described above.
@@ -106,6 +111,10 @@ protected:
             "(p)-[:HAS_PHYSICAL_TIMELINE]->(:AmplitudePhysicalTimeline)"
             "-[:NEXT_POINT]->(:AmplitudePhysicalTimelinePoint {time: 0.0, amplitude: -6.0})"
             "-[:NEXT_POINT]->(:AmplitudePhysicalTimelinePoint {time: 20.0, amplitude: -6.0});");
+        addSoundSource(db, "SS", {{0.0, 0.0}, {20.0, 0.0}}, {{0.0, 0.0}, {20.0, 0.0}},
+            {{0.0, 1.0}, {20.0, 1.0}});
+        db.execute("MATCH (ss:SoundSource {name: 'SS'}), (s:PartialSet {name: 'S'}) "
+                   "CREATE (ss)-[:HAS_PARTIALSET]->(s);");
     }
 
     /// Sets one property of the point at `time`.
@@ -183,9 +192,10 @@ TEST(FindListDefects, AMergeIntoAListNoTimelineReaches) {
 TEST_F(IntegrityDb, ASoundScorePasses) {
     const IntegrityReport report = checkIntegrity(db);
     EXPECT_TRUE(report.ok()) << failures(report);
-    // One EngineConfig check, 23 range rules, set membership, lifeline
-    // equality, six musical-time checks, and two per NEXT_POINT list type.
-    EXPECT_EQ(report.checks.size(), 1U + 23U + 2U + 6U + (2U * 14U));
+    // One EngineConfig check, 35 range rules, set membership, lifeline
+    // equality, source timelines, six musical-time checks, and two per
+    // NEXT_POINT list type.
+    EXPECT_EQ(report.checks.size(), 1U + 35U + 3U + 6U + (2U * 17U));
 }
 
 TEST(Integrity, TheExampleScorePasses) {
@@ -365,7 +375,9 @@ TEST_F(IntegrityDb, PhasePointsMayBeFreeButMustBeInRadiansAndTime) {
 }
 
 TEST_F(IntegrityDb, ChannelModeMustBeAKnownMode) {
-    db.execute("MATCH (c:EngineConfig) SET c.channelMode = 5;");
+    db.execute("MATCH (c:EngineConfig) SET c.channelMode = 7;");
+    EXPECT_EQ(find(checkIntegrity(db), "EngineConfig.channelMode is").violationCount, 0U);
+    db.execute("MATCH (c:EngineConfig) SET c.channelMode = 8;");
     EXPECT_EQ(find(checkIntegrity(db), "EngineConfig.channelMode is").violationCount, 1U);
 }
 
@@ -375,6 +387,40 @@ TEST_F(IntegrityDb, EveryPartialMustBeInAPartialSet) {
         find(checkIntegrity(db), "every Partial is aggregated by exactly one PartialSet");
     ASSERT_EQ(check.violationCount, 1U);
     EXPECT_NE(check.violations[0].find("0 PartialSet"), std::string::npos);
+}
+
+/// The name of checkSourceTimelines().
+constexpr std::string_view kSourceTimelinesCheck =
+    "every SoundSource with partials has azimuth, elevation and distance timelines that cover "
+    "its partials' lifelines";
+
+TEST_F(IntegrityDb, ASourceWithPartialsNeedsAllThreeSpatialTimelines) {
+    db.execute("MATCH (:SoundSource)-[:HAS_PHYSICAL_TIMELINE]->(t:ElevationPhysicalTimeline) "
+               "DETACH DELETE t;");
+    const IntegrityCheck check = find(checkIntegrity(db), kSourceTimelinesCheck);
+    ASSERT_EQ(check.violationCount, 1U);
+    EXPECT_NE(check.violations[0].find("no ElevationPhysicalTimeline"), std::string::npos)
+        << check.violations[0];
+}
+
+TEST_F(IntegrityDb, ASourcesTimelinesMustCoverItsPartials) {
+    db.execute("MATCH (a:AzimuthPhysicalTimelinePoint) WHERE a.time = 20.0 SET a.time = 15.0;");
+    db.execute("MATCH (d:DistancePhysicalTimelinePoint) WHERE d.time = 0.0 SET d.time = 0.5;");
+    const IntegrityCheck check = find(checkIntegrity(db), kSourceTimelinesCheck);
+    ASSERT_EQ(check.violationCount, 2U) << check.violations[0];
+    EXPECT_NE(check.violations[0].find("AzimuthPhysicalTimeline ends at 15"), std::string::npos)
+        << check.violations[0];
+    EXPECT_NE(check.violations[1].find("DistancePhysicalTimeline starts at 0.5"), std::string::npos)
+        << check.violations[1];
+}
+
+TEST_F(IntegrityDb, SpatialValuesMustBeInRange) {
+    db.execute("MATCH (a:AzimuthPhysicalTimelinePoint) WHERE a.time = 0.0 SET a.azimuth = 4.0;");
+    db.execute("MATCH (d:DistancePhysicalTimelinePoint) WHERE d.time = 0.0 SET d.distance = 0.5;");
+    const IntegrityReport report = checkIntegrity(db);
+    EXPECT_EQ(find(report, "AzimuthPhysicalTimelinePoint.azimuth is").violationCount, 1U);
+    EXPECT_EQ(find(report, "DistancePhysicalTimelinePoint.distance is").violationCount, 1U);
+    EXPECT_EQ(report.violationCount(), 2U) << failures(report);
 }
 
 TEST_F(IntegrityDb, TheTwoPhysicalTimelinesMustStartAndEndTogether) {

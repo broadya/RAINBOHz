@@ -1,8 +1,10 @@
 # spatial-audio PoC: perfect virtual microphones
 
 Python oracle for RAINBOHz multi-channel and spatial audio, round 1, and its
-C++20 port in [`cpp/`](cpp/) (see [C++20 module](#c20-module)). Integration into
-`rendering-engine` follows. Not part of any build.
+C++20 port in [`cpp/`](cpp/) (see [C++20 module](#c20-module)). The port is
+integrated into `rendering-engine` (2026-10-04, `channel_mode` and
+`spatial_gains`, rendering-engine/docs/rendering.md §8.5); this directory
+remains the oracle, and is not part of any build.
 
 ## Model
 
@@ -81,7 +83,11 @@ FOA B-format WAVs are AmbiX and can be checked in any AmbiX decoder.
 
 ## C++20 module
 
-`cpp/` is the core calculation in C++20, ready to move into `rendering-engine`.
+`cpp/` is the core calculation in C++20, now moved into `rendering-engine`,
+where azimuth and elevation have distinct unit types (`Azimuth`,
+`Elevation`) in place of the shared `Radians`. If `oracle_gains.csv` is
+regenerated, copy it to `rendering-engine/test/oracle/spatial_gains.csv`
+too.
 Given a channel mode and a position, it returns the signed linear gain of each
 output channel. It has no plotting, WAVs or rendering. It depends on nothing in
 `rendering-engine` and has its own unit types (`Radians`, `Metres`,

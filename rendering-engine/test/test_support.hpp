@@ -1,10 +1,12 @@
 #pragma once
 
-// Helpers shared by the rendering tests: reading back a WAV file by hand.
+// Helpers shared by the rendering tests: reading back a WAV file by hand, and
+// building a SoundSource with its spatial timelines.
 //
 // The reader parses the RIFF chunks itself and checks them as it goes, so
 // that the container the engine writes is verified rather than trusted.
 
+#include "rainbohz/rendering_engine/engine_db.hpp"
 #include "rainbohz/rendering_engine/sample_value.hpp"
 
 #include <gtest/gtest.h>
@@ -15,7 +17,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace rainbohz::rendering_engine::test {
@@ -171,6 +175,94 @@ inline std::filesystem::path freshDirectory(const std::string& name) {
     std::filesystem::remove_all(dir);
     std::filesystem::create_directories(dir);
     return dir;
+}
+
+/// A (time, value) point of a spatial timeline: samples, and radians or
+/// metres.
+using SpatialTestPoint = std::pair<double, double>;
+
+/// Where a test's source is when the test does not care: straight ahead,
+/// level, 1 m away, at which the mono gain is exactly 1, from 0 to well past
+/// any test's score. One function per timeline.
+///
+/// @return The timeline's two points.
+inline std::vector<SpatialTestPoint> stillAzimuth() {
+    return {{0.0, 0.0}, {1.0e12, 0.0}};
+}
+
+/// See stillAzimuth().
+///
+/// @return The timeline's two points.
+inline std::vector<SpatialTestPoint> stillElevation() {
+    return {{0.0, 0.0}, {1.0e12, 0.0}};
+}
+
+/// See stillAzimuth().
+///
+/// @return The timeline's two points.
+inline std::vector<SpatialTestPoint> stillDistance() {
+    return {{0.0, 1.0}, {1.0e12, 1.0}};
+}
+
+/// Formats a double so that Cypher reads it back exactly, as a DOUBLE.
+///
+/// @param value  A finite value.
+/// @return The value with 17 significant digits and a decimal point.
+inline std::string spatialLiteral(double value) {
+    std::ostringstream out;
+    out.precision(17);
+    out << std::showpoint << value;
+    return out.str();
+}
+
+/// Gives an existing SoundSource its three spatial timelines, each with
+/// linear curves.
+///
+/// @param[in,out] db  Database to write.
+/// @param name        SoundSource.name of an existing source, unique in the
+///                    test.
+/// @param azimuth     (time, radians) points, linked in order. Empty for no
+///                    timeline at all.
+/// @param elevation   (time, radians) points; empty for no timeline.
+/// @param distance    (time, metres) points; empty for no timeline.
+inline void addSpatialTimelines(EngineDb& db, const std::string& name,
+    const std::vector<SpatialTestPoint>& azimuth = stillAzimuth(),
+    const std::vector<SpatialTestPoint>& elevation = stillElevation(),
+    const std::vector<SpatialTestPoint>& distance = stillDistance()) {
+    const auto timeline = [&](const std::string& kind, const std::string& column,
+                              const std::vector<SpatialTestPoint>& points) {
+        if (points.empty()) {
+            return;
+        }
+        std::string cypher = "MATCH (s:SoundSource {name: '";
+        cypher += name + "'}) CREATE (s)-[:HAS_PHYSICAL_TIMELINE]->(t:";
+        cypher += kind + "PhysicalTimeline) WITH t CREATE (t)";
+        for (const auto& [time, value] : points) {
+            cypher += "-[:NEXT_POINT]->(:" + kind + "PhysicalTimelinePoint {time: ";
+            cypher += spatialLiteral(time) + ", " + column + ": ";
+            cypher += spatialLiteral(value) + ", " + column + "_curve_type: 0})";
+        }
+        db.execute(cypher + ";");
+    };
+    timeline("Azimuth", "azimuth", azimuth);
+    timeline("Elevation", "elevation", elevation);
+    timeline("Distance", "distance", distance);
+}
+
+/// Creates a SoundSource with its three spatial timelines, as
+/// addSpatialTimelines() gives them.
+///
+/// @param[in,out] db  Database to write.
+/// @param name        SoundSource.name, unique in the test.
+/// @param azimuth     (time, radians) points; empty for no timeline.
+/// @param elevation   (time, radians) points; empty for no timeline.
+/// @param distance    (time, metres) points; empty for no timeline.
+inline void addSoundSource(EngineDb& db, const std::string& name,
+    const std::vector<SpatialTestPoint>& azimuth = stillAzimuth(),
+    const std::vector<SpatialTestPoint>& elevation = stillElevation(),
+    const std::vector<SpatialTestPoint>& distance = stillDistance()) {
+    db.execute("CREATE (:SoundSource {name: '" + name + "'});");
+    addSpatialTimelines(db, name, azimuth, elevation, distance);
 }
 
 } // namespace rainbohz::rendering_engine::test

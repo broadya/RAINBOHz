@@ -77,13 +77,19 @@ the schema documents a range for it.
 | `FrequencyPhysicalTimelinePoint.frequency` | no | any finite value | schema: unbounded in both directions |
 | `FrequencyPhysicalTimelinePoint.frequency_curve_type` | no | 0 to 4 | schema's enumeration |
 | `FrequencyPhysicalTimelinePoint.frequency_curve_amount` | no | 0 to 1 | schema: 0 linear, 1 curve |
-| `EngineConfig.channelMode` | no | 0 to 4 | schema's enumeration |
+| `EngineConfig.channelMode` | no | 0 to 7 | schema's enumeration |
 | `AmplitudePhysicalTimelinePoint.time` | no | ≥ 0 | as for frequency points |
 | `AmplitudePhysicalTimelinePoint.amplitude` | no | ≤ 0 | schema; an amplitude above 0 dB is an **error** (decided 2026-09-23): the schema's "values above 0dB will be clipped" is the renderer's defence against bad data, not permission to store it |
 | `AmplitudePhysicalTimelinePoint.amplitude_curve_type` | no | 0 to 4 | schema's enumeration |
 | `AmplitudePhysicalTimelinePoint.amplitude_curve_amount` | no | 0 to 1 | schema: 0 linear, 1 curve |
 | `PhasePhysicalTimelinePoint.time` | no | ≥ 0 | as for frequency points |
 | `PhasePhysicalTimelinePoint.phase` | **allowed**: a free-running point | −π to π radians | [precomputation.md](precomputation.md) §7; the transform clamps ±180° to exactly ±π |
+| `AzimuthPhysicalTimelinePoint.time`, `ElevationPhysicalTimelinePoint.time`, `DistancePhysicalTimelinePoint.time` | no | ≥ 0 | as for frequency points |
+| `AzimuthPhysicalTimelinePoint.azimuth` | no | −π to π radians | schema |
+| `ElevationPhysicalTimelinePoint.elevation` | no | −π/2 to π/2 radians | schema |
+| `DistancePhysicalTimelinePoint.distance` | no | 1 to 16384 metres | schema |
+| `*_curve_type` of the three spatial point tables | no | 0 to 4 | schema's enumeration |
+| `*_curve_amount` of the three spatial point tables | no | 0 to 1 | schema |
 
 | `TempoMap.ticks_per_beat` | no | > 0 | schema |
 | `TempoMapPoint.position` | no | ≥ 0 | ticks from the map's start ([transform.md](transform.md) §6.1) |
@@ -102,11 +108,13 @@ those columns since phase control (precomputation.md §6.8), and the rule above 
 feature brings its columns' rules with it. The `TempoMap`, `TempoMapPoint`,
 `PartialSetMusicalTimelinePoint` and `PartialState` rows arrived with the
 transform ([transform.md](transform.md) §9, 2026-10-02), and
-`PartialState.phase` with the transform's phase mapping (2026-10-03).
+`PartialState.phase` with the transform's phase mapping (2026-10-03). The
+spatial point rows, and the `channelMode` range of 0 to 7, arrived with the
+spatial stage (rendering.md §8.5, 2026-10-04).
 `PartialState.phase_free_run` is a nullable BOOLEAN with no range; what is
 checked is its combination with `phase`, below.
 
-Three further checks cover what no single column can:
+Four further checks cover what no single column can:
 
 - **`EngineConfig` is a singleton**, and at least one of its `frameSize` and
   `sampleRate` is set, so that there is a frame size.
@@ -121,6 +129,14 @@ Three further checks cover what no single column can:
   failure, not this check's. The lists are walked in C++ from their heads,
   stopping silently at a revisited node, since cycles are the list checks'
   business.
+- **SoundSource timelines** (2026-10-04). Every `SoundSource` with partials
+  has an `AzimuthPhysicalTimeline`, an `ElevationPhysicalTimeline` and a
+  `DistancePhysicalTimeline`. Each starts at or before the earliest start of
+  its partials' lifelines and ends at or after the latest end, since a
+  source's position is shared by all its partials (author, 2026-10-04). The
+  lifeline is the frequency timeline's span. That the times along a spatial
+  timeline strictly increase is precomputation's and rendering's to check, as
+  it is for the other physical timelines.
 
 Six more arrived with the transform, covering the musical-time tables it
 reads (transform.md §9; all decided by the author on 2026-10-02):

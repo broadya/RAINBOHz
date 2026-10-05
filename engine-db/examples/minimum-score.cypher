@@ -55,4 +55,18 @@ CREATE (frequencyPhysicalTimelinePoint0)-[:NEXT_POINT]->(frequencyPhysicalTimeli
 // free from there.
 CREATE (phasePhysicalTimeline0:PhasePhysicalTimeline {})
 CREATE (partial0)-[:HAS_PHYSICAL_TIMELINE]->(phasePhysicalTimeline0)
-CREATE (phasePhysicalTimeline0)-[:NEXT_POINT]->(:PhasePhysicalTimelinePoint {time:0.0, phase:0.0});
+CREATE (phasePhysicalTimeline0)-[:NEXT_POINT]->(:PhasePhysicalTimelinePoint {time:0.0, phase:0.0})
+
+// The sound source's position, in the rendering model's physical units, since
+// nothing yet produces it from the canonical model: straight ahead, level and
+// 1 m away, from 0 to the end of the score. There the mono gain is exactly 1,
+// so mono output is unchanged by the spatial stage.
+CREATE (soundSource0)-[:HAS_PHYSICAL_TIMELINE]->(:AzimuthPhysicalTimeline)
+       -[:NEXT_POINT]->(:AzimuthPhysicalTimelinePoint {time:0.0, azimuth:0.0})
+       -[:NEXT_POINT]->(:AzimuthPhysicalTimelinePoint {time:480000.0, azimuth:0.0})
+CREATE (soundSource0)-[:HAS_PHYSICAL_TIMELINE]->(:ElevationPhysicalTimeline)
+       -[:NEXT_POINT]->(:ElevationPhysicalTimelinePoint {time:0.0, elevation:0.0})
+       -[:NEXT_POINT]->(:ElevationPhysicalTimelinePoint {time:480000.0, elevation:0.0})
+CREATE (soundSource0)-[:HAS_PHYSICAL_TIMELINE]->(:DistancePhysicalTimeline)
+       -[:NEXT_POINT]->(:DistancePhysicalTimelinePoint {time:0.0, distance:1.0})
+       -[:NEXT_POINT]->(:DistancePhysicalTimelinePoint {time:480000.0, distance:1.0});

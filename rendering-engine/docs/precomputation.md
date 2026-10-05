@@ -3,7 +3,9 @@
 **Status:** implemented, for the first version (§2), including the frame
 entries of §6.7 and the amplitude reading they need (§4), which were designed
 on 2026-09-24 for rendering and implemented on 2026-09-25, and phase control
-(§6.8), designed with the author and implemented on 2026-10-03. The code is
+(§6.8), designed with the author and implemented on 2026-10-03. Spatial
+entries (§6.7) were added on 2026-10-04: each frame entry also leads into the
+partial's SoundSource's azimuth, elevation and distance timelines. The code is
 [units.hpp](../include/rainbohz/rendering_engine/units.hpp),
 [segment_maths.hpp](../include/rainbohz/rendering_engine/segment_maths.hpp),
 [precomputation.hpp](../include/rainbohz/rendering_engine/precomputation.hpp) and
@@ -174,6 +176,16 @@ timeline, with at least one point, at the start of its lifeline (author,
 2026-10-03); the compiler is expected to guarantee it, and precomputation
 checks it (§7).
 
+For the spatial entries of §6.7 it reads each partial's SoundSource, through
+its set (`HAS_PARTIAL`, `HAS_PARTIALSET`), and that source's one
+`AzimuthPhysicalTimeline`, `ElevationPhysicalTimeline` and
+`DistancePhysicalTimeline` with their points in `NEXT_POINT` order. It uses
+`time`, the value (`azimuth`, `elevation` or `distance`) and the curve type.
+The values are rendering's concern (rendering.md §8.5), but the lists are
+validated here (§7), because this is where they are walked. A source's
+timelines are shared by all its partials, so they are walked and checked
+once per run per source, and the result is shared.
+
 It also reads the singleton `EngineConfig`, for the frame size:
 
 - `frameSize`, if not `NULL`;
@@ -202,13 +214,17 @@ For each partial, precomputation writes:
   `FRAME_ENTRY`, to the partial by `FRAME_ENTRY_PARTIAL`, and by
   `FRAME_ENTRY_PHYSICAL_TIMELINE` to the `PartialIntegrableSegment`, the
   `AmplitudePhysicalTimelinePoint` and the `PartialPhaseCompensationSegment`
-  that the frame's rendering starts from (§6.7).
+  that the frame's rendering starts from, and to the
+  `AzimuthPhysicalTimelinePoint`, `ElevationPhysicalTimelinePoint` and
+  `DistancePhysicalTimelinePoint` of its SoundSource that do the same (§6.7).
+  The spatial timelines themselves are inputs and are never written.
 
 The shape, for the worked example of §12 (three frequency points, two
 segments, three frames), with an amplitude timeline of two points added so
 that the frame entries can be shown. Its phase timeline, one point of phase 0
 at the start, and the one flat compensation segment it gives, are left out
-of the drawing for space; every entry leads to that segment too:
+of the drawing for space; every entry leads to that segment too. So are the
+source's spatial timelines, into which every entry also leads:
 
 ```mermaid
 flowchart LR
@@ -510,11 +526,27 @@ t^*_k = \max(b_0,\ k \cdot F)
 - the **entry point** is the last `AmplitudePhysicalTimelinePoint` with
   `time ≤ t*_k`, the start of the amplitude piece covering `t*_k`;
 - the **entry compensation segment** is the `PartialPhaseCompensationSegment`
-  with `start_time ≤ t*_k < end_time`, by the same rule as the entry segment.
+  with `start_time ≤ t*_k < end_time`, by the same rule as the entry segment;
+- the **spatial entry points** are, on each of the partial's SoundSource's
+  three spatial timelines, chosen by the frame's start `k·F` rather than by
+  `t*_k` (author, 2026-10-05): the point exactly at `k·F` if there is one;
+  otherwise the last point before it; otherwise the first point, which then
+  lies inside the frame. That is: the last point with `time ≤ k·F`, or the
+  first point if none is.
 
-All three exist for every frame in scope, because `t*_k ∈ [b₀, b_last)` there,
+All of them exist for every frame in scope, because `t*_k ∈ [b₀, b_last)` there,
 the amplitude timeline's first and last times equal `b₀` and `b_last` (§7),
-and both segment lists cover `[b₀, b_last)` exactly.
+and both segment lists cover `[b₀, b_last)` exactly. A spatial timeline that
+starts inside the frame starts at or before the earliest `b₀` of its source's
+partials, which coverage guarantees (§7), so its first point is never too
+late for any of them.
+
+The spatial entries depend on the frame and the source, not the partial, so
+every partial of a source leads to the same three points in a frame. The
+renderer may then process from the frame's start even where a partial
+starts later; it tracks the position sample by sample over the whole frame
+anyway, and a smaller, simpler graph is worth more than skipping the silent
+start of a frame (author, 2026-10-05).
 
 They are recorded as one **`FrameEntry`** node per partial per frame: a node
 with no properties, whose only purpose is to be found from the frame and to
@@ -524,14 +556,20 @@ lead to the right places. Three relationship tables join it up:
 | --- | --- | --- | --- |
 | `FRAME_ENTRY` | `Frame` → `FrameEntry` | `ONE_MANY` | a frame has one entry per partial in scope; an entry belongs to one frame |
 | `FRAME_ENTRY_PARTIAL` | `FrameEntry` → `Partial` | `MANY_ONE` | an entry belongs to one partial; a partial has one per frame |
-| `FRAME_ENTRY_PHYSICAL_TIMELINE` | `FrameEntry` → `PartialIntegrableSegment`, `FrameEntry` → `AmplitudePhysicalTimelinePoint`, `FrameEntry` → `PartialPhaseCompensationSegment` | one per pair | an entry leads to one segment, one point and one compensation segment; a list node is the entry of every frame it spans |
+| `FRAME_ENTRY_PHYSICAL_TIMELINE` | `FrameEntry` → `PartialIntegrableSegment`, `FrameEntry` → `AmplitudePhysicalTimelinePoint`, `FrameEntry` → `PartialPhaseCompensationSegment`, `FrameEntry` → `AzimuthPhysicalTimelinePoint`, `FrameEntry` → `ElevationPhysicalTimelinePoint`, `FrameEntry` → `DistancePhysicalTimelinePoint` | one per pair | an entry leads to one node of each list; a list node is the entry of every frame it spans, and a spatial point of every partial of its source too |
 
 `Frame` is keyed by frame number, so the renderer reaches a frame's entries
 in one indexed hop from a primary-key lookup, and from each entry reaches
-the partial and all three lists in one hop more. The compensation list is
+the partial and all six lists in one hop more. The compensation list is
 reached from the same `FrameEntry` as the others, not from one of its own
 (author, 2026-10-03). Nothing is filtered on a
-property. The node is the graph's way of saying "this partial, in this
+property.
+
+The spatial entry points are the same for every partial of a source, so the
+same edge is written once per partial. The schema puts them on the
+per-partial `FrameEntry` (author, 2026-10-04). Rendering reads them, checks
+that a source's partials agree, and walks each source's lists once
+(rendering.md §6.3). The node is the graph's way of saying "this partial, in this
 frame", and it is the natural home for any per-partial per-frame state a
 later version wants to keep, such as the phase at the frame's start
 (rendering.md §6.4.1).
@@ -541,9 +579,11 @@ in one hop rather than two. It is kept for now (§14).
 
 All the entries of one partial come from one forward pass over each list,
 advancing a cursor as the frame starts increase, so the cost is the length
-of the list plus the number of frames, not their product. An entry per
-partial per frame is one node and five edges at the same count as the scope
-edges.
+of the list plus the number of frames, not their product. A source's spatial
+lists span all its partials, so their cursors start by binary search at the
+start of the partial's first frame, and then move forward the same way. An entry per
+partial per frame is one node and eight edges, at the same count as the
+scope edges.
 
 **Under Doppler** the source time at a receiver frame's start is not known
 without a binary search over the set's distance path, which is deliberately
@@ -685,6 +725,10 @@ reason.
 | Every phase point's `time` is non-`NULL` and finite, and strictly increases along the list | partial | partial fails |
 | The first phase point's `time` equals the first frequency point's exactly, and no phase point is after the last | partial | partial fails |
 | Every phase point's `phase` is `NULL`, or finite and in `[−π, π]` | partial | partial fails |
+| The partial's set is aggregated by exactly one `SoundSource` | partial | partial fails |
+| The source has one each of `AzimuthPhysicalTimeline`, `ElevationPhysicalTimeline` and `DistancePhysicalTimeline`, each with at least 1 point, and no chain has a cycle | source: every partial of it fails, naming the source | partial fails |
+| Every spatial point's `time` and value are non-`NULL` and finite; `time` strictly increases; azimuth is in `[−π, π]`, elevation in `[−π/2, π/2]`, distance in `[1, 16384]` metres; every point except the last has curve type 0 (linear) | source, as above | partial fails |
+| Each spatial timeline's first point is at or before the partial's `b₀` and its last at or after `b_last`: a source's timelines cover every partial of it (author, 2026-10-04) | partial | partial fails |
 
 Three rules from the schema are **not** checks here:
 
@@ -966,8 +1010,10 @@ design will build on:
 - `PARTIAL_IN_FRAME` lists exactly the frames the partial's life
   overlaps. A frame with no such edge from a partial need not consider it.
 - For every such frame there is one `FrameEntry` reachable from the `Frame`
-  node, leading to the partial, and to the segment and the amplitude point
-  covering the frame's first instant inside the partial's life (§6.7).
+  node, leading to the partial, and to the segment, the amplitude point, the
+  compensation segment and the source's azimuth, elevation and distance
+  points covering the frame's first instant inside the partial's life
+  (§6.7).
   Walking forward from each along `NEXT_POINT` reaches everything the frame
   needs; under Doppler the walk may also go backward, by the same rule.
 - The partial's amplitude timeline is well formed: at least two points,
@@ -978,6 +1024,9 @@ design will build on:
   cover exactly `[b₀, b_last)`. The phase the partial must have at *t* is
   N(t) + D(t), D interpolated linearly over the covering compensation
   segment, and it meets every phase target of the phase timeline (§6.8).
+- The partial's SoundSource has one azimuth, one elevation and one distance
+  timeline, each well formed, linear, in range, and covering the partial's
+  lifeline.
 
 ## 12. Worked example
 

@@ -25,12 +25,11 @@
 
 namespace {
 
+using rainbohz::rendering_engine::ChannelMode;
 using rainbohz::rendering_engine::EngineDb;
 using rainbohz::rendering_engine::loadCypherFile;
 using rainbohz::rendering_engine::requireInt64;
 using rainbohz::rendering_engine::transform::BeatsTicks;
-using rainbohz::rendering_engine::transform::ChannelMode;
-using rainbohz::rendering_engine::transform::channelModeName;
 using rainbohz::rendering_engine::transform::FramePosition;
 using rainbohz::rendering_engine::transform::framePosition;
 using rainbohz::rendering_engine::transform::kWalkChunk;
@@ -67,14 +66,6 @@ TEST(ParseBeatsTicks, RefusesAnythingElse) {
              "1:2:3", " 1", "1 ", "1e3", "x", "99999999999999999999"}) {
         EXPECT_FALSE(parseBeatsTicks(text).has_value()) << '"' << text << '"';
     }
-}
-
-TEST(ChannelModeName, SpellsEachMode) {
-    EXPECT_EQ(channelModeName(ChannelMode::Mono), "mono");
-    EXPECT_EQ(channelModeName(ChannelMode::Stereo), "stereo");
-    EXPECT_EQ(channelModeName(ChannelMode::MidSide), "mid-side");
-    EXPECT_EQ(channelModeName(ChannelMode::FoaAFormat), "foa-a-format");
-    EXPECT_EQ(channelModeName(ChannelMode::FoaBFormat), "foa-b-format");
 }
 
 // ---------------------------------------------------------------------------
@@ -290,18 +281,20 @@ TEST_F(TimingQueryDb, EngineParametersResolveTheFrameSize) {
     EXPECT_EQ(parameters.frameSize.value(), 48000);
     EXPECT_EQ(parameters.channelMode, ChannelMode::Mono);
 
-    db.execute("MATCH (c:EngineConfig) SET c.frameSize = 1024, c.channelMode = 4;");
+    db.execute("MATCH (c:EngineConfig) SET c.frameSize = 1024, c.channelMode = 7;");
     parameters = readEngineParameters(db);
     EXPECT_EQ(parameters.frameSize.value(), 1024);
     EXPECT_EQ(parameters.channelMode, ChannelMode::FoaBFormat);
 
-    db.execute("MATCH (c:EngineConfig) SET c.channelMode = 2;");
+    db.execute("MATCH (c:EngineConfig) SET c.channelMode = 3;");
     EXPECT_EQ(readEngineParameters(db).channelMode, ChannelMode::MidSide);
 }
 
 TEST_F(TimingQueryDb, UnusableEngineParametersAreRefused) {
     expectFailure(Kind::Unprocessable, [&] { readEngineParameters(db); });
-    db.execute("CREATE (:EngineConfig {sampleRate: 48000, channelMode: 5});");
+    db.execute("CREATE (:EngineConfig {sampleRate: 48000, channelMode: 8});");
+    expectFailure(Kind::Unprocessable, [&] { readEngineParameters(db); });
+    db.execute("MATCH (c:EngineConfig) SET c.channelMode = NULL;");
     expectFailure(Kind::Unprocessable, [&] { readEngineParameters(db); });
     db.execute("MATCH (c:EngineConfig) SET c.channelMode = 1, c.sampleRate = NULL;");
     expectFailure(Kind::Unprocessable, [&] { readEngineParameters(db); });

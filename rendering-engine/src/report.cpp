@@ -238,7 +238,8 @@ void reportPrecomputation(std::ostream& out, const PrecomputationReport& report,
 
 void reportRendering(std::ostream& out, const RenderingReport& report, bool verbose) {
     out << "  rendering: sample rate " << report.sampleRate.value() << ", frame size "
-        << report.frameSize.value() << " samples, mono\n";
+        << report.frameSize.value() << " samples, " << channelModeName(report.channelMode) << " ("
+        << channelCount(report.channelMode) << " channel(s))\n";
     for (const FrameOutcome& frame : report.frames) {
         for (const PartialFailure& failure : frame.newFailures) {
             out << "    FAILED   " << describeFailedPartial(failure) << " in frame "
@@ -251,8 +252,9 @@ void reportRendering(std::ostream& out, const RenderingReport& report, bool verb
         if (!verbose) {
             continue;
         }
-        out << "    ok       frame " << frame.frame.value() << ": " << frame.setCount << " set(s), "
-            << frame.partialCount << " partial(s), ";
+        out << "    ok       frame " << frame.frame.value() << ": " << frame.sourceCount
+            << " source(s), " << frame.setCount << " set(s), " << frame.partialCount
+            << " partial(s), ";
         if (frame.setCount == 0) {
             out << "silent";
         } else {

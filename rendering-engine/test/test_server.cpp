@@ -499,7 +499,7 @@ TEST_F(ServerTest, EngineConfigIsResolved) {
     loadOk("long-map.cypher");
     const Json other = expectResource(server().engineConfig({}));
     EXPECT_EQ(other.at("frame_size"), 1000);
-    EXPECT_EQ(other.at("channel_mode"), "stereo");
+    EXPECT_EQ(other.at("channel_mode"), "stereo-from-mid-side");
 }
 
 TEST_F(ServerTest, AFramePositionIsAFrameAndAnOffset) {

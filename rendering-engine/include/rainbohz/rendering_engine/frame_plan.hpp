@@ -8,14 +8,21 @@
 // Everything here is a pure function over in-memory data, testable without a
 // database. The gather (rendering.hpp) produces PartialData; this file turns
 // it into RenderSegments and chunk cuts, then anchors and calls the kernel.
-// The source clock of a partial set lives here and nowhere else: in this
-// version it is the identity map, and Doppler will replace it (section 6.4,
-// step 1).
+// The source clock lives here and nowhere else: in this version it is the
+// identity map, and Doppler will replace it (section 6.4, step 1). It belongs
+// to the SoundSource, whose partials share one position and so, under
+// Doppler, one delay; each partial set's plan carries a copy of its source's.
+//
+// A SoundSource's partial sets are rendered to mono and summed, and the sum
+// is spread over the output channels once, by the source's position
+// (section 8.5): the SoundSourcePlan holds what that needs.
 
 #include "rainbohz/rendering_engine/amplitude_maths.hpp"
+#include "rainbohz/rendering_engine/channel_mode.hpp"
 #include "rainbohz/rendering_engine/precomputation.hpp"
 #include "rainbohz/rendering_engine/sample_value.hpp"
 #include "rainbohz/rendering_engine/segment_maths.hpp"
+#include "rainbohz/rendering_engine/spatial_maths.hpp"
 #include "rainbohz/rendering_engine/units.hpp"
 
 #include <cstddef>
@@ -49,6 +56,9 @@ struct PartialData {
 
     /// PartialSet.id of the one set aggregating the partial.
     std::int64_t partialSetId = 0;
+
+    /// SoundSource.id of the one source aggregating the partial's set.
+    std::int64_t soundSourceId = 0;
 
     /// The integrable segments from the frame's entry segment onward:
     /// contiguous, in time order, covering at least
@@ -212,5 +222,133 @@ PartialSetPlan planPartialSet(std::int64_t partialSetId, std::span<const Partial
 ///      plan's last cut equals it. Not checked.
 void renderPartialSet(
     const PartialSetPlan& plan, const RollOff& rollOff, std::span<SampleValue> out);
+
+// ---------------------------------------------------------------------------
+// Spatial position (docs/rendering.md section 8.5)
+// ---------------------------------------------------------------------------
+
+/// One validated point of a source's azimuth timeline. The curve from it to
+/// the next is linear, along the shorter arc.
+struct AzimuthPoint {
+    /// AzimuthPhysicalTimelinePoint.time.
+    SampleTime time;
+
+    /// AzimuthPhysicalTimelinePoint.azimuth, in [−π, π].
+    Azimuth azimuth;
+};
+
+/// One validated point of a source's elevation timeline. Linear to the next.
+struct ElevationPoint {
+    /// ElevationPhysicalTimelinePoint.time.
+    SampleTime time;
+
+    /// ElevationPhysicalTimelinePoint.elevation, in [−π/2, π/2].
+    Elevation elevation;
+};
+
+/// One validated point of a source's distance timeline. Linear to the next.
+struct DistancePoint {
+    /// DistancePhysicalTimelinePoint.time.
+    SampleTime time;
+
+    /// DistancePhysicalTimelinePoint.distance, in [1, 16384] m.
+    Metres distance;
+};
+
+/// One SoundSource's spatial timelines for one frame, gathered and validated
+/// (docs/rendering.md section 6.3).
+///
+/// Each list runs from the earliest entry point any of the source's partials
+/// has for the frame, onward, until a point at or after the frame's end or
+/// the end of the list. Each is strictly increasing in time and not empty.
+struct SourceData {
+    /// SoundSource.id.
+    std::int64_t soundSourceId = 0;
+
+    /// The azimuth points.
+    std::vector<AzimuthPoint> azimuth;
+
+    /// The elevation points.
+    std::vector<ElevationPoint> elevation;
+
+    /// The distance points.
+    std::vector<DistancePoint> distance;
+};
+
+/// A span of the frame during which a source's position follows one piece of
+/// each of its three timelines.
+struct SpatialSegment {
+    /// Start, in source time. `[start, end)`.
+    SampleTime start;
+
+    /// End, in source time.
+    SampleTime end;
+
+    /// The path over the span, re-based to `start`.
+    NominalPosition position;
+};
+
+/// Builds a source's spatial segments for a frame.
+///
+/// The boundaries are the frame's start and end and every point time of the
+/// three timelines strictly inside the frame. In each segment, each quantity
+/// follows the piece covering the segment's start. Before a timeline's first
+/// point or from its last point on, the quantity holds that point's value:
+/// validation guarantees that the timelines cover every partial of the
+/// source, so a held value only ever multiplies silence.
+///
+/// @param source  The source's gathered, validated timelines.
+/// @param frame   The frame.
+/// @param size    Frame size. Positive.
+/// @return The spatial segments, in time order, covering the frame. At least
+///         one.
+std::vector<SpatialSegment> buildSpatialSegments(
+    const SourceData& source, FrameNumber frame, FrameSize size);
+
+/// Everything needed to spatialise one SoundSource's mono sum for one frame.
+struct SoundSourcePlan {
+    /// SoundSource.id.
+    std::int64_t soundSourceId = 0;
+
+    /// The source clock at the frame's first sample: the frame's start in
+    /// this version.
+    SampleTime sourceTimeAtFrameStart;
+
+    /// Source time consumed per receiver sample. 1.0 in this version.
+    double sourceRate = 1.0;
+
+    /// From buildSpatialSegments().
+    std::vector<SpatialSegment> spatial;
+
+    /// The spatial chunk boundaries, as receiver samples: 0, every sample at
+    /// which a new spatial segment starts, and the frame size. Strictly
+    /// increasing.
+    std::vector<SampleIndex> cuts;
+};
+
+/// Prepares a source for spatialisation in a frame: its clock, its spatial
+/// segments and their chunk cuts.
+///
+/// @param source  The source's gathered, validated timelines.
+/// @param frame   The frame.
+/// @param size    Frame size. Positive.
+/// @return The plan.
+SoundSourcePlan planSoundSource(const SourceData& source, FrameNumber frame, FrameSize size);
+
+/// Spreads a source's mono sum over the output channels, chunk by chunk
+/// (docs/rendering.md section 8.5).
+///
+/// For each chunk, the covering spatial segment is anchored at the chunk's
+/// first sample and the spatial kernel adds the chunk into `interleaved`.
+///
+/// @param plan  The source's plan, from planSoundSource().
+/// @param mode  The channel mode.
+/// @param mono  The sum of the source's partial sets, one frame long.
+/// @param[in,out] interleaved  The frame buffer, `mono.size() ·
+///                     channelCount(mode)` samples, interleaved by channel.
+///                     The source's contribution is added into it.
+/// @pre The plan's last cut equals `mono.size()`. Not checked.
+void spatialiseSource(const SoundSourcePlan& plan, ChannelMode mode,
+    std::span<const SampleValue> mono, std::span<SampleValue> interleaved);
 
 } // namespace rainbohz::rendering_engine

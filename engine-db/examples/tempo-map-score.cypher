@@ -70,4 +70,19 @@ CREATE (p3)-[:POINT_STATE]->(s3:PartialStateSet)
 CREATE (a3:PartialState {frequency: 220.0, amplitude: -144.0})-[:MEMBER_OF_SET_MANY_ONE]->(s3)
 CREATE (a3)-[:STATE_OF]->(a)
 CREATE (b3:PartialState {frequency: 330.0, amplitude: -144.0})-[:MEMBER_OF_SET_MANY_ONE]->(s3)
-CREATE (b3)-[:STATE_OF]->(b);
+CREATE (b3)-[:STATE_OF]->(b)
+
+// The sound source's position, in the rendering model's physical units, since
+// nothing yet produces it from the canonical model: straight ahead, level and
+// 1 m away, from 0 to well past the end of the score, whose length in samples
+// the transform decides. There the mono gain is exactly 1, so mono output is
+// unchanged by the spatial stage.
+CREATE (source)-[:HAS_PHYSICAL_TIMELINE]->(:AzimuthPhysicalTimeline)
+       -[:NEXT_POINT]->(:AzimuthPhysicalTimelinePoint {time:0.0, azimuth:0.0})
+       -[:NEXT_POINT]->(:AzimuthPhysicalTimelinePoint {time:1000000000.0, azimuth:0.0})
+CREATE (source)-[:HAS_PHYSICAL_TIMELINE]->(:ElevationPhysicalTimeline)
+       -[:NEXT_POINT]->(:ElevationPhysicalTimelinePoint {time:0.0, elevation:0.0})
+       -[:NEXT_POINT]->(:ElevationPhysicalTimelinePoint {time:1000000000.0, elevation:0.0})
+CREATE (source)-[:HAS_PHYSICAL_TIMELINE]->(:DistancePhysicalTimeline)
+       -[:NEXT_POINT]->(:DistancePhysicalTimelinePoint {time:0.0, distance:1.0})
+       -[:NEXT_POINT]->(:DistancePhysicalTimelinePoint {time:1000000000.0, distance:1.0});

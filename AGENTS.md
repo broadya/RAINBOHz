@@ -239,7 +239,7 @@ disagree, that one wins.
 | `hzl-compiler/` | `hzl-compiler` | Python 3.12 | First version: score, tempo map, sound entity/source, envelope with `Update`, state sets, scale, harmonic series, flattened cartesian product; frequency and amplitude; emits Cypher |
 | `engine-db/` | `engine-db` — **the implementation** | Cypher DDL | Under construction; rendering concepts, plus the canonical tempo map and partial-set timelines the transform reads |
 | `canonical-db/` | Canonical model — **design artefact** | Cypher DDL | Loads cleanly; not the implementation |
-| `rendering-engine/` | `rendering-engine` | C++20 | Hosts and loads `engine-db`; transforms musical time to physical time (first version: one tempo map, frequency, amplitude and phase targets); precomputes; renders frames to WAV files (first version: mono, linear curves, labels ignored); `batch` and `server` (REST) modes |
+| `rendering-engine/` | `rendering-engine` | C++20 | Hosts and loads `engine-db`; transforms musical time to physical time (first version: one tempo map, frequency, amplitude and phase targets); precomputes; renders frames to multi-channel WAV files (first version: linear curves, one spatial position per SoundSource, all eight channel modes, labels ignored); `batch` and `server` (REST) modes |
 | `playback-client/` | `playback-client` | C++20 | First version: loops a range through the default audio device over `rendering-engine`'s REST service, two buffer lanes, mono; `--output-wav` for tests |
 
 Component directory names match the canonical component identifiers from
@@ -301,7 +301,9 @@ for design context, and are not to be modified. Current PoCs:
   the C++20 port in `spatial-audio/cpp/`: per-channel gains for each
   `EngineConfig.channelMode` (0–7) from a position, standalone CMake with its
   own unit types and GoogleTest, checked against a golden CSV exported from
-  the Python. Integration into `rendering-engine` follows.
+  the Python. Ported into `rendering-engine` on 2026-10-04 (`channel_mode`,
+  `spatial_gains`; rendering-engine/docs/rendering.md §8.5), where the golden
+  CSV is copied as `test/oracle/spatial_gains.csv`; the PoC stays the oracle.
 
 ## Graph Schema (Canonical Object Model)
 

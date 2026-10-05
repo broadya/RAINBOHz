@@ -85,6 +85,7 @@ include(Dependencies)
 # going through main(). Sources are listed explicitly, never globbed --
 # globbing hides added files from the configure step.
 add_library(rendering_engine_lib STATIC
+    src/channel_mode.cpp
     src/cypher_script.cpp
     src/engine_db.cpp
     src/file_uri.cpp
@@ -99,6 +100,7 @@ add_library(rendering_engine_lib STATIC
     src/score_pipeline.cpp
     src/script_loader.cpp
     src/server.cpp
+    src/spatial_gains.cpp
     src/transform/squash.cpp
     src/transform/tempo_map.cpp
     src/transform/timing_query.cpp

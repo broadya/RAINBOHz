@@ -28,6 +28,7 @@
 #include "rainbohz/rendering_engine/segment_maths.hpp"
 #include "rainbohz/rendering_engine/units.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -117,6 +118,59 @@ struct PhasePointRecord {
     std::optional<double> phase;
 };
 
+/// The three spatial timelines of a SoundSource (§7). Each is one
+/// `<Kind>PhysicalTimeline` with `<Kind>PhysicalTimelinePoint`s, whose value
+/// column is `azimuth`, `elevation` or `distance`.
+enum class SpatialKind : std::uint8_t {
+    Azimuth,   ///< radians, [−π, π]
+    Elevation, ///< radians, [−π/2, π/2]
+    Distance,  ///< metres, [1, 16384]
+};
+
+/// The three kinds, in the order the schema declares them.
+inline constexpr std::array<SpatialKind, 3> kSpatialKinds{
+    SpatialKind::Azimuth, SpatialKind::Elevation, SpatialKind::Distance};
+
+/// The timeline table of a kind, e.g. "AzimuthPhysicalTimeline".
+///
+/// @param kind  The kind.
+/// @return The table name; static storage.
+std::string_view spatialTimelineName(SpatialKind kind) noexcept;
+
+/// The value column of a kind's points, e.g. "azimuth".
+///
+/// @param kind  The kind.
+/// @return The column name; static storage.
+std::string_view spatialValueName(SpatialKind kind) noexcept;
+
+/// Whether a spatial value is one the model accepts, and why not.
+///
+/// The ranges are the schema's: azimuth [−π, π] and elevation [−π/2, π/2]
+/// radians, distance [1, 16384] metres. Shared by precomputation and
+/// rendering, which report the problem in their own errors.
+///
+/// @param kind   Which value it is.
+/// @param value  The value, as read.
+/// @return nullopt when `value` is finite and in range; otherwise the reason,
+///         such as "azimuth 4 is outside [-π, π]".
+std::optional<std::string> spatialValueProblem(SpatialKind kind, double value);
+
+/// A point of a SoundSource's azimuth, elevation or distance timeline exactly
+/// as read from engine-db, before any validation.
+struct SpatialPointRecord {
+    /// The point's id.
+    std::int64_t id = 0;
+
+    /// The point's time, samples.
+    std::optional<double> time;
+
+    /// Its azimuth, elevation or distance.
+    std::optional<double> value;
+
+    /// Its `<kind>_curve_type`: the curve to the next point.
+    std::optional<std::int64_t> curveType;
+};
+
 /// A validated point of a partial's phase timeline: a target the rendered
 /// phase must meet, or a point up to which it runs free.
 struct PhaseTarget {
@@ -178,6 +232,13 @@ struct FrameEntryTarget {
     /// Index, into the partial's compensation segments, of the one covering
     /// the same time.
     std::size_t compensation = 0;
+
+    /// Index, into the points of the partial's SoundSource's azimuth,
+    /// elevation and distance timelines (kSpatialKinds order), of the last
+    /// point at or before the frame's start `k·F`, or of the first point when
+    /// the timeline starts inside the frame. Unlike the others it does not
+    /// depend on the partial, so every partial of a source has the same.
+    std::array<std::size_t, 3> spatial{};
 };
 
 /// One integrable segment: the in-memory form of a PartialIntegrableSegment
@@ -265,6 +326,32 @@ std::vector<FrequencyPoint> validateFrequencyEnvelope(std::span<const FrequencyP
 ///         list, counting from 0.
 std::vector<SampleTime> validateAmplitudeTimes(
     std::span<const AmplitudePointRecord> points, std::span<const FrequencyPoint> envelope);
+
+/// Checks one of a SoundSource's spatial timelines on its own, without
+/// reference to any partial (§7).
+///
+/// @param kind    Which timeline it is.
+/// @param points  Its points, in NEXT_POINT order.
+/// @return One time per point, in order, strictly increasing.
+/// @throws PartialPrecomputationError  If there are no points; a time or a
+///         value is NULL or not finite; a time is not strictly later than the
+///         one before it; a value is out of range (spatialValueProblem()); or
+///         a curve type other than the last point's is not 0 (linear). The
+///         message names the timeline and the point by its position,
+///         counting from 0.
+std::vector<SampleTime> validateSpatialTimeline(
+    SpatialKind kind, std::span<const SpatialPointRecord> points);
+
+/// Checks that a source's spatial timeline covers a partial's lifeline: its
+/// first point at or before `b₀` and its last at or after `b_last` (§7).
+///
+/// @param kind           Which timeline it is.
+/// @param times          Its validated times. Not empty.
+/// @param lifelineStart  The partial's b₀.
+/// @param lifelineEnd    The partial's b_last.
+/// @throws PartialPrecomputationError  If it does not cover the lifeline.
+void checkSpatialCoverage(SpatialKind kind, std::span<const SampleTime> times,
+    SampleTime lifelineStart, SampleTime lifelineEnd);
 
 /// Checks a partial's phase points against its frequency envelope, and
 /// converts them to typed values (§7, §6.8).
@@ -389,7 +476,9 @@ FrameRange frameScope(SampleTime start, SampleTime end, FrameSize size);
 /// `start_time ≤ t*ₖ < end_time`, and so is the entry compensation segment;
 /// the entry point is the last amplitude point with `time ≤ t*ₖ`. Both exist for every frame in
 /// scope, because `t*ₖ ∈ [b₀, b_last)` there and the amplitude timeline starts and ends at `b₀` and
-/// `b_last`.
+/// `b_last`. The spatial entry points are the last point at or before the
+/// frame's start `k·F` (not `t*ₖ`), or the first point when the timeline
+/// starts inside the frame; they depend on the frame and the source only.
 ///
 /// One forward pass over each list, advancing as the frame starts increase:
 /// the cost is the length of the lists plus the number of frames, not their
@@ -401,6 +490,13 @@ FrameRange frameScope(SampleTime start, SampleTime end, FrameSize size);
 ///                        increasing, from `b₀` to `b_last`. At least 2.
 /// @param compensation    The partial's compensation segments, contiguous,
 ///                        covering `[b₀, b_last)`. Not empty.
+/// @param spatialTimes    The times of the partial's SoundSource's azimuth,
+///                        elevation and distance points, in kSpatialKinds
+///                        order, each strictly increasing and covering the
+///                        lifeline (checkSpatialCoverage()). The first entry
+///                        in each is found by binary search, because the
+///                        lists span the whole source rather than one
+///                        partial, and the rest by a forward cursor.
 /// @param frames          The frames in scope, from frameScope() over the
 ///                        same lifeline.
 /// @param size            Frame size. Positive.
@@ -410,7 +506,8 @@ FrameRange frameScope(SampleTime start, SampleTime end, FrameSize size);
 ///      them. Not checked.
 std::vector<FrameEntryTarget> frameEntries(std::span<const Segment> segments,
     std::span<const SampleTime> amplitudeTimes, std::span<const CompensationSegment> compensation,
-    FrameRange frames, FrameSize size);
+    const std::array<std::span<const SampleTime>, 3>& spatialTimes, FrameRange frames,
+    FrameSize size);
 
 /// The frame size from EngineConfig: `frameSize`, or one second at
 /// `sampleRate` when `frameSize` is NULL.

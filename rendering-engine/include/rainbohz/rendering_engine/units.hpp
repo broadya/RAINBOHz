@@ -690,6 +690,163 @@ constexpr Phase toPhase(Degrees phase) noexcept {
 }
 
 // ---------------------------------------------------------------------------
+// Spatial position
+// ---------------------------------------------------------------------------
+//
+// A SoundSource's position, in the AmbiX spherical convention of the
+// rendering model (engine-schema.cypher; docs/rendering.md section 8.5):
+// azimuth anticlockwise from the front, elevation up from the horizontal,
+// distance in metres from the receiver. Azimuth and elevation are both
+// radians and are still distinct types, so that one cannot be passed for the
+// other. Arithmetic that mixes them with time lives in spatial_maths.hpp, on
+// raw values, as AGENTS.md asks of mixed-unit arithmetic.
+
+/// An azimuth, in radians: anticlockwise from the front, π/2 to the left.
+///
+/// The model's range is [−π, π]. Construction does not check or wrap it;
+/// validation checks stored values, and spatial_maths wraps interpolated ones.
+class Azimuth {
+public:
+    /// Straight ahead.
+    constexpr Azimuth() noexcept = default;
+
+    /// An azimuth of `radians` radians.
+    ///
+    /// @param radians  Any value; in [−π, π] when it is a valid position.
+    constexpr explicit Azimuth(double radians) noexcept : value_{radians} {}
+
+    /// The azimuth in radians.
+    constexpr double value() const noexcept { return value_; }
+
+    /// Orders two values of this type by their representation.
+    friend constexpr auto operator<=>(Azimuth, Azimuth) noexcept = default;
+
+private:
+    double value_ = 0.0;
+};
+
+/// An elevation, in radians: up from the horizontal plane, π/2 straight up.
+///
+/// The model's range is [−π/2, π/2]. Construction does not check it.
+class Elevation {
+public:
+    /// On the horizontal plane.
+    constexpr Elevation() noexcept = default;
+
+    /// An elevation of `radians` radians.
+    ///
+    /// @param radians  Any value; in [−π/2, π/2] when it is a valid position.
+    constexpr explicit Elevation(double radians) noexcept : value_{radians} {}
+
+    /// The elevation in radians.
+    constexpr double value() const noexcept { return value_; }
+
+    /// Orders two values of this type by their representation.
+    friend constexpr auto operator<=>(Elevation, Elevation) noexcept = default;
+
+private:
+    double value_ = 0.0;
+};
+
+/// A distance from the receiver, in metres.
+///
+/// The model's range is [1, 16384]; 1 m is the reference distance, with no
+/// attenuation. Construction does not check it.
+class Metres {
+public:
+    /// The reference distance, 1 m.
+    constexpr Metres() noexcept = default;
+
+    /// A distance of `metres` m.
+    ///
+    /// @param metres  Any value; in [1, 16384] when it is a valid position.
+    constexpr explicit Metres(double metres) noexcept : value_{metres} {}
+
+    /// The distance in metres.
+    constexpr double value() const noexcept { return value_; }
+
+    /// Orders two values of this type by their representation.
+    friend constexpr auto operator<=>(Metres, Metres) noexcept = default;
+
+private:
+    double value_ = 1.0;
+};
+
+/// A rate of change of azimuth or elevation, in radians per sample.
+class AngleGradient {
+public:
+    /// No change.
+    constexpr AngleGradient() noexcept = default;
+
+    /// A gradient of `radiansPerSample`.
+    ///
+    /// @param radiansPerSample  Any value.
+    constexpr explicit AngleGradient(double radiansPerSample) noexcept : value_{radiansPerSample} {}
+
+    /// The gradient in radians per sample.
+    constexpr double value() const noexcept { return value_; }
+
+    /// Orders two values of this type by their representation.
+    friend constexpr auto operator<=>(AngleGradient, AngleGradient) noexcept = default;
+
+private:
+    double value_ = 0.0;
+};
+
+/// A rate of change of distance, in metres per sample.
+class DistanceGradient {
+public:
+    /// No change.
+    constexpr DistanceGradient() noexcept = default;
+
+    /// A gradient of `metresPerSample`.
+    ///
+    /// @param metresPerSample  Any value.
+    constexpr explicit DistanceGradient(double metresPerSample) noexcept
+        : value_{metresPerSample} {}
+
+    /// The gradient in metres per sample.
+    constexpr double value() const noexcept { return value_; }
+
+    /// Orders two values of this type by their representation.
+    friend constexpr auto operator<=>(DistanceGradient, DistanceGradient) noexcept = default;
+
+private:
+    double value_ = 0.0;
+};
+
+/// A signed linear gain: a multiplier on a sample, unitless.
+///
+/// 1 is 0 dB. A negative gain is a polarity reversal (the rear lobe of a
+/// figure-8, for example); 0 is silence. Unlike LinearAmplitude it is not
+/// limited to [0, 1], and it is never converted from or to dB.
+class LinearGain {
+public:
+    /// Silence.
+    constexpr LinearGain() noexcept = default;
+
+    /// A gain of `multiplier`.
+    ///
+    /// @param multiplier  Signed linear gain; negative reverses polarity.
+    constexpr explicit LinearGain(double multiplier) noexcept : value_{multiplier} {}
+
+    /// The multiplier.
+    constexpr double value() const noexcept { return value_; }
+
+    /// Orders two values of this type by their representation.
+    friend constexpr auto operator<=>(LinearGain, LinearGain) noexcept = default;
+
+    /// Two gains applied in series, such as a direction gain and a distance
+    /// gain: the product of their multipliers.
+    friend constexpr LinearGain operator*(LinearGain a, LinearGain b) noexcept {
+        return LinearGain{a.value_ * b.value_};
+    }
+
+private:
+    double value_ = 0.0;
+};
+
+// ---------------------------------------------------------------------------
 // Sample rate and frames
 // ---------------------------------------------------------------------------
 

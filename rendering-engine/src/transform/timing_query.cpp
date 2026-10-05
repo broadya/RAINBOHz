@@ -11,6 +11,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -195,22 +196,6 @@ std::optional<std::int64_t> parseCount(std::string_view text) noexcept {
 
 } // namespace
 
-std::string_view channelModeName(ChannelMode mode) noexcept {
-    switch (mode) {
-    case ChannelMode::Mono:
-        return "mono";
-    case ChannelMode::Stereo:
-        return "stereo";
-    case ChannelMode::MidSide:
-        return "mid-side";
-    case ChannelMode::FoaAFormat:
-        return "foa-a-format";
-    case ChannelMode::FoaBFormat:
-        return "foa-b-format";
-    }
-    return "unknown";
-}
-
 std::optional<BeatsTicks> parseBeatsTicks(std::string_view text) {
     const std::size_t colon = text.find(':');
     const std::optional<std::int64_t> beats = parseCount(text.substr(0, colon));
@@ -313,15 +298,14 @@ EngineParameters readEngineParameters(EngineDb& db) {
     } catch (const PrecomputationError& e) {
         throw TimingQueryError{Kind::Unprocessable, e.what()};
     }
-    if (!channelMode.has_value() || *channelMode < 0 ||
-        *channelMode > static_cast<std::int64_t>(ChannelMode::FoaBFormat)) {
-        throw TimingQueryError{Kind::Unprocessable,
-            "EngineConfig.channelMode is " +
-                (channelMode.has_value() ? std::to_string(*channelMode) : "NULL") +
-                "; it must be 0 (mono), 1 (stereo), 2 (M/S), 3 (FOA A-format) or 4 (FOA "
-                "B-format)"};
+    if (!channelMode.has_value()) {
+        throw TimingQueryError{Kind::Unprocessable, "EngineConfig.channelMode is NULL"};
     }
-    parameters.channelMode = static_cast<ChannelMode>(*channelMode);
+    try {
+        parameters.channelMode = channelModeFromInt(*channelMode);
+    } catch (const std::invalid_argument& e) {
+        throw TimingQueryError{Kind::Unprocessable, std::string{"EngineConfig."} + e.what()};
+    }
     return parameters;
 }
 

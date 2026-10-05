@@ -1,5 +1,7 @@
 #include "rainbohz/rendering_engine/render_kernel.hpp"
 
+#include "rainbohz/rendering_engine/spatial_gains.hpp"
+
 #include <cmath>
 #include <cstddef>
 #include <numbers>
@@ -85,6 +87,31 @@ void renderChunk(BlockState& block, std::span<const std::size_t> active, SampleI
             amp[i] += ampGradient[i];
         }
         out[static_cast<std::size_t>(n)] += static_cast<SampleValue>(acc);
+    }
+}
+
+void spatialiseChunk(const SpatialAnchor& anchor, ChannelMode mode,
+    std::span<const SampleValue> mono, SampleIndex first, SampleIndex last,
+    std::span<SampleValue> interleaved) noexcept {
+    const std::size_t channels = channelCount(mode);
+    const double azimuth = anchor.position.startAzimuth.value();
+    const double azimuthGradient = anchor.position.azimuthGradient.value();
+    const double elevation = anchor.position.startElevation.value();
+    const double elevationGradient = anchor.position.elevationGradient.value();
+    const double distance = anchor.position.startDistance.value();
+    const double distanceGradient = anchor.position.distanceGradient.value();
+    const double tau0 = anchor.tau.value() - static_cast<double>(first.value());
+
+    for (std::int32_t n = first.value(); n < last.value(); ++n) {
+        const auto index = static_cast<std::size_t>(n);
+        const double tau = tau0 + static_cast<double>(n);
+        const raw::Gains gains =
+            raw::positionGains(mode, raw::wrapAzimuth(azimuth + (azimuthGradient * tau)),
+                elevation + (elevationGradient * tau), distance + (distanceGradient * tau));
+        const auto sample = static_cast<double>(mono[index]);
+        for (std::size_t c = 0; c < channels; ++c) {
+            interleaved[(index * channels) + c] += static_cast<SampleValue>(gains[c] * sample);
+        }
     }
 }
 

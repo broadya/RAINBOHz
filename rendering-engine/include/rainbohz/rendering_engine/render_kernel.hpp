@@ -19,10 +19,18 @@
 // the frequency at the sample (ADR 0008). No accumulated value survives a
 // chunk boundary: the caller re-anchors every active partial from the closed
 // form at the start of every chunk.
+//
+// The second kernel, spatialiseChunk(), runs once per SoundSource rather than
+// once per partial: it spreads the source's mono sum over the output channels
+// with the gains of the source's position at each sample (section 8.5). It
+// costs a few transcendentals per sample per source, independent of how many
+// partials the source has.
 
 #include "rainbohz/rendering_engine/amplitude_maths.hpp"
+#include "rainbohz/rendering_engine/channel_mode.hpp"
 #include "rainbohz/rendering_engine/sample_value.hpp"
 #include "rainbohz/rendering_engine/segment_maths.hpp"
+#include "rainbohz/rendering_engine/spatial_maths.hpp"
 #include "rainbohz/rendering_engine/units.hpp"
 
 #include <cstddef>
@@ -130,5 +138,46 @@ void anchorPartial(BlockState& block, std::size_t lane, const Anchor& anchor) no
 ///      Preconditions on the indexes are not checked.
 void renderChunk(BlockState& block, std::span<const std::size_t> active, SampleIndex first,
     SampleIndex last, const RollOffRaw& rollOff, std::span<SampleValue> out) noexcept;
+
+/// The closed-form position from which a spatial chunk starts
+/// (docs/rendering.md section 8.5).
+struct SpatialAnchor {
+    /// The spatial segment's path, re-based to its start.
+    NominalPosition position;
+
+    /// Source-time offset of the chunk's first sample from the spatial
+    /// segment's start. Not negative.
+    SampleDuration tau;
+};
+
+/// Spreads a SoundSource's mono samples over `[first, last)` into the output
+/// channels, adding them into `interleaved`.
+///
+/// For each sample n, the position is evaluated in closed form at
+/// `anchor.tau + (n − first)` -- nothing is accumulated, so no error carries
+/// from sample to sample -- and each channel c of the mode gets
+/// `gain_c(position) · mono[n]` added into `interleaved[n · C + c]`, where C
+/// is channelCount(mode). The gain is computed and applied in double and
+/// narrowed to SampleValue once, at the add.
+///
+/// The source clock advances 1.0 per sample here; under Doppler the offset
+/// becomes the source clock's.
+///
+/// @param anchor          The covering spatial segment and the offset of
+///                        `first` into it.
+/// @param mode            The channel mode.
+/// @param mono            The source's summed mono buffer, one frame long.
+/// @param first           First sample of the chunk, within the frame.
+/// @param last            One past the last sample. Not before `first`; at
+///                        most `mono.size()`.
+/// @param[in,out] interleaved  The frame buffer, `mono.size() · C` samples,
+///                        interleaved by channel. Samples of `[first, last)`
+///                        have the source's contribution added to them.
+/// @pre The position stays in range over the chunk, which validation of the
+///      timelines guarantees. No allocation, locking, exception or I/O is
+///      reachable from here. Preconditions on the indexes are not checked.
+void spatialiseChunk(const SpatialAnchor& anchor, ChannelMode mode,
+    std::span<const SampleValue> mono, SampleIndex first, SampleIndex last,
+    std::span<SampleValue> interleaved) noexcept;
 
 } // namespace rainbohz::rendering_engine

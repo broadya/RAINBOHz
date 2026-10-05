@@ -3,7 +3,12 @@
 **Status:** implemented, for the first version (§2). This document is the
 agreed design, settled with the author on 2026-09-24; the code followed on
 2026-09-25. Phase control (precomputation.md §6.8) was added on 2026-10-03:
-the compensation list joins the gather, the render segments and the anchor. It is `sample_value.hpp`, `amplitude_maths.hpp`,
+the compensation list joins the gather, the render segments and the anchor.
+Spatial position and the eight channel modes were added on 2026-10-04: each
+SoundSource's mono sum is spread over the output channels by its position
+(§8.5, [ADR 0020](../../docs/adr/0020-spatial-gains-are-applied-per-sound-source-after-summing.md)).
+It is `sample_value.hpp`, `amplitude_maths.hpp`, `channel_mode.hpp`,
+`spatial_gains.hpp`, `spatial_maths.hpp`,
 `render_kernel.hpp`, `frame_plan.hpp`, `wav_writer.hpp` and `rendering.hpp`
 under [include/rainbohz/rendering_engine/](../include/rainbohz/rendering_engine/),
 with their sources under [src/](../src/), as §11 lays out. Where the
@@ -55,9 +60,11 @@ Built one feature at a time, as precomputation was.
 | One `AmplitudePhysicalTimeline` per partial, linear curves only | Amplitude curve types other than linear |
 | Amplitude in dB, summed per sample, one conversion to linear | Amplitude modulators (they join the dB sum, §8.1) |
 | Frequency-range roll-off, stateless (§8.2) | Frequency modulators |
-| One partial set at a time, with a shared source clock per set (§6.2) | Threads across partial sets; SIMD across partials |
-| Source time advancing at 1.0 per receiver sample | Spatial position, distance delay, Doppler |
-| Mono, channel mode 0; 32-bit float WAV, one file per frame | Stereo, Ambisonics; other sample formats |
+| One partial set at a time, summed per SoundSource, with a shared source clock per source (§6.2) | Threads across partial sets; SIMD across partials |
+| Source time advancing at 1.0 per receiver sample | Distance delay, Doppler |
+| One position per SoundSource from its azimuth, elevation and distance timelines, linear curves only, azimuth along the shorter arc (§8.5) | Spatial curve types; spatial modulators |
+| All eight channel modes: perfect coincident first-order virtual microphones, gain ∝ 1/r (§8.5) | Higher-order Ambisonics; frequency-dependent patterns; air absorption |
+| 32-bit float WAV, one file per frame, one channel per output of the mode | Other sample formats |
 | Peak reported, no clipping or limiting | Limiting, normalisation, INT64 exact accumulation |
 | Each frame's inputs read through its `FrameEntry` nodes (§6.3) | Dirty flags; cached per-frame state |
 
@@ -80,6 +87,12 @@ below are the additions.
 | Frequency, wall-clock | Hz | `Hertz` | `double` |
 | Position within a frame | samples, discrete | `SampleIndex` | `std::int32_t` |
 | A sample of audio | linear, unitless | `SampleValue` | `float` (§3.2) |
+| Azimuth, anticlockwise from the front | radians, [−π, π] | `Azimuth` | `double` |
+| Elevation, up from the horizontal | radians, [−π/2, π/2] | `Elevation` | `double` |
+| Distance from the receiver | metres, [1, 16384] | `Metres` | `double` |
+| Rate of change of azimuth or elevation | radians per sample | `AngleGradient` | `double` |
+| Rate of change of distance | metres per sample | `DistanceGradient` | `double` |
+| Gain of an output channel | linear, signed, unitless | `LinearGain` | `double` |
 
 Operations added to the table in precomputation.md §3.1:
 
@@ -92,6 +105,7 @@ Operations added to the table in precomputation.md §3.1:
 | `toAngular(Hertz, SampleRate)` | `AngularFrequency` | Band edges once per run (§8.2) |
 | `frameStart(k, F) + SampleIndex` | `SampleTime` | The instant of sample n of frame k |
 | `wrap(Phase)` | `Phase` | Wrapped phase in [−π, π] (§7.3) |
+| `LinearGain × LinearGain` | `LinearGain` | Direction gain times distance gain (§8.5) |
 | Comparison within a type | `bool` | |
 
 **What this rules out:** adding a dB value to a linear one, or a Hertz value
@@ -116,10 +130,11 @@ In this version the two coincide, and the source clock advances by exactly
 1.0 per receiver sample. They are nonetheless kept separate in the design and
 the code, because Doppler shift will make the source clock run at a varying
 rate (schema header, section 2). The distinction has one consequence now
-that is easy to get wrong: **the source clock belongs to the partial set, not
-to the partial.** Every partial in a set shares one spatial position
-(confirmed by the author, 2026-09-24), so under Doppler they share one source
-clock, and per-partial state is phase and position only (§6.2).
+that is easy to get wrong: **the source clock belongs to the SoundSource, not
+to the partial.** Every partial of a SoundSource shares one spatial position
+(the definition of a SoundSource, engine-schema.cypher), so under Doppler they
+share one source clock, and per-partial state is phase and position only
+(§6.2). Each partial set's plan carries a copy of its source's clock.
 
 ### 3.2 The sample type
 
@@ -139,20 +154,23 @@ domains. Only the final product of sine and multiplier is narrowed to
 Rendering reads, once per run (§6.1):
 
 - the singleton `EngineConfig`: `sampleRate`, `frameSize` (resolved as
-  precomputation does) and `channelMode`, which must be 0.
+  precomputation does) and `channelMode`, which must be 0 to 7 (§8.5).
 
 And per requested frame *k* (§6.3):
 
 - the frame's `FrameEntry` nodes, `(f:Frame {frame_number: k})-[:FRAME_ENTRY]->(e:FrameEntry)`,
-  one per partial in scope; from each, the partial and its set,
-  `(e)-[:FRAME_ENTRY_PARTIAL]->(p:Partial)<-[:HAS_PARTIAL]-(ps:PartialSet)`,
-  and the three list nodes from which the frame's rendering starts,
+  one per partial in scope; from each, the partial, its set and its source,
+  `(e)-[:FRAME_ENTRY_PARTIAL]->(p:Partial)<-[:HAS_PARTIAL]-(ps:PartialSet)<-[:HAS_PARTIALSET]-(ss:SoundSource)`,
+  and the six list nodes from which the frame's rendering starts,
   `(e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(node)`: a `PartialIntegrableSegment`, an
-  `AmplitudePhysicalTimelinePoint` and a `PartialPhaseCompensationSegment`
+  `AmplitudePhysicalTimelinePoint` and a `PartialPhaseCompensationSegment`,
+  and the source's `AzimuthPhysicalTimelinePoint`,
+  `ElevationPhysicalTimelinePoint` and `DistancePhysicalTimelinePoint`
   (precomputation.md §6.7);
 - from each entry node, the nodes that follow it along `NEXT_POINT` until
   one starts at or after the frame's end; and each segment's
-  `PartialSegmentNominalFrequency`.
+  `PartialSegmentNominalFrequency`. The spatial lists are walked once per
+  source, not once per partial (§6.3).
 
 `PARTIAL_IN_FRAME` is not read: the existence of an entry is the scope.
 
@@ -162,7 +180,9 @@ and is not checked on the last point. `amplitude_curve_amount` has no effect
 on a linear curve and is not read. Of each nominal frequency it uses
 `start_nominal_frequency`, `linear_component`, `linear_gradient` and
 `curve_component`; the `curve_*` values are not read, because a segment with
-a curve component is refused (§9).
+a curve component is refused (§9). Of each spatial point it uses `time`, the
+value (`azimuth`, `elevation` or `distance`) and the curve type, which must
+be linear except on the last point; the curve amount is not read.
 
 ## 5. Outputs
 
@@ -176,13 +196,16 @@ The frame number is zero-padded to six digits so that files list in order.
 An existing file is overwritten without comment: the same frame from the same
 database is the same audio, and re-rendering is normal.
 
-The file is RIFF/WAVE, format tag 3 (IEEE float), 32 bits per sample, one
-channel, at `sampleRate`, holding exactly `frameSize` samples. It is written
+The file is RIFF/WAVE, format tag 3 (IEEE float), 32 bits per sample, at
+`sampleRate`, holding exactly `frameSize` sample frames of as many
+interleaved channels as the channel mode has outputs: one for mono, two for
+the stereo, M/S and Blumlein modes, four for the FOA modes, in the order
+§8.5 gives. It is written
 by **dr_wav**, a library built for the purpose, pinned and built from source
 like every other dependency
 ([ADR 0009](../../docs/adr/0009-write-wav-files-with-dr-wav.md)); the engine
-does not write RIFF chunks itself. Multi-channel files, when they arrive,
-are a channel-count parameter to the same call. A frame with no partial in
+does not write RIFF chunks itself. The channel count is a parameter of the
+same call. A frame with no partial in
 scope — including a frame number for which no `Frame` node exists — is
 written as a full-length file of zeros: one requested frame is one file,
 always.
@@ -211,8 +234,10 @@ frame-000003.set-000002.wav
 ```
 
 named by `PartialSet.id`, which is stable within a run, where names may be
-NULL or repeated. This is for listening to one set in isolation and for
-checking the summation; it is off by default.
+NULL or repeated. A set's file is always mono: it is the set's own sum,
+before the spatial stage (§8.5), whatever the channel mode. This is for
+listening to one set in isolation and for checking the summation; it is off
+by default.
 
 Nothing is written to `engine-db`. Rendering only reads it.
 
@@ -223,22 +248,26 @@ Nothing is written to `engine-db`. Rendering only reads it.
 ```mermaid
 flowchart TD
     start(["Rendering run starts"]) --> cfg["Read EngineConfig:<br/>sample rate, frame size, channel mode"]
-    cfg --> cfgOk{"Channel mode 0,<br/>frame size resolvable?"}
+    cfg --> cfgOk{"Channel mode 0 to 7,<br/>frame size resolvable?"}
     cfgOk -- no --> fatal["Report configuration error"] --> failRun(["Run fails: nothing written"])
     cfgOk -- yes --> rolloff["Band edges → radians per sample (§8.2)"]
     rolloff --> more{"Another requested frame?"}
     more -- yes --> scope["<b>Gather</b> (§6.3): the frame's FrameEntry nodes,<br/>their partials, sets and list nodes, and the nodes<br/>that follow within the frame; validate each partial (§9)"]
-    scope --> anyBad{"Any partial in scope<br/>failed validation?"}
+    scope --> anyBad{"Any partial in scope, or its source,<br/>failed validation?"}
     anyBad -- yes --> skip["Record the frame as failed:<br/>the partials and reasons"] --> more
-    anyBad -- no --> group["Group the partials by partial set"]
-    group --> setLoop{"Another partial set?"}
+    anyBad -- no --> group["Group the partials by SoundSource,<br/>then by partial set"]
+    group --> srcLoop{"Another SoundSource?"}
+    srcLoop -- yes --> setLoop{"Another partial set<br/>of the source?"}
     setLoop -- yes --> plan[["Prepare the set for the frame (§6.4)"]]
-    plan --> render[["Render the set into its buffer (§7)"]]
+    plan --> render[["Render the set into its mono buffer (§7)"]]
     render --> perSet{"--per-set-wav?"}
-    perSet -- yes --> writeSet["Write frame-k.set-s.wav"] --> setLoop
-    perSet -- no --> setLoop
-    setLoop -- no --> sum["Sum the set buffers into the frame buffer;<br/>find the peak"]
-    sum --> write["Write frame-k.wav"] --> more
+    perSet -- yes --> writeSet["Write frame-k.set-s.wav (mono)"] --> addSet
+    perSet -- no --> addSet["Add the set into the source's mono buffer"]
+    addSet --> setLoop
+    setLoop -- no --> spat[["Spread the source's buffer over the<br/>channels by its position (§8.5)"]]
+    spat --> srcLoop
+    srcLoop -- no --> peak["Find the peak over every channel"]
+    peak --> write["Write frame-k.wav"] --> more
     more -- no --> report["Report a line per frame: sets, partials, peak, file;<br/>FAILED lines for failed frames"]
     report --> anyErr{"Any frame failed?"}
     anyErr -- no --> exitOk(["Run succeeds"])
@@ -263,14 +292,15 @@ The layers of §1, and what each holds:
 
 | Layer | Per run | Per frame, per partial set | Per partial |
 | --- | --- | --- | --- |
-| Gather (§6.3) | Config; the band edges | The partials in scope with their sets | The segments and amplitude points inside the frame, validated |
-| Prepare (§6.4) | | The set's source clock; the chunk boundaries; the output buffer | The render segments of this frame (§6.4.1) |
-| Hot loop (§7) | | Which chunk; the source clock's value | Wrapped phase; instantaneous frequency; amplitude in dB |
+| Gather (§6.3) | Config; the band edges | The partials in scope with their sets and sources; each source's spatial points inside the frame, validated | The segments and amplitude points inside the frame, validated |
+| Prepare (§6.4) | | The source's clock and spatial segments (§8.5); per set, the chunk boundaries and its mono buffer; per source, its mono sum | The render segments of this frame (§6.4.1) |
+| Hot loop (§7) | | Which chunk; the source clock's value; the source's position, in closed form per sample | Wrapped phase; instantaneous frequency; amplitude in dB |
 
 The per-partial hot-loop state is three doubles, plus per-chunk constants.
-The source clock is per set, as §3.1 explains. This is the second reason
-rendering proceeds one partial set at a time; the first is that the partials
-of a set will share modulators, which is not yet relevant but will be.
+The source clock is per SoundSource, as §3.1 explains, and each set's plan
+holds a copy. Rendering still proceeds one partial set at a time, because the
+partials of a set will share modulators, which is not yet relevant but will
+be. The sets of a source are then summed and spatialised together.
 
 ### 6.3 Gather
 
@@ -319,6 +349,28 @@ PartialData
     or: the validation failure
 ```
 
+4. **Spatial entry points and walks.** One query per spatial kind returns
+   each entry's point on its source's timeline, and whether it has a
+   predecessor, as query 2 does. A source's entry points are the frame's,
+   not the partial's: the last point at or before `fs`, or the first point
+   when the timeline starts inside the frame (precomputation.md §6.7). So
+   every partial of a source leads to the same three points; a disagreement
+   is a stale entry and fails the source. The walk is therefore **per
+   source**: it follows `NEXT_POINT` from the shared entry in the same
+   frontier queries, one per hop per kind, until a point at or after `fe` or
+   the end of the list. Nothing is read once per partial.
+
+The result, per source in scope:
+
+```
+SourceData
+    soundSourceId
+    azimuth:    [ {time, azimuth} ... ]     strictly increasing, from the earliest entry point
+    elevation:  [ {time, elevation} ... ]
+    distance:   [ {time, distance} ... ]
+    or: the validation failure, which fails every partial of the source
+```
+
 Each partial's data is then validated (§9). What the gather reads is
 bounded by the frame's content, not by the score's length, which is what a
 long-lived instance rendering frames on demand needs. Whether gathered
@@ -329,7 +381,7 @@ The gather is the only layer that touches `engine-db`, and it finishes
 before the frame is prepared. Everything after it is pure computation over
 in-memory data.
 
-### 6.4 Prepare a partial set for a frame
+### 6.4 Prepare a partial set and its source for a frame
 
 Given frame *k* with `[fs, fe) = [k·F, (k+1)·F)`, and the set's partials in
 scope, all validated:
@@ -342,6 +394,10 @@ scope, all validated:
 2. **Build each partial's render segments** (§6.4.1).
 3. **Find the chunk boundaries** (§6.4.2).
 4. **Allocate the set's buffer**: `F` samples of `SampleValue`, zeroed.
+
+Per SoundSource, once, the source's clock (step 1 above, which the set plans
+copy), its spatial segments and their chunk cuts are prepared (§8.5), and its
+mono buffer is zeroed to receive the sum of its sets.
 
 #### 6.4.1 Render segments
 
@@ -765,6 +821,88 @@ optimisations will be checked against. Two are planned, in this order:
    Structure-of-Arrays across partials, both become cheap without the
    recurrence.
 
+### 8.5 Spatial position
+
+Every SoundSource has a position: an `AzimuthPhysicalTimeline`, an
+`ElevationPhysicalTimeline` and a `DistancePhysicalTimeline`, in the AmbiX
+convention. Azimuth is in radians anticlockwise from the front (π/2 is
+left), elevation in radians up from the horizontal, and distance in metres
+from the receiver, at least 1. Every partial of the source shares that
+position, so the spatial stage runs **once per source**, on the sum of its
+sets, not per partial ([ADR 0020](../../docs/adr/0020-spatial-gains-are-applied-per-sound-source-after-summing.md)):
+
+```math
+\text{out}_c[n] \mathrel{+}= g_c\big(\text{position}(t_n)\big)\cdot \sum_{\text{sets of the source}} \text{mono}[n]
+```
+
+which is exact, since the gains are the same for every partial of the
+source and the sum is linear.
+
+**Interpolation.** Each timeline is linear between its points, as amplitude
+is. Only curve type 0 is rendered; others are refused (§9). Elevation and
+distance are straight lines. Azimuth is a straight line along the **shorter
+arc**: the change over a piece is `wrap(az₁ − az₀)` into (−π, π], so a
+source moving from 3.0 to −3.0 rad passes behind the listener through ±π,
+not round through the front. A difference of exactly π is ambiguous and is
+taken as +π, anticlockwise (author, 2026-10-04). The interpolated azimuth is
+wrapped back into [−π, π] with one conditional addition or subtraction. Before
+a timeline's first point or after its last, the value holds. Validation
+guarantees that the timelines cover every partial of the source, so a held
+value only ever multiplies silence.
+
+**Spatial segments.** The frame is cut at every point time of the source's
+three timelines strictly inside it. Within each piece, each quantity follows
+the piece of its own timeline covering the piece's start, re-based to that
+start:
+
+```
+SpatialSegment
+    start, end      SampleTime, source time
+    position        NominalPosition { az_s, g_az, el_s, g_el, d_s, g_d }   (spatial_maths)
+```
+
+The cuts in receiver samples are `⌈s − fs⌉`, as for render segments (§6.4.2).
+They are separate from the sets' cuts: the spatial stage runs after the sets
+have been rendered and summed.
+
+**Gains.** The microphones are the spatial-audio proof of concept's: perfect
+(no frequency dependence), coincident (one direction for all of them), first
+order, a + (1 − a)·cos θ. Each output channel's gain is the pattern gain,
+decoded where the mode has a decode, times 1/r. Gains are signed: a negative
+gain reverses polarity.
+
+| `channelMode` | Name | Channels | Microphones |
+| --- | --- | --- | --- |
+| 0 | `mono` | M | omni |
+| 1 | `stereo-from-mid-side` | L, R | omni M and figure-8 S facing left, decoded L = (M+S)/2, R = (M−S)/2 |
+| 2 | `stereo-from-xy` | L, R | cardioids at ±45° |
+| 3 | `mid-side` | M, S | omni M, figure-8 S facing left, undecoded |
+| 4 | `blumlein-classic` | L, R | figure-8s at ±45° |
+| 5 | `blumlein-rotated` | M, S | figure-8s at 0° and 90° |
+| 6 | `foa-a-format` | FLU, FRD, BLD, BRU | four cardioids on a tetrahedron |
+| 7 | `foa-b-format` | W, Y, Z, X | AmbiX, ACN order, SN3D |
+
+In mono at 1 m the gain is exactly 1 in every direction, so a mono score
+whose sources stand 1 m away renders bit for bit as it did before the
+spatial stage existed. The examples rely on that.
+
+**The kernel.** `spatialiseChunk()` takes a spatial segment's anchor, the
+mode, the source's mono buffer and a range of samples. For each sample it
+evaluates the position **in closed form** at its offset from the anchor
+(nothing is accumulated), computes the gains, and adds `g_c · mono[n]` into
+the interleaved frame buffer, in double, narrowed once. It costs about four
+sines and cosines and a division per sample per source, independent of the
+number of partials. It allocates, locks and throws nothing.
+
+**Precision.** The source's mono sum is `SampleValue` (`float`), so it is
+narrowed once before the gain is applied; the extra rounding is of the order
+of one float ulp, like the sum of sets (§10). Under Doppler the source's
+clock, not the identity, will give the offset; nothing else changes.
+
+The gains are checked against the proof of concept's Python oracle, through
+its golden CSV (`test/oracle/spatial_gains.csv`, a copy of
+`proof-of-concept/spatial-audio/cpp/test/oracle/oracle_gains.csv`).
+
 ## 9. Validation
 
 Everything below is checked at gather time (§6.3), per frame, before the
@@ -784,9 +922,9 @@ defects with their node ids.
 | Check | Scope | On failure |
 | --- | --- | --- |
 | Exactly one `EngineConfig`, frame size resolvable and > 0, `sampleRate` non-NULL and > 0 | run | run fails |
-| `channelMode` is 0 | run | run fails: the other modes are not implemented |
-| The partial is aggregated by exactly one `PartialSet` | partial | partial fails |
-| The entry leads to one partial, one set, one segment, one amplitude point and one compensation segment | partial | partial fails: it was not precomputed, or not for this frame |
+| `channelMode` is non-NULL and 0 to 7 | run | run fails |
+| The partial is aggregated by exactly one `PartialSet`, and that set by exactly one `SoundSource` | partial | partial fails |
+| The entry leads to one partial, one set, one segment, one amplitude point, one compensation segment, and one azimuth, one elevation and one distance point | partial | partial fails: it was not precomputed, or not for this frame |
 | The entry segment covers `max(b₀, fs)`, and the entry point is at or before it | partial | partial fails: the entry is stale or on another partial's list |
 | The segments walked have no cycle, and are contiguous: each `end_time` equals the next `start_time`; the walk reaches `fe` or the list's end | partial | partial fails |
 | Every segment's `start_time`, `end_time`, `start_phase` and nominal frequency values are non-NULL and finite; `linear_component` true implies `linear_gradient` non-NULL | partial | partial fails |
@@ -794,6 +932,9 @@ defects with their node ids.
 | The amplitude points walked have no cycle; every `time` and `amplitude` is non-NULL and finite; `time` strictly increases; the walk reaches `fe` or the list's end | partial | partial fails |
 | Where the walk reaches the end of either list, it does so at `b_last` on both: the two timelines define the lifeline together (precomputation.md §7) | partial | partial fails |
 | Every point except the last has `amplitude_curve_type` = 0 | partial | partial fails |
+| The source's spatial points walked have no cycle; every `time` and value is non-NULL and finite; values are in range (azimuth [−π, π], elevation [−π/2, π/2], distance [1, 16384]); `time` strictly increases; every point walked except the last has curve type 0 | source: every partial of it fails, naming the source | partial fails |
+| Every partial of a source leads to the same spatial entry points; each is at or before `fs` with the next point after `fs`, or after `fs` and the first point of its timeline | source: every partial of it fails | partial fails: the entry is stale |
+| Each spatial timeline starts at or before the partial's `t* = max(b₀, fs)`; where a walk reaches the end of its list, it does so at or after `min(b_last, fe)` | partial | partial fails: the timeline does not cover the partial |
 | The compensation segments walked have no cycle, are contiguous, and have non-NULL, finite times and deltas with `end_time > start_time`; the entry compensation segment covers `max(b₀, fs)`; where the walk reaches the end of the list, it does so at `b_last`, as the integrable segments do | partial | partial fails |
 
 **Lifeline equality is exact**, in `double`. Both values come from the same
@@ -849,32 +990,45 @@ itself, and the half-open rule of §6.5 follows.
 
 ## 11. Code structure
 
-Six pieces, each depending only on the ones above it, alongside the
+The pieces below, each depending only on the ones above it, alongside the
 existing `units`, `segment_maths`, `EngineDb` and `precomputation`:
 
 1. **`sample_value`** — the one alias of §3.2. No dependencies.
 2. **`units` additions** — `Decibels`, `DecibelGradient`, `LinearAmplitude`,
    `Hertz`, `SampleIndex`, `toAngular`, `wrap`, and the frame-start-plus-index
-   operation. Header-only.
+   operation; for the spatial stage, `Azimuth`, `Elevation`, `Metres`,
+   `AngleGradient`, `DistanceGradient` and `LinearGain`. Header-only.
 3. **`amplitude_maths`** — `NominalAmplitude`, `amplitudeAt`, `toLinear`,
    `RollOff`, `rollOffAt` (§8.3). Header-only, no I/O, no exceptions.
-4. **`render_kernel`** — the block state in SoA form, `anchorBlock` (§7.2)
+4. **`channel_mode`, `spatial_gains`** — the eight channel modes, their
+   channel counts, labels and API names, and each channel's gain for a
+   position (§8.5), ported from the spatial-audio proof of concept. The gain
+   functions have `raw::` twins on doubles for the kernel, as
+   `amplitude_maths` does; both are noexcept and allocate nothing.
+5. **`spatial_maths`** — `NominalPosition`, `positionAt`, the shorter-arc
+   azimuth gradient and the azimuth wrap (§8.5). Header-only, no I/O, no
+   exceptions.
+6. **`render_kernel`** — the block state in SoA form, `anchorBlock` (§7.2)
    and `renderChunk` (§7.1). Raw arrays and `SampleValue`; no unit types
    inside, no allocation, no exceptions. This is the one file the parallel
-   version rewrites.
-5. **`frame_plan`** — `RenderSegment`, `buildRenderSegments` (§6.4.1),
+   version rewrites. It also holds `spatialiseChunk` (§8.5), which spreads a
+   source's mono buffer over the channels.
+7. **`frame_plan`** — `RenderSegment`, `buildRenderSegments` (§6.4.1),
    `chunkCuts` (§6.4.2), `PartialSetPlan`, and the per-set render driver that
-   anchors and calls the kernel chunk by chunk. Pure functions over
+   anchors and calls the kernel chunk by chunk; and `SourceData`,
+   `buildSpatialSegments`, `SoundSourcePlan` and `spatialiseSource`, the
+   per-source equivalents for the spatial stage (§8.5). Pure functions over
    in-memory data, testable without a database.
-6. **`wav_writer`** — a thin wrapper over dr_wav: one function that writes
+8. **`wav_writer`** — a thin wrapper over dr_wav: one function that writes
    a span of `SampleValue`, interleaved by channel, as a 32-bit float WAV at
    a given sample rate and channel count, and throws on failure. dr_wav is
    confined to `wav_writer.cpp`, included as a SYSTEM header and linked
    PRIVATE, exactly as CLI11 and yaml-cpp are; no dr_wav type appears in the
    public header (ADR 0009).
-7. **`rendering`** — `renderFrames(EngineDb&, const RenderRequest&, …)`:
+9. **`rendering`** — `renderFrames(EngineDb&, const RenderRequest&, …)`:
    the per-frame gather (§6.3) and validation (§9), the loop of §6.1,
-   summation, peak, file naming, and the report. The only piece that takes
+   summation per source and spatialisation, peak, file naming, and the
+   report. The only piece that takes
    an `EngineDb`, and it only reads.
 
 ```mermaid
@@ -985,10 +1139,10 @@ Three decisions worth stating:
   already uses for statements, integrity checks and precomputation:
 
   ```
-    rendering: sample rate 48000, frame size 48000 samples, mono
+    rendering: sample rate 48000, frame size 48000 samples, mono (1 channel(s))
       FAILED   Partial 4 (id 4): amplitude timeline: point 1: time 100 is not later than point 0
-      ok       frame 3: 1 set(s), 1 partial(s), peak 0.501187, wrote frame-000003.wav
-      ok       frame 7: 0 set(s), 0 partial(s), silent, wrote frame-000007.wav
+      ok       frame 3: 1 source(s), 1 set(s), 1 partial(s), peak 0.501187, wrote frame-000003.wav
+      ok       frame 7: 0 source(s), 0 set(s), 0 partial(s), silent, wrote frame-000007.wav
       FAILED   frame 12: not rendered: Partial 4 (id 4) failed validation
     rendered 2 of 3 frame(s); 1 partial(s) failed validation
   ```
@@ -1127,7 +1281,9 @@ The example score of `engine-db/examples/minimum-score.cypher`, frame 3.
 One partial, frame size *F* = 48,000 (`frameSize` NULL, `sampleRate`
 48,000), one integrable segment `[0, 480000)` at a constant 0.1 radians per
 sample (763.9 Hz), `start_phase` 0; amplitude −6 dB throughout, from two
-points at 0 and 480,000. Channel mode 0.
+points at 0 and 480,000. Channel mode 0, and the source straight ahead at
+1 m throughout, so the spatial stage's gain is exactly 1 (§8.5) and the
+samples below are the mono sum unchanged.
 
 **Frame 3** is `[144000, 192000)`. The partial is in scope (frames 0 to 9),
 and in one partial set. Its `FrameEntry` for frame 3 leads to the only
@@ -1202,8 +1358,10 @@ In roughly the order expected. Each names the place in this design it goes.
 | Amplitude modulators | Further dB terms in the sum of §8.1, with their own render-segment boundaries merged in §6.4.1 and their own per-partial (or per-set) gradients in the block state. |
 | Amplitude curve types | A curve term in `NominalAmplitude`; validation relaxes. |
 | Frequency curves and modulators | Arrive in `NominalFrequency` from precomputation; the increment of §7.3 becomes `Φ(τ+1) − Φ(τ)` for the richer Φ, still one call. |
-| Doppler | The source clock of §6.4 step 1: its value at frame start from the binary search, its rate from the distance gradient; `dτ` in §7.3. |
-| Stereo, Ambisonics | `channelMode` accepted; the kernel adds into one span per channel with per-partial-set gains; the writer interleaves. |
+| Doppler | The source clock of §6.4 step 1, which is the SoundSource's: its value at frame start from the binary search, its rate from the distance gradient; `dτ` in §7.3 and the spatial kernel's offset (§8.5). |
+| Spatial curve types | A curve term in `NominalPosition`; validation relaxes. |
+| Spatial modulators | Terms added to the position in `spatialiseChunk()`, with their boundaries merged into the spatial segments. |
+| Higher-order Ambisonics, other patterns | More channel modes in `channel_mode` and `spatial_gains`; `kMaxChannels` grows. |
 | Threads | One thread per partial set over §6.4 and §7; the summation waits for all. |
 | SIMD | §7.5: the body of `render_kernel`. |
 | Recurrence for the multiplier | §8.4, inside `render_kernel`, checked against the direct form. |
