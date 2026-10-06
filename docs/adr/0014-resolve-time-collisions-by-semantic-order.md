@@ -1,9 +1,6 @@
 ---
 status: accepted
 date: 2026-10-02
-decision-makers: Alan Broady
-consulted: rendering-engine/docs/transform.md
-informed: rendering-engine, engine-db, hzl-compiler
 ---
 
 # Resolve physical-time collisions by semantic order: the later state wins, and only the tail yields
@@ -19,7 +16,7 @@ That is valid input. What physical time does each point get?
 
 ## Decision Drivers
 
-* The order of points in the timeline is the composer's intended order of
+* The order of points in the timeline is the practitioner's intended order of
   states. It carries meaning that the computed times do not.
 * Physical timelines must have strictly increasing times
   (`precomputation.md` §7), and never negative ones.
@@ -31,7 +28,7 @@ That is valid input. What physical time does each point get?
 
 * Semantic order over time: a colliding point takes the tail's time, replaces
   its state, and later points are compressed into the room left.
-* Report a collision as an error and leave the composer to fix it.
+* Report a collision as an error and leave the practitioner to fix it.
 * Retrigger: a colliding point sits at its own early time and removes every
   placed point later than it.
 * Independent clamping: every point takes `max(own time, tail time)` with no
@@ -61,8 +58,8 @@ is `rendering-engine/docs/transform.md` §6.3 and §6.4.
 
 ### Consequences
 
-* Good, because the composer's order is guaranteed: every state they wrote is
-  heard in that order, or replaced by a later one, never reordered.
+* Good, because the practitioner's order is guaranteed: every state they wrote
+  is heard in that order, or replaced by a later one, never reordered.
 * Good, because the result is strictly increasing and non-negative by
   construction, in one pass.
 * Bad, because at the collision the sound jumps: the earlier state is cut by
@@ -72,6 +69,17 @@ is `rendering-engine/docs/transform.md` §6.3 and §6.4.
   tail), which is the price of never touching placed points.
 * Neutral, because a compressed stretch can collide again inside itself; the
   same rule applies, and the loop handles it.
+
+Impact on components:
+
+* `rendering-engine` — the transform runs `squash()` per partial and per
+  property, in one forward pass, before it writes the physical timelines.
+* `engine-db` — the physical timelines the transform writes are strictly
+  increasing and non-negative, which precomputation relies on. Musical
+  timelines may still hold points that collide once converted.
+* `hzl-compiler` — overlapping fixed-length sounds are valid output and need
+  no check of their own. The order in which it emits a timeline's points is
+  the order of states the practitioner meant, and is preserved.
 
 ### Confirmation
 
@@ -97,7 +105,7 @@ by hand.
 ### Retrigger
 
 * Good, because the later hit starts exactly when written.
-* Bad, because earlier states are discarded, so the composer's order is not
+* Bad, because earlier states are discarded, so the practitioner's order is not
   what is heard; and a collision can reach arbitrarily far back.
 
 ### Independent clamping

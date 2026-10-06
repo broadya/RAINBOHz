@@ -1,9 +1,6 @@
 ---
 status: accepted
 date: 2026-10-03
-decision-makers: Alan Broady
-consulted: rendering-engine/docs/precomputation.md, rendering-engine/docs/rendering.md
-informed: rendering-engine, engine-db, hzl-compiler
 ---
 
 # Meet phase targets with linear compensation segments, computed in C++ by precomputation
@@ -11,7 +8,7 @@ informed: rendering-engine, engine-db, hzl-compiler
 ## Context and Problem Statement
 
 A partial's frequency envelope decides its phase: phase is the integral of
-frequency. Composers also want to say what the phase must be at certain
+frequency. Practitioners also want to say what the phase must be at certain
 times, such as "180 degrees on beat 3, tick 45". They also want to let it
 run free, as a consequence of the frequency alone, which is the default and
 the common case. A `PhasePhysicalTimelinePoint` `{time, phase}` carries
@@ -100,6 +97,20 @@ checks it. Rendered frames reach the compensation list through the same
   2026-10-03. Curves would be easy to add but have little musical value,
   and phase lock may return as a feature of its own.
 
+Impact on components:
+
+* `rendering-engine` — the transform turns phase targets and free-running
+  states into phase timeline points. Precomputation builds each partial's
+  compensation list in C++ (`buildCompensation`), and checks that the phase
+  timeline starts at the lifeline. Rendering adds `D(t)`, with compensation
+  segment starts as render segment boundaries.
+* `engine-db` — every partial has a `PhasePhysicalTimeline` with a point at
+  the start of its lifeline, and a `PartialPhaseCompensationSegment` list
+  that frames reach through `FrameEntry`. The canonical model has no phase
+  curve or phase lock properties.
+* `hzl-compiler` — emits a phase target, in degrees, or `phase: free` as
+  `PartialState.phase` and `phase_free_run`. There is no phase curve to emit.
+
 ### Confirmation
 
 `test_precomputation.cpp` tests the worked examples of precomputation.md §6.8,
@@ -134,7 +145,7 @@ from the canonical model through the transform.
 ### Folding into the frequency envelope
 
 * Good, because the renderer would need nothing new.
-* Bad, because the stored frequency would no longer be the composer's
+* Bad, because the stored frequency would no longer be the practitioner's
   envelope. It would also feed the roll-off, and it would have to be
   recomputed whenever a target moved.
 

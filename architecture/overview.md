@@ -1,8 +1,18 @@
 # RAINBOHz Reference Implementation — Architecture Overview
 
 **Status:** working draft
+
 **Describes:** the target architecture. This document does **not** describe the current state of the code.
-**Version:** 0.5, 2026-10-03
+
+**Version:** 0.6, 2026-10-06
+
+**Changed in 0.6.** The human role is the *practitioner*, not the composer: the people who use
+RAINBOHz include sound designers, sound engineers, sonologists, producers and musicians, and what it
+makes need not be music. `engine-db` now holds the canonical model as well as the rendering model,
+and `canonical-db/` is considerably out of date beside it. `canonical-form` is clarified as the lowest
+level of HzL, which is not loaded directly: what `rendering-engine` loads is a serialisation of it.
+The principles *macro time scale* and *partial independence* are removed; partials are largely
+independent, but they are not self-contained descriptions of audio.
 
 **Changed in 0.5.** `playback-server` is described more fully: besides summing across the
 `rendering-engine` instances, it presents a REST interface close to `rendering-engine`'s, carries
@@ -83,19 +93,14 @@ These principles constrain every component below. Where a principle is phrased a
 prohibition is load-bearing: conventional synthesis architectures violate it, and an implementation
 that drifts back toward the conventional design is wrong even if it sounds correct.
 
-- **Macro time scale.** Partials are specified and manipulated at the time scale of musical
-  structure, not at the time scale of individual audio events.
-- **Partial independence.** After compilation, partials are independent of one another. A partial's
-  contribution is computable without reference to any other partial.
 - **No feedback.** No component introduces a feedback path. Audio-rate state does not loop back into
   its own input anywhere in the system.
 - **Random access.** Rendering any region of the score does **not** require rendering the regions
   that precede it. Any frame is renderable in isolation, given its partial specifications and
-  precomputed phase. This is what makes sharding possible at all: a shard that holds some partials
-  for all time can render any frame without talking to any other shard.
-- **Two-model separation.** The composer-facing model and the render-facing model are separate
+  precomputed phase.
+- **Two-model separation.** The practitioner-facing model and the render-facing model are separate
   representations with separate timebases and separate units. Rendering concerns do not leak into the
-  composer-facing model; composer-facing units and time do not survive into the render path. This is
+  practitioner-facing model; practitioner-facing units and time do not survive into the render path. This is
   a separation of *models*, not of *stores* — see the next principle.
 - **Locality of reference.** Computation lives where its data lives. `rendering-engine` holds the
   graph and performs the transformation, precomputation and rendering over it, because moving
@@ -113,7 +118,7 @@ See `01-system-context.mmd`.
 
 The system has three external parties:
 
-- **Composer.** Authors and edits HzL source, and auditions the result. The only human role in the
+- **Practitioner.** Authors and edits HzL source, and auditions the result. The only human role in the
   architecture.
 - **DAW host.** Supplies transport position and timeline context, and consumes rendered audio.
   Interaction is expected to be via ARA. This relationship exists only through `playback-plugin`.
@@ -135,7 +140,7 @@ This subsystem is a build pipeline, and is expected to run as CI/CD: triggered b
 source, producing an artefact.
 
 #### `hzl-source`
-The HzL source code authored by the composer. The only human-edited artefact in the system.
+The HzL source code authored by the practitioner. The only human-edited artefact in the system.
 
 #### `hzl-compiler`
 Compiles `hzl-source` into `canonical-form`. Python, in its first version (`hzl-compiler/`,
@@ -146,12 +151,13 @@ HzL is a multi-level language with several levels of abstraction. The compiler's
 higher-level constructs toward lower-level ones. The design of HzL itself is at a very early stage.
 
 #### `canonical-form`
-The compiled, loadable representation of a score, expressed in the canonical model: musical time,
-composer-facing units, polytempo. This is the durable artefact of composition and the handover point
-between compilation and rendering.
+The lowest level of HzL: a score collapsed to its minimum form, expressed in the canonical model —
+musical time, practitioner-facing units, polytempo. This is the durable artefact of authoring and the
+handover point between compilation and rendering.
 
-It is not a database. `rendering-engine` loads it into `engine-db`. What exactly it consists of —
-files per partial set, a Cypher stream, something else — is **not decided**; see §10.
+It is not a database, and it is not loaded directly. `hzl-compiler` serialises it to the data model
+of `engine-db`, and that serialisation is what `rendering-engine` loads. The first version's
+serialisation is a Cypher script (ADR 0015); what it is at target scale is **not decided**; see §10.
 
 ### 5.2 Rendering
 
@@ -173,14 +179,15 @@ not have to be shipped anywhere to be used.
 In the distributed deployment it is **sharded by partial set**: each engine instance holds the
 partials it owns, for the whole duration of the score.
 
-Its schema is `engine-db/schema/engine-schema.cypher`, and it is **under construction**: it currently
-holds the rendering-model concepts, and the canonical-model concepts are still to be merged into it.
-See [ADR 0004](../docs/adr/0004-name-the-one-database-engine-db.md).
+Its schema is `engine-db/schema/engine-schema.cypher`. It holds the rendering-model concepts and the
+canonical-model concepts, and it is **under construction**: dependency information is not yet in it,
+and nor are the modulator musical timelines. See
+[ADR 0004](../docs/adr/0004-name-the-one-database-engine-db.md).
 
-**The schema under `canonical-db/schema/` is a design artefact.** It describes the composer-facing
-model and is genuinely useful for understanding the problem, but it is not loaded by this database or
-anything else. It declares seven node tables that `engine-db` also declares, and those seven are the
-merge question `engine-db` has still to answer; see §10.
+**The schema under `canonical-db/schema/` is a design artefact.** It describes the
+practitioner-facing model and is useful for understanding the problem, but it is not loaded by this
+database or anything else. It declares various node tables and relationship tables that `engine-db`
+also declares, and it is now considerably out of date beside them.
 
 `rendering-db/` held the rendering model the same way until 0.4, when it was retired: `engine-db`
 already held those concepts, so the second copy described nothing the real schema did not. See
@@ -191,7 +198,7 @@ A C++ program. It is the only component that touches a graph database, and it pe
 operation that needs one:
 
 - **Hosts** `engine-db` and encapsulates all access to it.
-- **Loads** `canonical-form` into it. The design of this step is open; see §10.
+- **Loads** the serialisation of `canonical-form` into it. The design of this step is open; see §10.
 - **Transforms** the canonical model into the rendering model, in place. Musical time becomes
   physical time, Hertz becomes radians per sample, and the spatial-audio timing work is done here.
 - **Determines the calculation delta** for an incoming request: what, if anything, actually needs
@@ -251,8 +258,9 @@ sketch of intent rather than a specification.
 See `03-compilation-pipeline.mmd`.
 
 `hzl-compiler` reads `hzl-source` and lowers its higher abstraction levels toward its lowest,
-producing `canonical-form`: a representation in musical time and composer-facing units, supporting
-polytempo.
+producing `canonical-form`: a representation in musical time and practitioner-facing units,
+supporting polytempo. It then serialises `canonical-form` to the data model of `engine-db`, for
+`rendering-engine` to load.
 
 The transformation to the rendering model is **not** part of this pipeline. It happens inside
 `rendering-engine`, against a database that is already loaded. This is the change that 0.2 makes to
@@ -296,7 +304,9 @@ within them are cheap.
 
 **The `canonical-form` boundary.** Everything upstream is language and authoring. Everything
 downstream is rendering. `canonical-form` is the only interface between them, and its definition is
-therefore the most consequential contract in the system.
+therefore the most consequential contract in the system. What physically crosses the boundary is a
+serialisation of it to the `engine-db` data model; that is a format derived from the contract, not a
+second contract.
 
 **The network boundary.** Specifications and URLs cross the network; audio payloads do not. Audio
 moves through `object-storage`. This is what allows engine instances to be scaled and relocated
@@ -337,17 +347,11 @@ of writing.
 
 **The database**
 
-- The engine schema is incomplete. It holds the rendering-model concepts and has still to absorb the
-  canonical ones. `engine-db` and the `canonical-db/` artefact declare seven node tables in common —
-  `Score`, `Label`, `Partial`, `PartialSet`, `SoundSource`, `SoundEntity` and `SpatialPositionState`.
-  Whether those become shared nodes carrying both perspectives, or stay separate, is the first
-  question to answer.
-- The scope `engine-db` is growing towards — the canonical model, dependency information,
-  precomputation output and rendering results in one store — is stated but not designed. Nothing in
-  the schema yet represents dependencies or precomputation output.
-- The representation of dirty flags is not in any schema yet, and §5.2 depends on it entirely.
-- `FRAME_SIZE` is referenced by `engine-db/schema/engine-schema.cypher` and declared nowhere in
-  the repository. The comment there says "typically equal to the sample rate".
+- The engine schema covers the concerns of the canonical model and the concerns of precomputation
+  and rendering. It is intended to be a superset of the canonical model; it is not one yet, because
+  the modulator musical timelines are still to come. It does not yet cover dependencies, which
+  incremental transformation needs. It includes node tables and relationship tables whose purpose is
+  to optimise the queries that precomputation and rendering perform.
 
 **Sharding**
 
@@ -355,7 +359,9 @@ of writing.
   set of instances changes, are all undefined.
 - What an engine instance does about a request naming partials it does not own is undefined.
 - Whether a shard's `engine-db` holds only its own partials, or the whole score with only its own
-  partials rendered, is undecided.
+  partials rendered, is undecided. Partials are largely independent, but they are not self-contained
+  descriptions of audio: they share properties held above them, such as a `SoundSource`'s spatial
+  position. A shard needs that shared context as well as its own partials.
 
 **Loading and compilation**
 
@@ -363,10 +369,13 @@ of writing.
   at each level, are undefined.
 - The implementation language for `hzl-compiler` is Python in the first version; whether that holds
   at scale is not settled.
-- What `canonical-form` actually is, and how `rendering-engine` loads it, is the significant
-  undecided question in the compilation half of the system. The first version's answer is a Cypher
-  script of one statement, loaded by `--state` (ADR 0015); it is known not to be the answer at
-  target scale.
+- How `canonical-form` is serialised for loading, and how `rendering-engine` loads it, is a
+  significant undecided question in the compilation half of the system. There are two things here,
+  and only one of them is `canonical-form`: the lowest level of HzL, a score collapsed to its minimum
+  form, and a serialised form of the `engine-db` data model made from it. The first is
+  `canonical-form`, and it is not loaded directly; the second is what is loaded. The first version's
+  serialisation is a Cypher script of one statement, loaded by `--state` (ADR 0015); it is known not
+  to be the answer at target scale. A strong candidate is Parquet, loaded by Ladybug's `COPY FROM`.
 
 **Rendering**
 
@@ -404,5 +413,6 @@ difference bought nothing that could not be had by holding both perspectives in 
 
 What survives is the part that was always load-bearing: the system is distributed, and it is
 *sharded*. That was true in 0.1 and is true now. What changed is the unit of distribution — the
-shard, not the pipeline stage. Each instance now does every job for the partials it owns, which is
-what the random-access principle made possible in the first place.
+shard, not the pipeline stage. Each instance now does every job for the partials it owns. That
+rests on partials being largely independent of one another; random access, which is about time
+rather than partials, is what lets any of those jobs start at any frame.

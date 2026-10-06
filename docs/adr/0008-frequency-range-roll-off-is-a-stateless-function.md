@@ -1,8 +1,6 @@
 ---
 status: accepted
 date: 2026-09-24
-decision-makers: Alan Broady
-consulted: Claude (design discussion)
 ---
 
 # The frequency-range roll-off is a stateless function of instantaneous frequency
@@ -76,6 +74,18 @@ tremolo at the modulator's rate, which the schema keeps subsonic.
   schema header's wording might suggest; linear in dB composes additively
   and reaches the −144 dB floor at the band edge. The header's "linear
   roll-off" is read as a shape, not as a domain.
+
+Impact on components:
+
+* `rendering-engine` — `rollOffAt()` in `amplitude_maths.hpp` takes a
+  frequency and the band edges and nothing else. The per-partial hot-loop
+  state stays phase, frequency and nominal amplitude.
+* `engine-db` — the rendering and audio ranges in the schema's
+  "Units and limits" are the band edges. A frequency modulator is kept
+  subsonic there, which is what keeps a modulated band crossing a tremolo
+  rather than a buzz.
+* `playback-server` (not built yet) — any frame can be rendered without the
+  frames before it, out-of-range glides included.
 
 ### Confirmation
 

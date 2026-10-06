@@ -56,7 +56,7 @@ Phase = float | FreeRun | None
 
 # Properties the PoC had on partial states and this version does not carry
 # there. Each is refused with a message rather than dropped, so that a
-# composer who writes one is told it had no effect. Spatial position belongs
+# practitioner who writes one is told it had no effect. Spatial position belongs
 # to a sound source, not a partial, and is written as its trajectory.
 _ON_THE_SOURCE = "spatial position belongs to a sound_source, not a partial; write it in the source's trajectory"
 NOT_IN_THIS_VERSION = {

@@ -1,9 +1,6 @@
 ---
 status: accepted
 date: 2026-10-01
-decision-makers: Alan Broady
-consulted: engine-db/schema/engine-schema.cypher, architecture/overview.md
-informed: rendering-engine, engine-db
 ---
 
 # Distinguish musical time from physical time, in the schema and in the code
@@ -75,7 +72,7 @@ The schema file is the authority. In outline:
 | Measured in | ticks on a `TempoMap` (`POINT_AT.sync_point`), plus `offset_seconds` | seconds or samples, as a `time` property on each point |
 | Owner relationship | `HAS_MUSICAL_TIMELINE` | `HAS_PHYSICAL_TIMELINE` |
 | Nominal partial parameters | `PartialSet → PartialSetMusicalTimeline`, one for the whole set | `Partial → Frequency/Amplitude/PhasePhysicalTimeline`, one per partial |
-| Spatial position | `SoundSource → SpatialPositionMusicalTimeline` | not yet defined |
+| Spatial position | `SoundSource → SpatialPositionMusicalTimeline` | `SoundSource → Azimuth/Elevation/DistancePhysicalTimeline`, one each per source |
 | Modulators | `HAS_MODULATOR_MUSICAL_TIMELINE`, not yet defined | `HAS_MODULATOR_PHYSICAL_TIMELINE` |
 | Engine-derived | none | `PartialSegmentPhysicalTimeline`; `FRAME_ENTRY_PHYSICAL_TIMELINE` |
 
@@ -87,20 +84,22 @@ converted, the partials of a set no longer share the same parameters.
 `TempoMap` is not a timeline of either kind. It is what defines musical time.
 It holds `ticks_per_beat` itself, and its points are `TempoMapPoint`, with no
 separate `TempoMapTimeline` node. At 60 BPM the ticks are subdivisions of a
-second, so a composer can write milliseconds or samples in musical time without
-leaving the musical model.
+second, so a practitioner can write milliseconds or samples in musical time
+without leaving the musical model.
 
 ### What is implemented
 
 The render path reads and writes physical timelines only. The transform
-stage (`rendering-engine/docs/transform.md`, first version 2026-10-02) reads
-the musical tables — `TempoMap`, `PartialSetMusicalTimeline`, `POINT_AT`,
-`PartialState` — and writes the per-partial frequency and amplitude physical
-timelines. It is the only code that reads musical time, and it lives in the
-namespace `rainbohz::rendering_engine::transform`, whose unit types
-(`MusicalTime`, `MusicalDuration`, `TicksPerBeat`, `Tempo`) are the
-musical-time counterparts this ADR anticipated. Spatial position, the
-modulators and phase are still physical-only.
+stage (`rendering-engine/docs/transform.md`) reads the musical tables —
+`TempoMap`, `PartialSetMusicalTimeline`, `SpatialPositionMusicalTimeline`,
+`POINT_AT`, `PartialState` and `SpatialPositionState` — and writes the
+per-partial frequency, amplitude and phase physical timelines, and the
+per-source azimuth, elevation and distance physical timelines. It is the only
+code that reads musical time, and it lives in the namespace
+`rainbohz::rendering_engine::transform`, whose unit types (`MusicalTime`,
+`MusicalDuration`, `TicksPerBeat`, `Tempo`) are the musical-time counterparts
+this ADR anticipated. Only the modulators are still physical-only: their
+musical timelines are not yet in the schema.
 
 ### Consequences
 
@@ -113,6 +112,16 @@ modulators and phase are still physical-only.
   has two tables and two relationship tables.
 * Neutral, because `canonical-db/` still uses the old names. It is a design
   artefact, and it will be brought into line separately.
+
+Impact on components:
+
+* `engine-db` — every timeline table and its owner relationship carries its
+  time base in its name. A concept held in both models has two of each.
+* `rendering-engine` — only the transform reads musical time. Its unit types
+  live in `rainbohz::rendering_engine::transform` and do not convert to the
+  physical ones. Everything after the transform reads physical timelines only.
+* `hzl-compiler` — emits musical timelines only, in ticks on a `TempoMap`.
+  It never writes a physical timeline.
 
 ### Confirmation
 

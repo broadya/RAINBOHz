@@ -47,7 +47,7 @@ source root from the score's namespace.
 Every musical position and duration is `beats:ticks`: two non-negative
 integers, the second below the tempo map's `ticks_per_beat`. A bare integer
 is that many beats and no ticks. A float is an error: fractions of a beat are
-written as ticks, and a composer who needs finer resolution raises
+written as ticks, and a practitioner who needs finer resolution raises
 `ticks_per_beat`. Nothing on this path is floating point. There are no bars
 and no time signatures; rhythm is left neutral at this level.
 
@@ -306,7 +306,7 @@ A physical offset of the point the stage ends at, in seconds, independent of
 tempo: the way to give a percussive attack the same length at any tempo. A
 stage of `duration: "0:0"` with `offset_seconds: 0.25` makes a point a
 quarter of a second after the previous one whatever the tempo. When offsets
-make points collide in physical time the transform keeps the composer's
+make points collide in physical time the transform keeps the practitioner's
 order and lets time yield (ADR 0014); the compiler does not check for it.
 
 ### 7.7 Phase

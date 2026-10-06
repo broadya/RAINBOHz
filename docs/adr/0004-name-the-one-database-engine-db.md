@@ -1,9 +1,6 @@
 ---
 status: accepted
 date: 2026-09-18
-decision-makers: Alan Broady
-consulted: architecture/overview.md, AGENTS.md, docs/adr/0003
-informed: rendering-engine
 ---
 
 # Name the one database `engine-db`, and build its schema from the rendering model outwards
@@ -71,12 +68,28 @@ else in that ADR changes.
   `make validate-schemas` validates the same DDL twice and `make docs` generates
   two identical diagrams. The duplication is real but temporary, and the cost is
   seconds of build time.
-* Bad, because the canonical model now has two homes in flight — the artefact
-  under `canonical-db/`, and whatever has so far been merged into `engine-db`.
-  Until the merge completes, a reader has to know which one they are looking at.
-* Neutral, because the seven node tables the two artefacts declare in common are
-  still the open question. This decision fixes where the answer gets written
-  down; it does not answer it. See `architecture/overview.md` §10.
+* Bad, because the canonical model has two homes — the artefact under
+  `canonical-db/`, and `engine-db`. `engine-db` now holds the canonical concepts
+  (the modulator musical timelines are still to come), and `canonical-db/` is
+  considerably out of date beside it, so a reader has to know that `engine-db`
+  is the one to trust.
+* Neutral, because this decision fixed where the answer to the shared node
+  tables would be written down, not what it would be. It has since been
+  answered in `engine-db`: shared nodes such as `Score`, `Partial` and
+  `PartialSet` carry both perspectives.
+
+Impact on components:
+
+* `engine-db` — the identifier, the `engine-db/` directory, and the schema
+  `engine-db/schema/engine-schema.cypher`, grown from the rendering model
+  outwards.
+* `rendering-engine` — reaches the database through the `EngineDb` wrapper,
+  and its code targets the rendering model first.
+* `hzl-compiler` — the canonical concepts it emits have to exist in
+  `engine-schema.cypher`, and arrive there as they are needed rather than in
+  one up-front merge.
+* Build system — `make validate-engine-schema` checks the schema loads, and
+  `make docs` draws its diagram.
 
 ### Confirmation
 

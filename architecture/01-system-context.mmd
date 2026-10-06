@@ -2,7 +2,7 @@
 %% Referenced from: overview.md, section "System context"
 
 flowchart TB
-    composer["Composer<br/>(authors HzL source)"]
+    practitioner["Practitioner<br/>(authors HzL source)"]
     daw["DAW host<br/>(transport, timeline)"]
     infra["Compute and storage infrastructure<br/>(deployment target)"]
 
@@ -10,8 +10,8 @@ flowchart TB
         core["Authoring, compilation,<br/>rendering and audio delivery"]
     end
 
-    composer -- "writes and edits HzL source" --> rainbohz
-    rainbohz -- "audio for audition" --> composer
+    practitioner -- "writes and edits HzL source" --> rainbohz
+    rainbohz -- "audio for audition" --> practitioner
     daw -- "transport position, timeline edits (ARA)" --> rainbohz
     rainbohz -- "rendered audio" --> daw
     rainbohz -- "runs on" --> infra

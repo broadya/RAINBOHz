@@ -1,8 +1,6 @@
 ---
 status: accepted
 date: 2026-10-02
-decision-makers: Alan Broady
-consulted: Claude (design discussion)
 ---
 
 # REST resources under /v1, described by OpenAPI 3.1, with problem+json errors
@@ -45,8 +43,9 @@ and whether the three existing calls should change to match.
 ## Decision Outcome
 
 Chosen option: **resource style for every call, moving the existing three
-now**, because the API has one client so far (the end-to-end test), so a
-breaking change costs least now, before anything depends on the old shape.
+now**, because a breaking change costs least before anything depends on the
+old shape. When the calls moved, the API's only client was the end-to-end
+test. `playback-client`, its first real client, was written against `/v1`.
 
 * **Paths under `/v1`.** The score is a resource, `PUT /v1/score` (a load
   replaces it, and loading the same file again gives the same score). Rendering
@@ -86,12 +85,27 @@ breaking change costs least now, before anything depends on the old shape.
   cache by URL.
 * Good, because errors have a standard shape that generic clients understand.
 * Bad, because the change broke the three existing calls. Their only client
-  was this repository's own test, which moved with them.
+  at the time was this repository's own test, which moved with them.
 * Bad, because the narrative is no longer in the response. A client that
   wants the FAILED lines of a load must read the server's output.
 * Neutral, because paging a map's points walks its list from the head on
   every page (the list is a linked list, and positions are not indexed). That
   is acceptable now, and it is recorded in `rendering-engine/docs/server.md`.
+
+Impact on components:
+
+* `rendering-engine` — every call, existing or new, follows these
+  conventions, and `rendering-engine/api/openapi.yaml` is updated with the
+  code. Responses carry no narrative; it goes to standard output.
+* `engine-db` — ids are assigned on every load, so ids and paging cursors
+  are valid for the loaded score only. Paging a map's points walks its linked
+  list from the head.
+* `playback-client` — calls the `/v1` paths through `PlaybackApi`, and reads
+  a failure's verdict from the problem document.
+* `playback-server` (not built yet) — its REST interface is expected to be
+  close to `rendering-engine`'s, so it adopts the same conventions:
+  resources under `/v1`, an OpenAPI 3.1 document, and problem+json errors.
+  Its gateway features can route and cache the `GET`s by URL.
 
 ### Confirmation
 

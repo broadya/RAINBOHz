@@ -1,9 +1,6 @@
 ---
 status: accepted
 date: 2026-10-02
-decision-makers: Alan Broady
-consulted: rendering-engine/docs/transform.md, engine-db/schema/engine-schema.cypher
-informed: rendering-engine, engine-db, hzl-compiler
 ---
 
 # Tempo ramps are linear in musical position, and a tempo map's validity rules
@@ -23,7 +20,7 @@ seconds). They give different elapsed times for the same segment.
 
 ## Decision Drivers
 
-* The canonical model is meant to feel like a DAW to a composer, and the
+* The canonical model is meant to feel like a DAW to a practitioner, and the
   playback plugin will sit inside one.
 * The conversion must have a closed form. Precomputation and rendering rely on
   exact, repeatable arithmetic, and a numerical integration per point would be
@@ -67,8 +64,8 @@ The validity rules decided with it (author, 2026-10-02):
 
 ### Consequences
 
-* Good, because a composer moving between a DAW and HzL meets one notion of a
-  ramp.
+* Good, because a practitioner moving between a DAW and HzL meets one notion of
+  a ramp.
 * Good, because the conversion is one logarithm per segment, exact to a few
   ulp, and reproduced independently by the oracle's Python mirror.
 * Bad, because a ramp that should be linear in seconds (a tempo that falls by
@@ -76,6 +73,21 @@ The validity rules decided with it (author, 2026-10-02):
   different `hold` kind, which the schema can gain later.
 * Neutral, because the last-point rule is an integrity constraint the schema
   cannot express; `--validate-db` and the transform both check it.
+
+Impact on components:
+
+* `rendering-engine` — the transform converts ticks to seconds with
+  `secondsThrough()`, and refuses a map that breaks a rule. `--validate-db`
+  reports such a map.
+* `engine-db` — `TempoMap` and `TempoMapPoint` carry the ramp as `hold`
+  between points. The last-point rule is not expressible in the schema, so it
+  is checked in code.
+* `hzl-compiler` — has to emit tempo maps that meet the rules: first point at
+  tick 0, strictly increasing positions, tempo in [1, 1000] BPM, and the last
+  point held.
+* The DAW plugin (not built yet) — a ramp on the host's beat-based tempo
+  track means the same as one in HzL. Mapping the host's seconds back to
+  beats uses the closed-form inverse.
 
 ### Confirmation
 
@@ -96,8 +108,9 @@ from the formula outside the engine.
 
 * Good, because tempo change per second is constant, which some think of as
   "linear".
-* Bad, because it is not what the tempo tracks composers know do, and the
-  musical position of a point then depends on solving for time first.
+* Bad, because it is not what the tempo tracks practitioners know from DAWs
+  do, and the musical position of a point then depends on solving for time
+  first.
 
 ## More Information
 
@@ -107,3 +120,5 @@ from the formula outside the engine.
   conversion crosses.
 * Revisit if a second ramp shape is wanted; the natural place is a third value
   of `hold`, which would then be better named.
+* `engine-db/schema/engine-schema.cypher`, the `TempoMap` and `TempoMapPoint`
+  definitions.

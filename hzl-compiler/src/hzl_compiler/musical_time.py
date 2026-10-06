@@ -5,7 +5,7 @@ within the beat, both integers. The pair only becomes one tick count once the
 tempo map's `ticks_per_beat` is known, so the two parts are kept apart until
 then: a value written for one map must not be misread on another. There is no
 floating point anywhere on this path. A position that is off by one tick is a
-wrong note, not a rounding error, and a composer who needs finer resolution
+wrong note, not a rounding error, and a practitioner who needs finer resolution
 raises `ticks_per_beat` rather than writing a fraction.
 """
 

@@ -1,6 +1,6 @@
 # hzl-compiler
 
-The compiler for HzL (Hertz Language), the composer-facing language of
+The compiler for HzL (Hertz Language), the practitioner-facing language of
 RAINBOHz. It reads a score and every file the score reaches, lowers the
 higher-level constructs to the lowest level of the language, and emits that
 level as a Cypher script that `rendering-engine` loads into `engine-db`.

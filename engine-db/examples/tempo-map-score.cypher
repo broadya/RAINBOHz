@@ -2,7 +2,7 @@
 // tempo-map-score.cypher
 //
 // A small score in the canonical model: musical time on a tempo
-// map, composer-facing units. Nothing here is in samples or
+// map, practitioner-facing units. Nothing here is in samples or
 // radians; the transform stage (rendering-engine/docs/transform.md)
 // converts it before precomputation. Mirrored for the oracle in
 // tempo-map-score.json, which holds the physical values the

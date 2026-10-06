@@ -1,9 +1,6 @@
 ---
 status: accepted
 date: 2026-10-04
-decision-makers: Alan Broady
-consulted: rendering-engine/docs/rendering.md, proof-of-concept/spatial-audio
-informed: rendering-engine, engine-db
 ---
 
 # Apply spatial gains once per SoundSource, after summing its partials in mono
@@ -67,6 +64,22 @@ per source.
   sum is narrowed once before the gain is applied in double. The extra
   rounding is of the order of one float ulp, as for the sum of sets
   (rendering.md §10).
+
+Impact on components:
+
+* `rendering-engine` — rendering gains a per-source stage after the per-set
+  loop: the sets of a source are summed into one mono buffer, and
+  `spatialiseChunk()` spreads it over the channels. `SoundSourcePlan` holds
+  the per-source state, and is where the source clock goes under Doppler.
+* `engine-db` — spatial position is held only on a SoundSource's
+  timelines, never on a partial or a partial set.
+* `hzl-compiler` — a position is given per `sound_source`. A per-partial
+  spread, when HzL gains one, has to be lowered to one SoundSource per
+  position.
+* `playback-server` (not built yet) — the per-shard objects it sums are
+  already multi-channel and spatialised. Because the gains are linear, a
+  source whose partial sets fall in different shards still sums correctly,
+  channel by channel.
 
 ### Confirmation
 

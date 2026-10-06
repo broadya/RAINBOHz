@@ -1,9 +1,6 @@
 ---
 status: superseded by ADR-0011
 date: 2026-09-25
-decision-makers: Alan Broady
-consulted: ADR 0001, AGENTS.md "Survivability"
-informed: rendering-engine
 ---
 
 # Build Ladybug from our fork, carrying the SERIAL primary-key index fix
@@ -75,6 +72,17 @@ Specifics:
 * Neutral, because the storage format is unchanged, so the Homebrew shell at the
   same upstream version can still open databases the engine writes.
 
+Impact on components:
+
+Superseded: ADR 0011 now governs all of these.
+
+* `rendering-engine` — its build fetched Ladybug from the fork, through
+  `RE_LADYBUG_GIT_REPOSITORY` and `RE_LADYBUG_GIT_TAG` in
+  `rendering-engine/cmake/Dependencies.cmake`, and bound ids as plain
+  `int64_t` with no workaround at the call sites.
+* `engine-db` — kept its SERIAL keys, and its lookups by id became index
+  scans.
+
 ### Confirmation
 
 `SerialPrimaryKeyEqualityWithInt64ValueUsesIndexScan` in the fork's
@@ -114,6 +122,8 @@ still scans. When bumping, run it on the rebased branch before tagging.
 
 * ADR 0001, which this extends. The pinning mechanism is unchanged; only the
   source repository and the tag differ.
+* AGENTS.md, "Survivability", for why patching Ladybug's C++ source ourselves
+  was always an accepted route.
 * The fork's commit, "Use the primary-key index for a SERIAL key compared with
   an INT64 value", explains the fix.
 * Revisit when upstream merges an equivalent fix. The pin can then return to an

@@ -210,11 +210,11 @@ Four subsystems: compilation, rendering, playback, and orchestration.
 
 1. **Compilation** — runs as CI/CD, triggered by a change to source.
    - **HzL (Hertz Language)** — A declarative, domain-specific language for macro-scale additive synthesis.
-   - **HzL Compiler** — Python. Transforms HzL (YAML) through intermediate representations into `canonical-form`. Implemented in its first version in [`hzl-compiler/`](hzl-compiler/): it lowers the proof of concept's constructs, moved to musical time, to the canonical model as tables and emits them as Cypher that `rendering-engine --state` loads unchanged (ADR 0015). See `hzl-compiler/docs/design.md` and `hzl-compiler/docs/hzl-reference.md`.
+   - **HzL Compiler** — Python. Transforms HzL (YAML) through intermediate representations into `canonical-form`. Implemented in its first version in [`hzl-compiler/`](hzl-compiler/): it lowers the proof of concept's constructs, moved to musical time, to the canonical model as tables (`canonical-form`) and serialises them as Cypher that `rendering-engine --state` loads unchanged (ADR 0015). See `hzl-compiler/docs/design.md` and `hzl-compiler/docs/hzl-reference.md`.
    - **Build System** — Ninja-based, with a Python generator for `.ninja` files.
-   - **`canonical-form`** — the loadable, durable representation of a score, in musical time and composer-facing units. What it actually consists of is undecided.
+   - **`canonical-form`** — the lowest level of HzL: the durable representation of a score collapsed to its minimum form, in musical time and practitioner-facing units. It is not loaded directly; `rendering-engine` loads a serialisation of it to the `engine-db` data model. That serialisation is a Cypher script in the first version; at target scale it is undecided, with Parquet a strong candidate.
 2. **Rendering** — one component, doing all of it.
-   - **`rendering-engine`** — C++. Hosts `engine-db` in process; loads `canonical-form` into it; transforms the canonical model into the rendering model in place; determines the calculation delta from dirty flags; precomputes phase integration; performs phase compensation; renders frames to multi-channel WAV objects. Implemented in [`rendering-engine/`](rendering-engine/); see `architecture/overview.md` §5.2 and §9, where C++ is recorded as Settled. The transform (`rendering-engine/docs/transform.md`), precomputation (`rendering-engine/docs/precomputation.md`) and rendering (`rendering-engine/docs/rendering.md`) are designed and implemented in their first versions; label selection is not. It runs in two modes: `batch` (load, render a request file, exit) and `server`, a long-running REST service that holds one score in memory between calls, renders frames and answers questions about the score's tempo maps and engine parameters (`rendering-engine/docs/server.md`, `rendering-engine/api/openapi.yaml`, ADRs 0016 and 0017). The transform is the only code that reads musical time: it lives in the namespace `rainbohz::rendering_engine::transform` and the `transform/` directories, and nothing outside them includes its musical unit types or tempo map.
+   - **`rendering-engine`** — C++. Hosts `engine-db` in process; loads the serialised `canonical-form` into it; transforms the canonical model into the rendering model in place; determines the calculation delta from dirty flags; precomputes phase integration; performs phase compensation; renders frames to multi-channel WAV objects. Implemented in [`rendering-engine/`](rendering-engine/); see `architecture/overview.md` §5.2 and §9, where C++ is recorded as Settled. The transform (`rendering-engine/docs/transform.md`), precomputation (`rendering-engine/docs/precomputation.md`) and rendering (`rendering-engine/docs/rendering.md`) are designed and implemented in their first versions; label selection is not. It runs in two modes: `batch` (load, render a request file, exit) and `server`, a long-running REST service that holds one score in memory between calls, renders frames and answers questions about the score's tempo maps and engine parameters (`rendering-engine/docs/server.md`, `rendering-engine/api/openapi.yaml`, ADRs 0016 and 0017). The transform is the only code that reads musical time: it lives in the namespace `rainbohz::rendering_engine::transform` and the `transform/` directories, and nothing outside them includes its musical unit types or tempo map.
    - **`engine-db`** — LadybugDB (embedded), the one physical database in the system, sharded by partial set.
    - **Object storage** — WAV objects addressed by URL.
 3. **Playback** — merging the shards on demand and serving them.
@@ -237,8 +237,8 @@ disagree, that one wins.
 | Directory | Contents | Language | Status |
 | --- | --- | --- | --- |
 | `hzl-compiler/` | `hzl-compiler` | Python 3.12 | First version: score, tempo map, sound entity/source, envelope with `Update`, trajectory (a source's spatial position), state sets, scale, harmonic series, flattened cartesian product; frequency, amplitude and phase per partial, spatial position per source; emits Cypher |
-| `engine-db/` | `engine-db` — **the implementation** | Cypher DDL | Under construction; rendering concepts, plus the canonical tempo map and partial-set timelines the transform reads |
-| `canonical-db/` | Canonical model — **design artefact** | Cypher DDL | Loads cleanly; not the implementation |
+| `engine-db/` | `engine-db` — **the implementation** | Cypher DDL | Under construction; rendering and canonical concepts, without the modulator musical timelines or dependency information yet |
+| `canonical-db/` | Canonical model — **design artefact** | Cypher DDL | Loads cleanly; not the implementation; considerably out of date beside `engine-db` |
 | `rendering-engine/` | `rendering-engine` | C++20 | Hosts and loads `engine-db`; transforms musical time to physical time (first version: one tempo map, frequency, amplitude, phase targets and spatial position); precomputes; renders frames to multi-channel WAV files (first version: linear curves, one spatial position per SoundSource, all eight channel modes, labels ignored); `batch` and `server` (REST) modes |
 | `playback-client/` | `playback-client` | C++20 | First version: loops a range through the default audio device over `rendering-engine`'s REST service, two buffer lanes, mono; `--output-wav` for tests |
 
@@ -251,16 +251,15 @@ physical database, hosted in process by `rendering-engine`, and
 
 **`engine-db` is the engine's practical database, not one model's view of the
 world.** Its scope is everything in the canonical model, plus everything needed
-to determine dependencies, precompute and render. It does none of that yet —
-that is the target the schema is being grown towards, not a description of the
-current file. When a new concept is needed for dependency tracking,
+to determine dependencies, precompute and render: by design intent, a superset
+of the canonical model. When a new concept is needed for dependency tracking,
 precomputation or rendering, `engine-db` is where it goes; there is nowhere
 else for it to go.
 
 That schema is under construction: it holds the rendering-model concepts and
-the canonical-model tables the transform reads (tempo maps, partial-set
-musical timelines, partial states); the remaining canonical concepts have
-still to be merged in. See
+the canonical-model concepts, but it is not yet a full superset of the
+canonical model — the modulator musical timelines are still to come — and
+nothing in it yet represents dependency information. See
 [ADR 0006](docs/adr/0006-retire-rendering-db-engine-db-is-the-whole-database.md)
 and [ADR 0004](docs/adr/0004-name-the-one-database-engine-db.md).
 
@@ -282,8 +281,9 @@ proof-of-concept property it does not carry (spatial position on a partial,
 `pan`) rather than dropping it silently.
 
 **`canonical-db/` is not a component, and is not loaded by anything.** It holds
-the composer-facing model as a design artefact: useful for understanding the
-problem, genuinely valid Cypher, and deliberately not what the system runs on.
+the practitioner-facing model as a design artefact: useful for understanding
+the problem, genuinely valid Cypher, and deliberately not what the system runs
+on. It is now considerably out of date beside `engine-db`.
 It is a source `engine-db` draws on. Do not treat it as the implementation, and
 do not try to merge it into `engine-db` yourself — see the schema prohibition
 below.
@@ -352,8 +352,8 @@ lists every documented target.
 
 Documentation:
 
-- `make docs` — regenerate all schema Mermaid diagrams (`.mmd`) from their
-  `.cypher` sources, and the Doxygen API documentation. Incremental: only
+- `make docs` — regenerate the root `README.md`, all schema Mermaid diagrams
+  (`.mmd`) from their `.cypher` sources, and the Doxygen API documentation. Incremental: only
   rebuilds when a source, generator script or `Doxyfile` is newer than the
   output.
 - `make api-docs-rendering-engine` — Doxygen HTML for `rendering-engine` only,
@@ -507,6 +507,20 @@ list.
 - During early development, schema migration = drop and recreate from DDL + full rebuild from source YAML.
 - Architecture Decision Records (ADRs) in `docs/adr/` for non-obvious design choices, following the [MADR](https://adr.github.io/madr/) convention. Start from `docs/adr/adr-template.md`; see `docs/adr/README.md` for numbering and status rules. ADRs record the current situation and are edited in place when it changes; git holds the history. A decision replaced outright is marked superseded by its successor.
 - `proof-of-concept/` is for general proof-of-concept work; no PoC is added to any build. Its original sub-directories (`audio-rendering/`, `hzl-language/`, `maths/`) are a historical record: do not modify them.
+
+### Documentation Ownership
+
+The root `README.md` is generated by `make readme` (part of `make docs`), which
+joins two parts in `docs/readme/`. Never edit `README.md` directly; edit the
+part, then run `make readme`, and commit both.
+
+- `docs/readme/introduction.md` — everything before `## Repository Layout`:
+  the project summary, AI disclosure, architecture, languages, platforms and
+  status. **This is the author's own writing. AI agents must not modify it in
+  any way** — not to fix typos, update facts, reformat or reword. If it looks
+  wrong or out of date, say so to the author and leave it unchanged.
+- `docs/readme/developer-guide.md` — `## Repository Layout` onwards. Agents
+  maintain this part and keep it current as the repository changes.
 
 ### C++ Conventions
 

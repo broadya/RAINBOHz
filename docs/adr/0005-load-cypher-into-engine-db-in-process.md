@@ -1,9 +1,6 @@
 ---
 status: accepted
 date: 2026-09-18
-decision-makers: Alan Broady
-consulted: ADR 0001, ADR 0002, rendering-engine/docs/design.md
-informed: future canonical-form loading work
 ---
 
 # Load Cypher into `engine-db` in process, statement by statement
@@ -96,6 +93,20 @@ a time is the slower path. The engine then exits non-zero.
   `make test`, in seconds, with no compiler involved. That property is worth
   more than consolidating the two loaders.
 
+Impact on components:
+
+* `rendering-engine` — applies the schema and any `--state` file itself,
+  through `ScriptLoader`, attempting every statement and exiting non-zero if
+  any failed. Its splitter in `cypher_script.cpp` is kept in step with
+  `scripts/ladybug_ddl.py`.
+* `engine-db` — in memory, so it is populated only through this in-process
+  loader. No external tool can attach to it.
+* `hzl-compiler` — the Cypher it emits is loaded through this path, one
+  statement per call, so a load error is reported against a line of the
+  emitted file. At target scale, bulk loading may move to `COPY FROM`, which
+  this decision does not cover.
+* Build system — unchanged: the Python tooling keeps the CLI path of ADR 0002.
+
 ### Confirmation
 
 `make test-rendering-engine`. The loader tests cover attribution across single
@@ -152,3 +163,5 @@ was accepted; the decision is unchanged.
   tooling's path, which is unchanged.
 * [ADR 0001](0001-build-ladybug-from-pinned-source.md) for why the engine's
   Ladybug and the Homebrew `lbug` can differ in the first place.
+* `rendering-engine/docs/design.md` for how the engine starts from an empty
+  database and applies the schema and state.

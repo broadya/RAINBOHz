@@ -3,7 +3,7 @@
 The YAML loader gives back plain dicts, lists and scalars with no idea of
 where they came from. A `Node` wraps a mapping together with its `Where`, so
 that every accessor can report a missing key, a wrong type or an unknown key
-at the exact place in the file, in the terms a composer reads.
+at the exact place in the file, in the terms a practitioner reads.
 
 Type names are deliberately few and strict. YAML's own typing is loose (an
 unquoted `4` is an int, `4.0` a float, `yes` a bool), and the accessors do not

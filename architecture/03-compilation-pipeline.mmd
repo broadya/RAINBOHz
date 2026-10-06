@@ -4,15 +4,15 @@
 %% The canonical-to-rendering transformation is deliberately absent here. It
 %% happens inside rendering-engine, against an already-loaded database, so the
 %% score is never serialised in order to move it.
+%% canonical-form is the lowest HzL level. It is not loaded directly: what
+%% rendering-engine loads is a serialisation of it to the engine-db data model.
 
 flowchart LR
     hzl-source["hzl-source<br/>multi-level HzL"]
     high["Higher abstraction levels<br/>(design at an early stage)"]
-    low["Lowest abstraction level"]
-    canonical-form["canonical-form<br/>musical time, Hertz,<br/>polytempo, durable"]
+    canonical-form["canonical-form<br/>lowest HzL level<br/>musical time, Hertz,<br/>polytempo, durable"]
     rendering-engine["rendering-engine<br/>loads and transforms<br/>in place"]
 
     hzl-source --> high
-    high -- "lowered by hzl-compiler" --> low
-    low -- "emitted as" --> canonical-form
-    canonical-form -- "loaded into engine-db by" --> rendering-engine
+    high -- "lowered by hzl-compiler" --> canonical-form
+    canonical-form -- "serialised by hzl-compiler<br/>(Cypher; Parquet a candidate),<br/>loaded into engine-db by" --> rendering-engine

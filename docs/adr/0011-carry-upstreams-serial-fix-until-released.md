@@ -1,9 +1,6 @@
 ---
 status: accepted
 date: 2026-09-27
-decision-makers: Alan Broady
-consulted: ADR 0001, ADR 0010, LadybugDB/ladybug issue #1025 and PR #1028
-informed: rendering-engine
 ---
 
 # Carry upstream's SERIAL primary-key fix in our fork until a release includes it
@@ -75,6 +72,15 @@ what the fork carries, and when it ends, are what changed.
   the INT32 range.
 * Bad, because until the release the build still depends on the personal fork.
 
+Impact on components:
+
+* `rendering-engine` — `rendering-engine/cmake/Dependencies.cmake` pins
+  `v0.20.4-rainbohz.2` from the fork, until a Ladybug release includes
+  PR #1028. Ids are bound as plain `int64_t`, with no workaround at the call
+  sites.
+* `engine-db` — keeps its SERIAL keys. Lookups by id, and by narrower integer
+  keys such as `Frame.frame_number`, use the primary-key index.
+
 ### Confirmation
 
 On the fork build: `optimizer_test` passes 20 of 20, including
@@ -115,3 +121,4 @@ one row.
 * LadybugDB/ladybug issue #1025 and PR #1028.
 * The tag message of `v0.20.4-rainbohz.2` in `github.com/broadya/ladybug`
   lists the backported commits.
+* ADR 0001, whose pinning policy this follows.

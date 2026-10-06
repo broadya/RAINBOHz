@@ -1,9 +1,6 @@
 ---
 status: accepted
 date: 2026-08-14
-decision-makers: Alan Broady
-consulted: architecture/overview.md, AGENTS.md
-informed: rendering-engine, future C++ components embedding Ladybug
 ---
 
 # Build Ladybug from pinned source and link it statically
@@ -92,6 +89,20 @@ Specifics:
   ref — a floating ref would give up knowing exactly which source is compiled
   in, which is the premise of the survivability argument. Behaviour changes
   across a bump belong in a follow-up ADR.
+
+Impact on components:
+
+* `rendering-engine` — `rendering-engine/cmake/Dependencies.cmake` holds the
+  Ladybug pin and the trimmed build options. A first build compiles Ladybug,
+  and OpenSSL 3 is a build and, by default, runtime dependency.
+* `engine-db` — its on-disk format is the one the pinned Ladybug writes. A
+  database is opened by the same version, or by a shell matched to it.
+* `playback-client` — obtains its own dependencies the same way, from pinned
+  source, for the same cross-compilation reasons. The pins it shares with
+  `rendering-engine` are bumped together.
+* The playback library and the DAW plugin (not built yet) — as C++ components
+  built for the same targets, they follow the same pinned-source pattern, and
+  any that embeds Ladybug takes the same pin.
 
 ### Confirmation
 

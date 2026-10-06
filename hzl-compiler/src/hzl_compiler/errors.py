@@ -46,13 +46,13 @@ class Where:
 class HzlError(Exception):
     """A fault in HzL source, or in what it asks for, reported in HzL terms.
 
-    One exception type serves every stage, because the composer does not care
-    which stage found the fault: they need the file, the place in it and what
-    is wrong. A fault between two files (the same envelope placed twice, say)
+    One exception type serves every stage, because the practitioner does not
+    care which stage found the fault: they need the file, the place in it and
+    what is wrong. A fault between two files (the same envelope placed twice, say)
     is reported at one of them and names the other in the message.
 
     Attributes:
-        message: What is wrong, in the composer's terms.
+        message: What is wrong, in the practitioner's terms.
         where: The file and path the fault is at, as far as known.
     """
 

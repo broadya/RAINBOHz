@@ -1,8 +1,6 @@
 ---
 status: accepted
 date: 2026-10-03
-decision-makers: Alan Broady
-consulted: Claude (design discussion)
 ---
 
 # Play audio with miniaudio, on the default output device
@@ -78,6 +76,18 @@ weight here. Its choice for `playback-plugin` is left open.
   easy if that ever matters.
 * Neutral, because device choice, exclusive mode and multi-channel layouts
   are all within miniaudio when they are wanted, but none is used yet.
+
+Impact on components:
+
+* `playback-client` — plays through the default output device from
+  `src/device_sink.cpp`, the only translation unit that includes miniaudio.
+  Its callback does nothing but the lock-free pop, and a resampled device
+  rate is logged.
+* The playback library (not built yet) — miniaudio's device API is
+  available to it on the same terms, but its choice of audio output is not
+  made here.
+* The DAW plugin (not built yet) — plays through its host, not a device, so
+  this decision does not bind it. Whether it uses JUCE is left open.
 
 ## More Information
 

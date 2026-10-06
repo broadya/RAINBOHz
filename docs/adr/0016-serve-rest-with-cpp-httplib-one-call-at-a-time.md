@@ -1,8 +1,6 @@
 ---
 status: accepted
 date: 2026-10-02
-decision-makers: Alan Broady
-consulted: Claude (design discussion)
 ---
 
 # Serve REST with cpp-httplib, one call at a time, holding one score
@@ -130,6 +128,24 @@ plain HTTP, as a service behind a gateway needs.
   until the next good one.
 * Neutral, because the namespace rename is unusual, and only stays correct
   while it is re-checked at each bump of cpp-httplib.
+
+Impact on components:
+
+* `rendering-engine` — gains its `server` mode. HTTP is confined to
+  `src/server.cpp`, which includes cpp-httplib under a renamed namespace, and
+  the server's decisions are in `ServerCore`. Each cpp-httplib bump re-checks
+  the rename.
+* `engine-db` — one per server process, holding one score, and rebuilt from
+  nothing on every load.
+* `playback-client` — uses cpp-httplib as a client, at the same pin. Its calls
+  wait behind any load in progress, and are refused after a failed load until
+  a good one.
+* `playback-server` (not built yet) — talks to engines that serve one call at
+  a time. Parallelism comes from many `rendering-engine` instances, one per
+  shard, not from one engine.
+* Orchestration (not built yet) — REST is the engine's ingress until the
+  message bus exists. If the bus brings real parallelism, worker threads or
+  asynchronous jobs can be revisited then.
 
 ## More Information
 

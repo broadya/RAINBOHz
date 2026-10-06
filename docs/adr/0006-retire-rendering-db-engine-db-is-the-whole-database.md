@@ -1,9 +1,6 @@
 ---
 status: accepted
 date: 2026-09-22
-decision-makers: Alan Broady
-consulted: architecture/overview.md, docs/adr/0003, docs/adr/0004
-informed: rendering-engine, engine-db
 ---
 
 # Retire `rendering-db`; `engine-db` is the engine's whole database
@@ -50,9 +47,10 @@ component and the copy.
   that gets edited.
 * A schema that nothing loads, and that does not load, is a maintenance
   liability with no reader.
-* `canonical-db/` is in a different position: it describes the composer-facing
-  model, which `engine-db` has **not** yet absorbed. It still explains something
-  the real schema does not say.
+* `canonical-db/` was in a different position: it describes the
+  practitioner-facing model, which `engine-db` had **not** then absorbed, so it
+  still explained something the real schema did not say. `engine-db` has since
+  absorbed most of it, and `canonical-db/` is now considerably out of date.
 
 ## Considered Options
 
@@ -74,10 +72,12 @@ purpose restated as a data boundary: `rendering-engine` is the only component
 that touches a graph database, so anything it needs has to be in the one
 database it hosts.
 
-This is a statement of intent, not of current fact. The schema does none of this
-yet — it holds the rendering-model concepts and nothing else. It is what the
-schema is being grown towards, and it settles where each new concept goes:
-`engine-db`, because there is nowhere else.
+This is a statement of intent, not of current fact. The schema holds the
+rendering-model concepts and the canonical-model concepts, except the modulator
+musical timelines, and nothing yet for dependencies. The intent is that it
+becomes a superset of the canonical model; that is what the schema is being
+grown towards, and it settles where each new concept goes: `engine-db`, because
+there is nowhere else.
 
 `canonical-db/` is retained, unchanged, as the one remaining design artefact.
 
@@ -103,9 +103,25 @@ to seed its schema from the rendering model rather than the canonical one.
 * Bad, because older ADRs and commits refer to `rendering-db/` as a live
   directory. Those references are accurate for their dates and are left alone;
   a reader following one will find nothing there.
-* Neutral, because the seven node tables `engine-db` and `canonical-db` declare
-  in common are still the open merge question. Removing the third file does not
-  answer it. See `architecture/overview.md` §10.
+* Neutral, because removing the third file did not answer how the node tables
+  `engine-db` and `canonical-db` declare in common would merge. That has since
+  been answered in `engine-db` itself, with shared nodes carrying both
+  perspectives; `canonical-db/` has not followed, and is out of date.
+
+Impact on components:
+
+* `engine-db` — its scope is the whole canonical model plus everything needed
+  to determine dependencies, precompute and render. Every new concept is added
+  to `engine-schema.cypher`, because there is nowhere else.
+* `rendering-engine` — the only component that touches a graph database, so
+  whatever it needs has to be in the one database it hosts.
+* `hzl-compiler` — emits Cypher for `engine-db` and for nothing else.
+  `canonical-db/` remains a design artefact for the practitioner-facing model,
+  not a load target.
+* `playback-server` and orchestration (not built yet) — hold no graph
+  database of their own.
+* Build system — `make validate-schemas` validates two schemas,
+  `engine-db`'s and the `canonical-db` artefact's.
 
 ### Confirmation
 

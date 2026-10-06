@@ -1,9 +1,6 @@
 ---
 status: accepted
 date: 2026-08-14
-decision-makers: Alan Broady
-consulted: AGENTS.md, canonical-db, rendering-db
-informed: future DSL compiler and database loader components
 ---
 
 # Apply LadybugDB DDL one statement per process, and detect failure from output
@@ -82,6 +79,22 @@ At that point one process per statement is the simpler construction.
   Ladybug fixes (1)-(3), or bindings become available, this decision should be
   revisited — the behaviours are documented in `scripts/ladybug_ddl.py` so the
   premise can be re-tested directly.
+
+Impact on components:
+
+* `engine-db` — its schema, `engine-db/schema/engine-schema.cypher`, is
+  validated and applied by this path (`make validate-engine-schema`,
+  `make init-engine-db`, `make reset-engine-db`). Hand edits to it must stay
+  within the DDL the splitter understands: statements ended by `;`, and
+  comments, string literals and quoted identifiers as Cypher writes them.
+* `rendering-engine` — does not submit DDL through `lbug`; it loads Cypher in
+  process (ADR 0005). Its C++ splitter is a port of `split_statements()` in
+  `scripts/ladybug_ddl.py`, so a change to the splitting rules here must be
+  made in both places.
+* `hzl-compiler` — the Cypher it emits is split by that port, so it inherits
+  the same lexical rules.
+* Build system — `make test` runs `validate-schemas` first, and needs only
+  Python and the `lbug` binary to do so.
 
 ### Confirmation
 

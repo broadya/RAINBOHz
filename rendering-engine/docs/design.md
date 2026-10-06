@@ -61,12 +61,14 @@ Three constraints carry directly into the design:
   given version of the graph produce the same outputs from the same inputs.
   Write contention is a performance concern, not a correctness one. This
   invariant has to survive every design decision made here.
-- **No feedback, and partial independence.** Nothing in the engine may introduce
-  ordering dependencies between partials that the model does not have.
+- **No feedback.** Nothing in the engine may introduce ordering dependencies
+  between partials that the model does not have. Partials are largely
+  independent, but they are not self-contained descriptions of audio: they share
+  properties held above them, such as a `SoundSource`'s spatial position
+  (ADR 0020).
 - **Random access.** Any frame is renderable in isolation from precomputed
-  phase. This is what allows a shard to render any frame without consulting any
-  other shard, and it is demonstrated empirically by
-  `proof-of-concept/maths/phase_integration_render_demo.py`.
+  phase, without rendering the frames before it. This is demonstrated
+  empirically by `proof-of-concept/maths/phase_integration_render_demo.py`.
 
 ## 3. Requests
 
@@ -275,16 +277,15 @@ converted.
 Carried from overview.md §10, plus those specific to this component.
 
 - **The engine schema is incomplete.** `engine-db/schema/` holds the
-  rendering-model concepts and, since the transform's first version, the
-  canonical-model tables it reads: `TempoMap`, `PartialSetMusicalTimeline`,
-  `PartialState` and their relationships, sharing `Score`, `Partial` and
-  `PartialSet` with the rendering model as one set of nodes carrying both
-  perspectives. The spatial-position and modulator musical timelines, and
-  phase, are still to come, and `canonical-db/` still uses the older names.
-- **The rest of `engine-db`'s scope is stated but not designed.** It is meant to
-  hold everything the engine needs: the canonical model, dependency information,
-  precomputation output and rendering results. Nothing in the schema yet
-  represents dependencies or precomputation output. See
+  rendering-model concepts and the canonical-model concepts, sharing `Score`,
+  `Partial` and `PartialSet` (among others) as one set of nodes carrying both
+  perspectives. It is intended to be a superset of the canonical model, and is
+  not one yet: the modulator musical timelines are still to come.
+  `canonical-db/` is considerably out of date beside it.
+- **Dependencies are not designed.** `engine-db` is meant to hold everything the
+  engine needs: the canonical model, dependency information, precomputation
+  output and rendering results. Nothing in the schema yet represents
+  dependencies, which incremental transformation needs. See
   [ADR 0006](../../docs/adr/0006-retire-rendering-db-engine-db-is-the-whole-database.md).
 - **Dirty flags have no representation** in either schema, and §4 depends on them
   entirely.

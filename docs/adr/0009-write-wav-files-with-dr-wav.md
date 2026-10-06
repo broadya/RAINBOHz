@@ -1,8 +1,6 @@
 ---
 status: accepted
 date: 2026-09-24
-decision-makers: Alan Broady
-consulted: Claude (design discussion)
 ---
 
 # Write WAV files with a library built for it, dr_wav, not a hand-written writer
@@ -68,6 +66,17 @@ was the option being replaced.
 * Neutral, because dr_wav is one author's project. It is small enough that
   the survivability argument of ADR 0001 applies with even more force: the
   header can be vendored or patched in an afternoon.
+
+Impact on components:
+
+* `rendering-engine` — writes every frame through `src/wav_writer.cpp`, the
+  only translation unit that includes `dr_wav.h`, linked PRIVATE.
+* `playback-client` — reads the rendered frames with dr_wav too, from the same
+  pinned commit. The two components bump the pin together.
+* Object storage — holds 32-bit float WAV objects. A different format there
+  reopens this decision.
+* `playback-server` (not built yet) — the per-shard objects it sums are float
+  WAV, so dr_wav is the natural reader for it as well.
 
 ### Confirmation
 

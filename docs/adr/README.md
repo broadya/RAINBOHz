@@ -11,8 +11,15 @@ Non-obvious design choices are recorded here, per AGENTS.md, using the
 - Start from [`adr-template.md`](adr-template.md). Sections that add nothing for
   a given decision can be dropped; the ones that carry the weight are *Context
   and Problem Statement*, *Considered Options* and *Decision Outcome*.
+- Every ADR's front matter carries `status` and `date`, and nothing else.
+  MADR's `decision-makers`, `consulted` and `informed` name people; this
+  project has one author, so they are not used. Documents that informed a
+  decision are cited under *More Information*.
 - Status is one of `proposed`, `rejected`, `accepted`, `deprecated`, or
   `superseded by ADR-NNNN`.
+- *Consequences* ends with `Impact on components:`, one bullet per component
+  the decision affects, current or planned, named by its identifier in
+  `architecture/overview.md`. A planned component is marked "(not built yet)".
 - ADRs record the current situation, not the history of how it was reached.
   When a decision is refined, or the names it uses change, edit the ADR in
   place; git records what changed, when and by whom. A decision that is

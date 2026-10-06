@@ -20,7 +20,7 @@ the only part of the engine that reads musical time.
 
 ## 1. Purpose
 
-The canonical model is what a composer means: a score in **musical time**,
+The canonical model is what a practitioner means: a score in **musical time**,
 on a tempo map, in Hertz and decibels. The rendering model is what the engine
 computes from: **physical time** in samples, radians per sample, one timeline
 per partial per parameter ([ADR 0012](../../docs/adr/0012-distinguish-musical-and-physical-time.md)).
@@ -286,7 +286,7 @@ a value may be:
 So each partial has, per property, an **envelope**: its envelope nodes in
 point order, each carrying the value and the set point's curve type and amount
 for that property, which describe the path from that envelope node to the
-next. This is closer to how a composer thinks than a dense matrix: aligned
+next. This is closer to how a practitioner thinks than a dense matrix: aligned
 states at a point are common, but a partial need not be restated at a point
 where only its neighbours change.
 
@@ -385,7 +385,7 @@ Because the two envelopes are squashed separately, a collision at a
 partial's last point can delay it in one envelope and not the other. **The
 frequency envelope defines the lifeline** (author, 2026-10-02): it is the
 hard beginning and end of what can be rendered, and whether the amplitude
-makes that a click is the composer's business. So after placement:
+makes that a click is the practitioner's business. So after placement:
 
 - the amplitude envelope's last point is moved to the frequency envelope's
   last time;
@@ -519,7 +519,7 @@ to fit, no phase, and nothing to integrate.
 
 **The first point is complete.** The first point of the timeline must have a
 state that sets all three properties: before it there is nothing to continue
-from. Supplying a default position, if the composer gives none, is the
+from. Supplying a default position, if the practitioner gives none, is the
 compiler's job, not the engine's (author, 2026-10-05); here a missing value
 fails the source, and `--validate-db` reports it (integrity.md §3).
 
@@ -554,7 +554,7 @@ amount are copied, not interpreted.
 
 **Azimuth across ±180°.** Rendering moves along the shorter arc
 (rendering.md §8.5), so 172° followed by −172° passes behind the listener
-through 180°, 16° of travel, not 344° through the front. A composer who
+through 180°, 16° of travel, not 344° through the front. A practitioner who
 wants a long way round writes the points in between.
 
 The example is `spatial-musical-score.cypher` (§11).

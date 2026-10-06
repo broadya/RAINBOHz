@@ -1,9 +1,6 @@
 ---
 status: accepted
 date: 2026-09-18
-decision-makers: Alan Broady
-consulted: architecture/overview.md, AGENTS.md
-informed: rendering-engine, hzl-compiler, playback-server
 ---
 
 # Collapse the render pipeline into one component, over one database
@@ -85,6 +82,23 @@ pipelining* replace *distributed by default*.
 * Neutral, because `audio-service` and `summing-worker` merge into
   `playback-server` as a consequence of the same reasoning, though summing may
   still fan out.
+
+Impact on components:
+
+* `rendering-engine` — absorbs `db-transformer`, `precompute-worker` and
+  `render-worker`: it loads, transforms, precomputes and renders. It has to
+  keep the timebase boundary by its own internal structure, which it does by
+  confining musical time to the `transform` namespace and directories.
+* `engine-db` — the one physical database, hosted in process by each
+  `rendering-engine` instance and sharded by partial set. It holds the
+  canonical and rendering perspectives over one set of nodes.
+* `hzl-compiler` — has one target: `canonical-form`, loaded into `engine-db`
+  by `rendering-engine`. There is no separate canonical database to write.
+* `playback-server` (not built yet) — absorbs `audio-service` and
+  `summing-worker`. It sums the per-shard objects of many `rendering-engine`
+  instances.
+* Orchestration (not built yet) — distributes work by shard, not by pipeline
+  stage. No message carries a partial's specification to a worker.
 
 ### Confirmation
 

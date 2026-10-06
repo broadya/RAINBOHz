@@ -1,10 +1,6 @@
 ---
-# These are optional. Delete the ones you do not fill in.
 status: "proposed | rejected | accepted | deprecated | superseded by ADR-NNNN"
 date: YYYY-MM-DD
-decision-makers: list everyone involved in the decision
-consulted: list everyone whose opinion was sought, and with whom there was two-way communication
-informed: list everyone kept up to date, with one-way communication
 ---
 
 # Short title, describing the solved problem and its solution
@@ -36,6 +32,13 @@ others do not, or it is the only one that meets a hard constraint>.
 * Good, because <positive consequence>
 * Bad, because <negative consequence>
 * Neutral, because <consequence that is neither, but that a future reader needs>
+
+Impact on components:
+
+* `component-identifier` — what the decision changes in this component, or
+  requires of it. One bullet per affected component, using the identifiers in
+  `architecture/overview.md`. Planned components count: mark them
+  "(not built yet)" and say what they will have to respect.
 
 ### Confirmation
 

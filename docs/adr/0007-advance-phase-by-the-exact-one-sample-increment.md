@@ -1,8 +1,6 @@
 ---
 status: accepted
 date: 2026-09-24
-decision-makers: Alan Broady
-consulted: Claude (design discussion)
 ---
 
 # Advance the render-time phase accumulator by the exact one-sample increment, re-anchored at every chunk
@@ -76,6 +74,18 @@ by the chunk length and never by the position in the score.
   partial. Lanes across partials are independent, so this does not limit
   SIMD throughput; a layout with lanes across samples would use option 3
   per lane instead, and the kernel boundary permits either.
+
+Impact on components:
+
+* `rendering-engine` — the render kernel steps each partial's accumulator by
+  `Φ(τ+1) − Φ(τ)`, using the same `Φ` as precomputation (`segment_maths.hpp`),
+  and re-anchors it from the closed form at the start of every chunk.
+* `engine-db` — the exact unwrapped start phase that precomputation stores on
+  each integrable segment is what the renderer anchors to. It has to stay
+  exact, not rounded for storage.
+* `playback-server` (not built yet) — frames rendered separately, by one
+  instance or by several, join without a phase discontinuity, so it can sum
+  and sequence frames from any instance.
 
 ### Confirmation
 

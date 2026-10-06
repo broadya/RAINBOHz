@@ -1,9 +1,6 @@
 ---
 status: accepted
 date: 2026-10-02
-decision-makers: Alan Broady
-consulted: hzl-compiler/docs/design.md, rendering-engine/docs/transform.md, ADR 0005
-informed: rendering-engine, engine-db
 ---
 
 # The lowest HzL level is the canonical model as tables, emitted as Cypher
@@ -64,12 +61,30 @@ statement while the same patterns in one clause load
   (`make test-hzl-oracle`).
 * Good, because a columnar output for `COPY FROM`, when a score outgrows one
   statement, is a second emitter over the same tables, not a redesign.
-* Neutral, because `canonical-form` is for now a `.cypher` file. `overview.md`
-  §10 still lists what `canonical-form` is as open; this decides the first
+* Neutral, because what is loaded is for now a `.cypher` file. `canonical-form`
+  is the lowest level — the tables — and is not loaded directly; the file is
+  its first serialisation. `overview.md` §10 still lists the serialisation at
+  target scale as open (Parquet is a strong candidate); this decides the first
   version's answer, not the final one.
 * Bad, because the single-clause statement has a size limit that is not
   known precisely (about 10,500 patterns, 802 partials, is known to work) and
   a score beyond it has no path until the columnar emitter exists.
+
+Impact on components:
+
+* `hzl-compiler` — its final data structure is one row list per node table
+  and one edge list (`canonical/model.py`). `canonical/cypher.py` is one
+  emitter over it, and a `COPY FROM` emitter is a second.
+* `canonical-form` — the lowest HzL level, the canonical model as tables. Its
+  serialisation for loading is for now a `.cypher` file: one `EngineConfig`
+  statement, and one statement for the score as a single `CREATE` clause with
+  no `MATCH`.
+* `rendering-engine` — loads a compiled score unchanged through `--state`,
+  with no index lookups and no scans. At target scale it will need a bulk
+  load path for the columnar output.
+* `engine-db` — its schema stays the only model of the data. A schema change
+  has to be followed by the compiler's rows, or the compiled examples fail to
+  load.
 
 ### Confirmation
 
@@ -84,4 +99,8 @@ does not follow shows up as a load failure in those tests.
 `hzl-compiler/docs/design.md` §6 and §7; `canonical/model.py` and
 `canonical/cypher.py`. To be revisited when a score exceeds what one statement
 loads, which is the trigger for the `COPY FROM` emitter, or when `overview.md`
-settles what `canonical-form` is.
+settles how `canonical-form` is serialised for loading.
+
+ADR 0005 for how the engine loads the emitted Cypher, and
+`rendering-engine/docs/transform.md` for what the engine does with the
+canonical tables once they are loaded.
