@@ -59,8 +59,8 @@ classDiagram
     }
     class SpatialPositionState {
         +SERIAL id_pk
-        +FLOAT azimuth
-        +FLOAT elevation
+        +DOUBLE azimuth
+        +DOUBLE elevation
         +FLOAT distance
     }
     class PartialIntegrableSegment {
@@ -132,6 +132,27 @@ classDiagram
         +DOUBLE time
         +DOUBLE phase
     }
+    class AzimuthPhysicalTimelinePoint {
+        +SERIAL id_pk
+        +DOUBLE time
+        +INT8 azimuth_curve_type
+        +FLOAT azimuth_curve_amount
+        +DOUBLE azimuth
+    }
+    class ElevationPhysicalTimelinePoint {
+        +SERIAL id_pk
+        +DOUBLE time
+        +INT8 elevation_curve_type
+        +FLOAT elevation_curve_amount
+        +DOUBLE elevation
+    }
+    class DistancePhysicalTimelinePoint {
+        +SERIAL id_pk
+        +DOUBLE time
+        +INT8 distance_curve_type
+        +FLOAT distance_curve_amount
+        +FLOAT distance
+    }
     class FrequencyModulatorPhysicalTimelinePoint {
         +SERIAL id_pk
     }
@@ -165,6 +186,15 @@ classDiagram
         +SERIAL id_pk
     }
     class PhasePhysicalTimeline {
+        +SERIAL id_pk
+    }
+    class AzimuthPhysicalTimeline {
+        +SERIAL id_pk
+    }
+    class ElevationPhysicalTimeline {
+        +SERIAL id_pk
+    }
+    class DistancePhysicalTimeline {
         +SERIAL id_pk
     }
     class PartialSegmentPhysicalTimeline {
@@ -438,6 +468,21 @@ classDiagram
     }
     PhasePhysicalTimeline "1" -- NEXT_POINT__PhasePhysicalTimeline__PhasePhysicalTimelinePoint
     NEXT_POINT__PhasePhysicalTimeline__PhasePhysicalTimelinePoint -- "1" PhasePhysicalTimelinePoint
+    class NEXT_POINT__AzimuthPhysicalTimeline__AzimuthPhysicalTimelinePoint["NEXT_POINT"] {
+        <<REL>>
+    }
+    AzimuthPhysicalTimeline "1" -- NEXT_POINT__AzimuthPhysicalTimeline__AzimuthPhysicalTimelinePoint
+    NEXT_POINT__AzimuthPhysicalTimeline__AzimuthPhysicalTimelinePoint -- "1" AzimuthPhysicalTimelinePoint
+    class NEXT_POINT__ElevationPhysicalTimeline__ElevationPhysicalTimelinePoint["NEXT_POINT"] {
+        <<REL>>
+    }
+    ElevationPhysicalTimeline "1" -- NEXT_POINT__ElevationPhysicalTimeline__ElevationPhysicalTimelinePoint
+    NEXT_POINT__ElevationPhysicalTimeline__ElevationPhysicalTimelinePoint -- "1" ElevationPhysicalTimelinePoint
+    class NEXT_POINT__DistancePhysicalTimeline__DistancePhysicalTimelinePoint["NEXT_POINT"] {
+        <<REL>>
+    }
+    DistancePhysicalTimeline "1" -- NEXT_POINT__DistancePhysicalTimeline__DistancePhysicalTimelinePoint
+    NEXT_POINT__DistancePhysicalTimeline__DistancePhysicalTimelinePoint -- "1" DistancePhysicalTimelinePoint
     class NEXT_POINT__FrequencyModulatorPhysicalTimeline__FrequencyModulatorPhysicalTimelinePoint["NEXT_POINT"] {
         <<REL>>
     }
@@ -468,6 +513,11 @@ classDiagram
     }
     DistanceModulatorPhysicalTimeline "1" -- NEXT_POINT__DistanceModulatorPhysicalTimeline__DistanceModulatorPhysicalTimelinePoint
     NEXT_POINT__DistanceModulatorPhysicalTimeline__DistanceModulatorPhysicalTimelinePoint -- "1" DistanceModulatorPhysicalTimelinePoint
+    class NEXT_POINT__Score__TempoMap["NEXT_POINT"] {
+        <<REL>>
+    }
+    Score "1" -- NEXT_POINT__Score__TempoMap
+    NEXT_POINT__Score__TempoMap -- "1" TempoMap
     class NEXT_POINT__TempoMap__TempoMapPoint["NEXT_POINT"] {
         <<REL>>
     }
@@ -478,11 +528,6 @@ classDiagram
     }
     PartialSetMusicalTimeline "1" -- NEXT_POINT__PartialSetMusicalTimeline__PartialSetMusicalTimelinePoint
     NEXT_POINT__PartialSetMusicalTimeline__PartialSetMusicalTimelinePoint -- "1" PartialSetMusicalTimelinePoint
-    class NEXT_POINT__Score__TempoMap["NEXT_POINT"] {
-        <<REL>>
-    }
-    Score "1" -- NEXT_POINT__Score__TempoMap
-    NEXT_POINT__Score__TempoMap -- "1" TempoMap
     class NEXT_POINT__PartialIntegrableSegment__PartialIntegrableSegment["NEXT_POINT"] {
         <<REL>>
     }
@@ -513,6 +558,21 @@ classDiagram
     }
     PhasePhysicalTimelinePoint "1" -- NEXT_POINT__PhasePhysicalTimelinePoint__PhasePhysicalTimelinePoint
     NEXT_POINT__PhasePhysicalTimelinePoint__PhasePhysicalTimelinePoint -- "1" PhasePhysicalTimelinePoint
+    class NEXT_POINT__AzimuthPhysicalTimelinePoint__AzimuthPhysicalTimelinePoint["NEXT_POINT"] {
+        <<REL>>
+    }
+    AzimuthPhysicalTimelinePoint "1" -- NEXT_POINT__AzimuthPhysicalTimelinePoint__AzimuthPhysicalTimelinePoint
+    NEXT_POINT__AzimuthPhysicalTimelinePoint__AzimuthPhysicalTimelinePoint -- "1" AzimuthPhysicalTimelinePoint
+    class NEXT_POINT__ElevationPhysicalTimelinePoint__ElevationPhysicalTimelinePoint["NEXT_POINT"] {
+        <<REL>>
+    }
+    ElevationPhysicalTimelinePoint "1" -- NEXT_POINT__ElevationPhysicalTimelinePoint__ElevationPhysicalTimelinePoint
+    NEXT_POINT__ElevationPhysicalTimelinePoint__ElevationPhysicalTimelinePoint -- "1" ElevationPhysicalTimelinePoint
+    class NEXT_POINT__DistancePhysicalTimelinePoint__DistancePhysicalTimelinePoint["NEXT_POINT"] {
+        <<REL>>
+    }
+    DistancePhysicalTimelinePoint "1" -- NEXT_POINT__DistancePhysicalTimelinePoint__DistancePhysicalTimelinePoint
+    NEXT_POINT__DistancePhysicalTimelinePoint__DistancePhysicalTimelinePoint -- "1" DistancePhysicalTimelinePoint
     class NEXT_POINT__FrequencyModulatorPhysicalTimelinePoint__FrequencyModulatorPhysicalTimelinePoint["NEXT_POINT"] {
         <<REL>>
     }
@@ -568,6 +628,21 @@ classDiagram
     }
     Partial "1" -- HAS_PHYSICAL_TIMELINE__Partial__PhasePhysicalTimeline
     HAS_PHYSICAL_TIMELINE__Partial__PhasePhysicalTimeline -- "1" PhasePhysicalTimeline
+    class HAS_PHYSICAL_TIMELINE__SoundSource__AzimuthPhysicalTimeline["HAS_PHYSICAL_TIMELINE"] {
+        <<REL>>
+    }
+    SoundSource "1" -- HAS_PHYSICAL_TIMELINE__SoundSource__AzimuthPhysicalTimeline
+    HAS_PHYSICAL_TIMELINE__SoundSource__AzimuthPhysicalTimeline -- "1" AzimuthPhysicalTimeline
+    class HAS_PHYSICAL_TIMELINE__SoundSource__ElevationPhysicalTimeline["HAS_PHYSICAL_TIMELINE"] {
+        <<REL>>
+    }
+    SoundSource "1" -- HAS_PHYSICAL_TIMELINE__SoundSource__ElevationPhysicalTimeline
+    HAS_PHYSICAL_TIMELINE__SoundSource__ElevationPhysicalTimeline -- "1" ElevationPhysicalTimeline
+    class HAS_PHYSICAL_TIMELINE__SoundSource__DistancePhysicalTimeline["HAS_PHYSICAL_TIMELINE"] {
+        <<REL>>
+    }
+    SoundSource "1" -- HAS_PHYSICAL_TIMELINE__SoundSource__DistancePhysicalTimeline
+    HAS_PHYSICAL_TIMELINE__SoundSource__DistancePhysicalTimeline -- "1" DistancePhysicalTimeline
     class HAS_PHYSICAL_TIMELINE__Partial__PartialSegmentPhysicalTimeline["HAS_PHYSICAL_TIMELINE"] {
         <<REL>>
     }
@@ -663,6 +738,21 @@ classDiagram
     }
     FrameEntry "*" -- FRAME_ENTRY_PHYSICAL_TIMELINE__FrameEntry__AmplitudePhysicalTimelinePoint
     FRAME_ENTRY_PHYSICAL_TIMELINE__FrameEntry__AmplitudePhysicalTimelinePoint -- "*" AmplitudePhysicalTimelinePoint
+    class FRAME_ENTRY_PHYSICAL_TIMELINE__FrameEntry__AzimuthPhysicalTimelinePoint["FRAME_ENTRY_PHYSICAL_TIMELINE"] {
+        <<REL>>
+    }
+    FrameEntry "*" -- FRAME_ENTRY_PHYSICAL_TIMELINE__FrameEntry__AzimuthPhysicalTimelinePoint
+    FRAME_ENTRY_PHYSICAL_TIMELINE__FrameEntry__AzimuthPhysicalTimelinePoint -- "*" AzimuthPhysicalTimelinePoint
+    class FRAME_ENTRY_PHYSICAL_TIMELINE__FrameEntry__ElevationPhysicalTimelinePoint["FRAME_ENTRY_PHYSICAL_TIMELINE"] {
+        <<REL>>
+    }
+    FrameEntry "*" -- FRAME_ENTRY_PHYSICAL_TIMELINE__FrameEntry__ElevationPhysicalTimelinePoint
+    FRAME_ENTRY_PHYSICAL_TIMELINE__FrameEntry__ElevationPhysicalTimelinePoint -- "*" ElevationPhysicalTimelinePoint
+    class FRAME_ENTRY_PHYSICAL_TIMELINE__FrameEntry__DistancePhysicalTimelinePoint["FRAME_ENTRY_PHYSICAL_TIMELINE"] {
+        <<REL>>
+    }
+    FrameEntry "*" -- FRAME_ENTRY_PHYSICAL_TIMELINE__FrameEntry__DistancePhysicalTimelinePoint
+    FRAME_ENTRY_PHYSICAL_TIMELINE__FrameEntry__DistancePhysicalTimelinePoint -- "*" DistancePhysicalTimelinePoint
     class FRAME_ENTRY_PARTIAL {
         <<REL>>
     }
