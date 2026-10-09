@@ -152,7 +152,7 @@ fails, which the original shell script could not do.
 
 * `scripts/ladybug_ddl.py` — the shared splitter, executor and error detection,
   and the single place where the `lbug` behaviours above are documented.
-* `scripts/load_schema.py` — the loader; `tools/openCypher-tools/validate_ladybug_schema.py`
+* `scripts/load_schema.py` — the loader; `scripts/validate_ladybug_schema.py`
   — the validator. Both import the shared module.
 * AGENTS.md, "Schema Validation", which repeats the warning at the point of use.
 * ADR 0001 for how the compiled components obtain Ladybug, which is a separate

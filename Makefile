@@ -17,16 +17,16 @@
 # not part of any target here.
 
 PYTHON      ?= python3
-SCHEMA_TOOL := tools/openCypher-tools/ladybug_schema_to_mermaid.py
+SCHEMA_TOOL := scripts/ladybug_schema_to_mermaid.py
 
 # Validates DDL by executing it against a throwaway LadybugDB instance, so
 # that "valid" means what the real database accepts. Needs the `lbug` CLI
 # (brew install ladybug); override with LBUG=/path/to/lbug.
-VALIDATE_TOOL := tools/openCypher-tools/validate_ladybug_schema.py
+VALIDATE_TOOL := scripts/validate_ladybug_schema.py
 LBUG          ?= lbug
 
 # Refills full-line // comments in DDL to 64 columns without touching the DDL.
-WRAP_TOOL := tools/openCypher-tools/wrap_cypher_comments.py
+WRAP_TOOL := scripts/wrap_cypher_comments.py
 
 # Applies schema DDL to a database. Not a plain `lbug < file.cypher`: that
 # silently skips statements and cannot report failure. See scripts/ladybug_ddl.py.

@@ -115,8 +115,8 @@ This project is currently moving from its proof-of-concept phase towards a scala
 | `rendering-engine/` | Rendering engine, C++ — loads, transforms, precomputes and renders; first version |
 | `playback-client/` | Playback client, C++ — loops a range of a score through the default audio device; first version |
 | `docs/adr/` | Architecture Decision Records |
-| `scripts/` | Schema loading and shared DDL machinery |
-| `tools/` | Developer tooling |
+| `scripts/` | Schema loading, validation, diagrams and comment wrapping, and the shared DDL machinery |
+| `tools/` | Developer tooling kept outside the repository (the Ladybug Cypher VS Code extension); gitignored |
 | `proof-of-concept/` | Archived earlier phase. Historical reference; not built. |
 
 ## Developer Guide
@@ -213,23 +213,24 @@ is the check.
 
 #### Schema Visualisation
 
-`tools/openCypher-tools/ladybug_schema_to_mermaid.py` generates a Mermaid UML class diagram from a LadybugDB DDL schema file.
+`scripts/ladybug_schema_to_mermaid.py` generates a Mermaid UML class diagram from a LadybugDB DDL schema file.
 
 ```bash
-python3 tools/openCypher-tools/ladybug_schema_to_mermaid.py engine-db/schema/engine-schema.cypher --markdown > tools/openCypher-tools/schema-diagram.md
+python3 scripts/ladybug_schema_to_mermaid.py engine-db/schema/engine-schema.cypher --markdown > schema-diagram.md
 ```
 
 Open `schema-diagram.md` in VS Code (⌘⇧V) or paste the output into [mermaid.live](https://mermaid.live) to view the rendered diagram.
+`make docs` writes the repository's own diagrams to `engine-db/docs/` and `canonical-db/docs/`.
 
 #### Schema Validation
 
-`tools/openCypher-tools/validate_ladybug_schema.py` checks a schema by executing
+`scripts/validate_ladybug_schema.py` checks a schema by executing
 it against a throwaway LadybugDB, so "valid" means what the database actually
 accepts rather than what a reimplemented parser believes. Failures are reported
 with their source line range and the exact database error.
 
 ```bash
-python3 tools/openCypher-tools/validate_ladybug_schema.py engine-db/schema/engine-schema.cypher --verbose
+python3 scripts/validate_ladybug_schema.py engine-db/schema/engine-schema.cypher --verbose
 ```
 
 Normally reached via `make validate-schemas`. The statement splitting and error
@@ -237,14 +238,14 @@ detection are shared with the loader, in [`scripts/ladybug_ddl.py`](scripts/lady
 
 #### Comment Wrapping
 
-`tools/openCypher-tools/wrap_cypher_comments.py` refills the full-line `//`
+`scripts/wrap_cypher_comments.py` refills the full-line `//`
 comments in Cypher DDL to 64 columns, never hyphenating: a word that crosses
 the limit stays whole. Only comments change. Trailing comments, `/* ... */`
 blocks, tables, `->` paths, aligned columns, list items and `NAME = value`
 lines keep their shape; the docstring lists the rules.
 
 ```bash
-python3 tools/openCypher-tools/wrap_cypher_comments.py --check engine-db/schema/engine-schema.cypher
+python3 scripts/wrap_cypher_comments.py --check engine-db/schema/engine-schema.cypher
 ```
 
 `make check-schema-comments` shows the diff for both schemas, and

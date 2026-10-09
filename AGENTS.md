@@ -736,10 +736,10 @@ versions may differ.
 
 ### Schema Visualisation
 
-`tools/openCypher-tools/ladybug_schema_to_mermaid.py` — converts one or more LadybugDB DDL `.cypher` files into a Mermaid UML class diagram. REL tables are rendered as association classes (junction-table style) between the node table classes they connect. Multiplicity constraints are shown as cardinality labels on the association lines.
+`scripts/ladybug_schema_to_mermaid.py` — converts one or more LadybugDB DDL `.cypher` files into a Mermaid UML class diagram. REL tables are rendered as association classes (junction-table style) between the node table classes they connect. Multiplicity constraints are shown as cardinality labels on the association lines.
 
 ```
-python3 tools/openCypher-tools/ladybug_schema_to_mermaid.py canonical-db/schema/canonical-schema.cypher
+python3 scripts/ladybug_schema_to_mermaid.py canonical-db/schema/canonical-schema.cypher
 ```
 
 By default it emits raw Mermaid on stdout. An optional `--markdown` flag wraps
@@ -749,14 +749,14 @@ that over invoking the tool by hand.
 
 ### Schema Validation
 
-`tools/openCypher-tools/validate_ladybug_schema.py` — validates DDL `.cypher`
+`scripts/validate_ladybug_schema.py` — validates DDL `.cypher`
 files by **executing them against a real, throwaway LadybugDB**, so that
 "valid" means what the database actually accepts rather than what a
 reimplemented parser believes. Requires the Homebrew `lbug` CLI. Normally
 invoked via `make validate-schemas` (see Build).
 
 ```
-python3 tools/openCypher-tools/validate_ladybug_schema.py \
+python3 scripts/validate_ladybug_schema.py \
     engine-db/schema/engine-schema.cypher --verbose
 ```
 
@@ -793,13 +793,13 @@ canonical schema undetected.
 `scripts/ladybug_ddl.py` holds the statement splitter, the executor and the
 error detection, and is the single home for the subtleties above. Both
 `scripts/load_schema.py` (the loader) and
-`tools/openCypher-tools/validate_ladybug_schema.py` (the validator) import it.
+`scripts/validate_ladybug_schema.py` (the validator) import it.
 Fix a parsing or error-detection bug there and both benefit.
 
-Note that `scripts/` is tracked but `tools/` is gitignored (it is destined for
-a separate repository), so the dependency runs tracked → ignored and never the
-other way. Be aware that this means `make validate-schemas` and `make docs`
-both depend on files that are not in the repository.
+The validator, the diagram generator and the comment wrapper all live in
+`scripts/` beside it, so everything `make` runs is in the repository. `tools/`
+is gitignored and holds only tooling outside the build (the Ladybug Cypher VS
+Code extension, destined for a separate repository).
 
 The reasoning, the options weighed, and the conditions under which this should
 be revisited are recorded in
