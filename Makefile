@@ -25,6 +25,9 @@ SCHEMA_TOOL := tools/openCypher-tools/ladybug_schema_to_mermaid.py
 VALIDATE_TOOL := tools/openCypher-tools/validate_ladybug_schema.py
 LBUG          ?= lbug
 
+# Refills full-line // comments in DDL to 64 columns without touching the DDL.
+WRAP_TOOL := tools/openCypher-tools/wrap_cypher_comments.py
+
 # Applies schema DDL to a database. Not a plain `lbug < file.cypher`: that
 # silently skips statements and cannot report failure. See scripts/ladybug_ddl.py.
 LOAD_TOOL := scripts/load_schema.py
@@ -34,6 +37,7 @@ LOAD_TOOL := scripts/load_schema.py
 # composer-facing model; it is kept loadable but nothing loads it. See AGENTS.md.
 ENGINE_SCHEMA    := engine-db/schema/engine-schema.cypher
 CANONICAL_SCHEMA := canonical-db/schema/canonical-schema.cypher
+DDL_SCHEMAS      := $(ENGINE_SCHEMA) $(CANONICAL_SCHEMA)
 
 # Database locations. Override to build a database elsewhere, e.g.
 # `make init-engine-db ENGINE_DB=/tmp/scratch.lbug`.
@@ -243,6 +247,17 @@ validate-engine-schema:
 ## validate-canonical-schema: check canonical-db DDL loads into a real LadybugDB
 validate-canonical-schema:
 	$(PYTHON) $(VALIDATE_TOOL) --lbug $(LBUG) $(CANONICAL_SCHEMA)
+
+# The schemas are hand-edited, so rewriting them is only ever run by their
+# author; neither target is part of `test`.
+
+## format-schema-comments: refill DDL comments to 64 columns, in place
+format-schema-comments:
+	$(PYTHON) $(WRAP_TOOL) $(DDL_SCHEMAS)
+
+## check-schema-comments: show what format-schema-comments would change
+check-schema-comments:
+	$(PYTHON) $(WRAP_TOOL) --check $(DDL_SCHEMAS)
 
 # ---------------------------------------------------------------------------
 # Databases

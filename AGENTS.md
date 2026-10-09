@@ -378,6 +378,9 @@ Schema validation:
   and a schema that does not load makes the rest moot.
 - Each schema is replayed into a temporary database that is discarded
   afterwards. No project database is read or written.
+- `make check-schema-comments` — show where the schemas' `//` comments
+  would be refilled to 64 columns. `make format-schema-comments` applies
+  it in place; the schemas are hand-edited, so only their author runs that.
 
 Databases (built from the schema DDL, which is the source of truth):
 

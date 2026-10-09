@@ -24,6 +24,7 @@ Everything is driven from the root `Makefile`. `make help` lists the targets.
 make docs                       # regenerate this README, schema diagrams and API docs
 make readme                     # just this README, from docs/readme/
 make validate-schemas           # check the schemas load into a real Ladybug
+make check-schema-comments      # show schema comments that need rewrapping
 make init-engine-db             # build a database from the engine schema
 make rendering-engine        # build the rendering engine
 make test-rendering-engine   # and run its tests
@@ -127,6 +128,21 @@ python3 tools/openCypher-tools/validate_ladybug_schema.py engine-db/schema/engin
 
 Normally reached via `make validate-schemas`. The statement splitting and error
 detection are shared with the loader, in [`scripts/ladybug_ddl.py`](scripts/ladybug_ddl.py).
+
+#### Comment Wrapping
+
+`tools/openCypher-tools/wrap_cypher_comments.py` refills the full-line `//`
+comments in Cypher DDL to 64 columns, never hyphenating: a word that crosses
+the limit stays whole. Only comments change. Trailing comments, `/* ... */`
+blocks, tables, `->` paths, aligned columns, list items and `NAME = value`
+lines keep their shape; the docstring lists the rules.
+
+```bash
+python3 tools/openCypher-tools/wrap_cypher_comments.py --check engine-db/schema/engine-schema.cypher
+```
+
+`make check-schema-comments` shows the diff for both schemas, and
+`make format-schema-comments` rewrites them in place.
 
 
 
