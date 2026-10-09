@@ -1,20 +1,20 @@
 // ============================================================
 // engine-schema.cypher
 // ============================================================
-// This is the actual schem for the percomputation and rendering
-// engine. Unlike most of the rest of the RAINBOHz source, this
-// file is human-maintained and provides additional information
-// about design.
+// This is the actual schema for the precomputation and rendering
+// engine. Unlike most of the rest of the RAINBOHz source code, this
+// file is human-written and maintained. It provides additional
+// information about design.
 // 
 // This schema can be seen as a superset or extension of the 
 // canonical model, including features to efficiently perform
 // the precomputation and rendering processes.
 //
 // As such it deals in two different sets of units for the same concepts
-// at different points. It must achieve two things -
+// at different points. It sets out to achieve two things -
 //
 // 1) Be a direct physical representation of the canonical model
-// This implies units that align with the mental model of he user
+// This implies units that align with the mental model of the user
 // such as Hz, degrees, dB, seconds etc. These are the units used
 // the specify the score.
 //
@@ -23,82 +23,114 @@
 // such as radians per sample, radians, dB, samples etc. These
 // are the units used to perform the calculations.
 //
-// This does imply an overhead to make the conversions. This
-// overhead is relatively small given that the data models
+// This does imply an overhead to perform the conversions. This
+// overhead is small given that the data models
 // differ in other ways too. In particular, a time conversion
-// from beats to seconds is necessary. which anyway forces
+// from beats to seconds is necessary. This forces
 // a transformation pass through most of the data model.
 // ============================================================
 
 // ============================================================
-// Key paths through the data model
+// TODO LIST
+//
+// Feature                                   | Model | Engine |
+// ------------------------------------------------------------
+// Modulators                                | DONE  | TODO   |
+// Polytempo                                 | DONE  | TODO   |
+// Polyrhythms                               | DONE  | TODO   |
+// Morphing / Branching / Merging            | TODO  | TODO   |
+// Spatial position offset per partial       | TODO  | TODO   |
+// Doppler shift                             | TODO  | TODO   |
+// Spatial position axis rotation            | TODO  | TODO   |
+// Higher order Ambisonics                   | TODO  | TODO   |
+// Additional envelope types                 | TODO  | TODO   |
+// Wavelets                                  | TODO  | TODO   |
+// Frequency contour ("filters")             | TODO  | TODO   |
+// Labels                                    | DONE  | TODO   |
+// Incremental rendering                     | DONE  | TODO   |
+// Generate "long frames" to get correct LPF | TODO  | TODO   |
+// Partial "oscillators" other than sine.    | TODO  | TODO   |
+// Partial "oscillators" > one cycle.        | TODO  | TODO   |
+// ============================================================
+
+// ============================================================
+// Key paths through the data model:
 // Note the two types of timeline and two relationships
-// HAS_MUSICAL_TIMELINE, measured in ticks of a beat
-// HAS_PHYSICAL_TIMELINE, measured in physical units - seconds or samples.
+// HAS_MUSICAL_TIMELINE, measured in ticks of a beat, but also allowing seconds in some cases.
+// HAS_PHYSICAL_TIMELINE, measured in physical units of samples.
 //
 // 1. The core structure of the model, common for both specification and precomputation / rendering
-// Score 1->m SoundEntity 1->m SoundSource 1-->m PartialSet 1->m Partial
+// Score 1->m SoundEntity 1->m SoundSource 1->m PartialSet 1->m Partial
 // Score is a piece of music.
-// SoundEntity is a compositional concept. It could be a whole piece, a movement or section, a sound object, or part of a sound object.
-// SoundSource is part of a SoundEntity with a defined spatial position. It could represent a single channel of stereo audio, or a source that moves in space.
-// PartialSet is a set of partials that together create part of a sound.
+// SoundEntity is a compositional concept. It could be a whole piece (macro), a movement / section / phrase (meso), a note / sound object, or part of a sound object (micro).
+// SoundSource is part of a SoundEntity with a defined spatial position. It could represent a single channel of e.g. stereo audio, or a source that moves in space.
+// PartialSet is a set of partials that are logically related according to a compositional or sound design concept.
 // Partial is a single partial
-// Note that higher levels of abstraction may be possible in the HzL language, but any such concepts flatten to this model.
+// Higher levels of abstraction may be possible in the HzL language, but any such concepts flatten to this model.
 //
-// 2. Spatial position
-// Canonical, linked to musical time.
-// SoundSource -> SpatialPositionMusicalTimeline
-// Precomputation / Rendering, linked to physical time.
-// SoundSource -> AzimuthPhysicalTimeline
-// SoundSource -> ElevationPhysicalTimeline
-// SoundSource -> DistancePhysicalTimeline
-//
-// 3. Spatial position modulators
-// Canonical, linked to musical time.
-// SoundSource -> AzimuthModulatorMusicalTimeline
-// SoundSource -> ElevationModulatorMusicalTimeline
-// SoundSource -> DistanceModulatorMusicalTimeline
-// Precomputation / Rendering, linked to physical time.
-// SoundSource -> AzimuthModulatorPhysicalTimeline
-// SoundSource -> ElevationModulatorPhysicalTimeline
-// SoundSource -> DistanceModulatorPhysicalTimeline
-// 
-// 4. Nominal parameters of a partial
-// Canonical, linked to beat time. Explicit relationships between Partials in a PartialSet.
+// 2. Nominal parameters of a partial
+// 2a. Canonical, linked to musical time. Explicit relationships between Partials in a PartialSet.
 // PartialSet -> PartialSetMusicalTimeline -> PartialSetMusicalTimelinePoint -> PartialSetState -> PartialState (freq / ampl / phase) <- Partial
-// Precomputation / Rendering, linked to physical time.
-// Partials decoupled from sets because curves do not map to the same parameters.
+// 2b. Precomputation / Rendering, linked to physical time.
+// Partials decoupled from sets because common curves in the canonical model
+// do not map to the same parameter values in the rendering model.
 // Partial -> FrequencyPhysicalTimeline
 // Partial -> AmplitudePhysicalTimeline
 // Partial -> PhasePhysicalTimeline
 //
-// 5. Partial modulators
-// Canonical, linked to beat time.
+// 3. Partial modulators
+// 3a. Canonical, linked to musical time.
 // PartialSet -> FrequencyModulatorMusicalTimeline
 // PartialSet -> AmplitudeModulatorMusicalTimeline
 // PartialSet -> PhaseModulatorMusicalTimeline
 // PartialSet -> FrequencyModulatorMusicalTimeline
-// Precomputation / Rendering, linked to wall clock time.
-// Remain with PartialSets because they are intentionally common per PartialSet and modulate relative to the different
-// nominal values of the Partials in each PartialSet.
+// 3b. Precomputation / Rendering, linked to physical time.
+// Remain with PartialSets because they are intentionally common per PartialSet and modulate
+// relative to the different nominal values of the Partials in each PartialSet.
 // PartialSet -> FrequencyModulatorPhysicalTimeline
 // PartialSet -> AmplitudeModulatorPhysicalTimeline
 // PartialSet -> PhaseModulatorPhysicalTimeline
 // PartialSet -> FrequencyModulatorPhysicalTimeline
 //
+// 4. Spatial position
+// 4a. Canonical, linked to musical time.
+// SoundSource -> SpatialPositionMusicalTimeline
+// 4b. Precomputation / Rendering, linked to physical time.
+// SoundSource -> AzimuthPhysicalTimeline
+// SoundSource -> ElevationPhysicalTimeline
+// SoundSource -> DistancePhysicalTimeline
+//
+// 5. Spatial position modulators
+// 5a. Canonical, linked to musical time.
+// SoundSource -> AzimuthModulatorMusicalTimeline
+// SoundSource -> ElevationModulatorMusicalTimeline
+// SoundSource -> DistanceModulatorMusicalTimeline
+// 5b. Precomputation / Rendering, linked to physical time.
+// SoundSource -> AzimuthModulatorPhysicalTimeline
+// SoundSource -> ElevationModulatorPhysicalTimeline
+// SoundSource -> DistanceModulatorPhysicalTimeline
+// 
 // 6. Timing
 // Musical timelines link to positions in a TempoMap that are integer counts of ticks.
 // The number of ticks per beat depends on the TempoMap. They can also have fixed time
-// offets - useful e.g. for fixed percussive attack portions of a sound.
+// offets. These are useful e.g. for fixed percussive attack portions of a sound.
 //
-// Physical timelines link to "wall clock" time in the conventional sense. They are also linked to Frame through
+// Physical timelines link to physical time. They are also linked to Frame through
 // FrameEntry. This allows rapid location of the correct start point when rendering a
 // given Frame with random access. It is possible to generate a physial Timeline via
-// a single pass through a musical Timeline.
+// a single pass through a musical Timeline, or to generate it (further) on demand.
 //
-// This is a different computation than the calculation of PartialIntegrableSegment,
-// which can occur on-demand when rendering a Frame of audio, where it is necessary to 
-// do so.
+// 7. Morphing
+// Although not yet implemented, an important concept in the design
+// is that of morphing, a feature found in many synthesisers.
+// For RAINBOHz, morphing will be implemented by defining
+// overalapping timelines of both partial states and then interpolation
+// of parameters at rendering time between them. This interpolation will
+// include phase compensation. Branching and merging considered to be a 
+// special case of morphing that requires certain conditions to be met
+// at the start and end of the morph.
+// Morphing could potentially be a feature only of HzL, but it is
+// likely to require explicit optimisation in the renderer.
 // ============================================================
 
 // ============================================================
@@ -106,7 +138,7 @@
 // ============================================================
 
 // ============================================================
-// Score: The entire piece of music to be rendered.
+// Score: An entire piece of music to be rendered.
 // Expected to be a singleton, but it is possible that 
 // some (future) use cases could call for multiple scores.
 // ============================================================
@@ -120,7 +152,7 @@ CREATE NODE TABLE Score (
 // SoundSource: A source, with a point spatial position (albeit a dynamic
 // spatial position). Can be used to represent a channel e.g. one
 // side of a stereo signal. Can equally be used to represent
-// one given source in a complex spatial audio field.
+// one given source with a trajectory in space.
 // ============================================================
 CREATE NODE TABLE SoundSource (
     id  SERIAL,
@@ -129,8 +161,8 @@ CREATE NODE TABLE SoundSource (
 );
 
 // ============================================================
-// SoundEntity: Objects representing a sound present during a
-// particular period of time.
+// SoundEntity: A sound present during a
+// particular period of time within a Score.
 // ============================================================
 CREATE NODE TABLE SoundEntity (
     id      SERIAL,
@@ -140,9 +172,8 @@ CREATE NODE TABLE SoundEntity (
 
 // ============================================================
 // A set of Partial.
-// A logical grouping of partials that may have various purposes.
-// For example, this set is used to determine which partials
-// modulators apply to.
+// A logical grouping of partials that have some commonality,
+// depending upon the intent of the practitioner.
 // ============================================================
 CREATE NODE TABLE PartialSet (
     id          SERIAL,
@@ -162,8 +193,11 @@ CREATE NODE TABLE Partial (
 
 // ============================================================
 // HAS_SOUNDENTITY: A Score consists of compositional elements
-// that are defined by SoundEntities. It's a decision for users
-// what level of detail is meant by each one.
+// that are defined by SoundEntities. It's a decision for
+// practitioners at what level a SoundEntity is placed
+// in the hierarchy of elements used to create a Score. It has
+// a broader meaning than a "sound object" as it is commonly
+// understood.
 // ============================================================
 CREATE REL TABLE HAS_SOUNDENTITY (
     FROM Score TO SoundEntity,
@@ -223,22 +257,18 @@ CREATE REL TABLE HAS_PARTIAL (
 // ------------------------------------------------------------
 // valid range [-144,0]
 // Corresponds to dynamic range of 24-bit audio
-// according to the 6dB per bit commonly unsed approximation.
+// according to the 6dB per bit commonly used approximation.
 // 0dB = maximum value that can be represented
 // -144B or below = zero amplitude, will be optimised to silence.
-// Values above 0dB will be clipped to 0dB
-// The reference rendering implementation sums to INT64, and so can
-// accurately sum a very large number of partials while maintaining
-// 24 bit resolution per partial. Other rendering implementations
-// may not exhibit this behaviour, the canonical model is independent
-// of any given rendering imeplemtation.
+// Values above 0dB will be clipped to 0dB. Soft clip / overdrive
+// could be implemented as a possible future feature.
 //
 // ------------------------------------------------------------
 // frequency, modulator             Hz
 // ------------------------------------------------------------
 // valid range [0, 20]
-// This system is not intended to provide frequency modulation in the
-// synthesiser meaning of the word. This isn't an "FM synth".
+// This system is not intended to provide frequency modulation as
+// the term is understood within syntheiser design. This isn't an "FM synth".
 // As such, frequency modulation does take place, but it remains in the
 // subsonic range.
 // "DC", 0Hz, is specifically allowed.
@@ -254,7 +284,7 @@ CREATE REL TABLE HAS_PARTIAL (
 // If there are multiple such modulators, then they multiply together.
 //
 // ------------------------------------------------------------
-// amplitude of modulator for phase     degrees
+// amplitude of modulator for phase             degrees
 // ------------------------------------------------------------
 // No system imposed limits on range. It is intentionally
 // useful to be able to ramp continuously through this
@@ -262,12 +292,19 @@ CREATE REL TABLE HAS_PARTIAL (
 // If there are multiple such modulators, then they add together.
 //
 // ------------------------------------------------------------
-// amplitude of modulator for azimuth, elevation   degrees
+// amplitude of modulator for azimuth   degrees
 // ------------------------------------------------------------
 // No system imposed limits on range. It is intentionally
 // useful to be able to ramp continuously through this
 // parameter exactly to create rotation in space.
 // If there are multiple such modulators, then they add together.
+//
+// ------------------------------------------------------------
+// amplitude of modulator for elevation   degrees
+// ------------------------------------------------------------
+// Valid range [-180,180]
+// Note that modulating elevation does not cause a wraparound
+// effect.
 //
 // ------------------------------------------------------------
 // amplitude of modulator for amplitude     dB
@@ -288,26 +325,36 @@ CREATE REL TABLE HAS_PARTIAL (
 // In degrees because the canonical model is intended to be in the
 // user's domain. Most composers, musicians and even sound engineers
 // will typically have a mental model in degrees, in as much as they
-// have deeply considered phase except for in terms of concepts such
-// as time alignment and cancellation.
-// May take a NULL value in some cases. This has semantics that means
-// "allow phase accumulation to run freely".
+// may have envisaged phase other than in terms of concepts such
+// as time alignment and cancellation. Linked to a Boolean
+// flag indicating that the partial can "run freely" to a certain
+// point in time; in this case phase is not explicitly set
+// by the user but is simply the consequence of the partial 
+// continuing at its given frequency.
 //
 // ------------------------------------------------------------
-// time                             seconds
+// time                             beats:ticks or seconds
 // ------------------------------------------------------------
-// In the canonical model, time is considered to be continuous.
-// In practice, there is granularty down to the floating-point
-// precision limits.
+// In the canonical model, time is considered to be anchored to
+// tempo maps. Each tempo map provides a certain tick resolution
+// per beat. The position in ticks and beats is always expressed
+// as an integer in ticks - but if hihger resolution is required, 
+// then this can be specified in the tempo map.
+// In addition, time offsets from a tick position can be specified
+// in a certain number of seconds, which is independent of tempo.
+// This intentionally allows for e.g. percussive sounds where
+// the length of a sound is not affected by tempo.
 //
 // ------------------------------------------------------------
 // azimtuth                         degrees
 // ------------------------------------------------------------
 // valid range [-180,180] 
 // In degrees because the canonical model is intended to be in the
-// user's domain. Most composers, musicians and even sound engineers
+// user's domain. Most composers, musicians and sound engineers
 // will typically have a mental model in degrees.
-// Follows conventions from Ambisonics / Ambix.
+// Follows conventions from Ambisonics / Ambix. NB This means
+// that moving to the right from the listener's perspective is
+// a negative change in azimuth.
 //
 // 0 = directly in front of the listener
 // 90 = left of the listener
@@ -320,7 +367,7 @@ CREATE REL TABLE HAS_PARTIAL (
 // ------------------------------------------------------------
 // valid range [-90,90] 
 // In degrees because the canonical model is intended to be in the
-// user's domain. Most composers, musicians and even sound engineers
+// user's domain. Most composers, musicians and sound engineers
 // will typically have a mental model in degrees.
 // Follows conventions from Ambisonics / Ambix.
 //
@@ -330,18 +377,18 @@ CREATE REL TABLE HAS_PARTIAL (
 //
 // For azimuth and elevation, when modulators take values out of
 // defined ranges, wraparound takes place. A linear modulator
-// can create continuous rotation, which is a typical and useful
-// use case.
+// can create continuous rotation (when carefully combined with
+// azimuth), which is a typical and useful use case.
 //
 // ------------------------------------------------------------
 // distance                         metres
 // ------------------------------------------------------------
 // valid range [1,16384]
-// 1m = zero delay, zero attenuation.
-// Note that if zero were chosen, it would firstly make attenuation computations
-// meaningless. Secondly,
+// 1m = zero delay, zero Doppler shift, zero attenuation.
+// Note that if zero were chosen as the minimum value, it would
+// firstly make attenuation computations meaningless. Secondly,
 // it would make spatial audio computations meaningless.
-// Given that users will clearly want to have zero delay, but also want to be
+// Given that users clearly want to have zero delay, but also want to be
 // able to position the source in space, this is regarded as a practical choice.
 // Choosing 16384 as a maximum corresponds to approx. 84dB attenuation and
 // almost one minute of delay. It is hard to imagine any user working with
@@ -360,8 +407,8 @@ CREATE REL TABLE HAS_PARTIAL (
 // ============================================================
 // Tempo maps are unaltered node and relationship
 // tables from the canonical schema that are also requried in the 
-// engine schema. The engine  converts from tempo maps to
-// absolute time.
+// engine schema. The engine converts from musical time 
+// associated with tempo maps to physical time.
 // ============================================================
 
 // ============================================================
@@ -386,11 +433,11 @@ CREATE NODE TABLE TempoMap (
 // the start tempo of the following segment.
 //
 // hold is a BOOLEAN flag that can be used to indicate a fixed
-// tempo over the next tempo.
+// tempo over the following segment.
 //
 // If hold is false, then there is a linear tempo change to
-// the next segment start tempo.
-//
+// the next segment start tempo. Linear means that the rate
+// of change of BPM is constant.
 // ============================================================
 CREATE NODE TABLE TempoMapPoint (
     id              SERIAL,
@@ -446,7 +493,7 @@ CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
 // MIN_RENDERING_RANGE = 10Hz (1 octave below)
 // MIN_AUDIO_RANGE = 20Hz
 // MAX_AUDIO_RANGE = 20kHz
-// MAX_RENDERING_RANGE = min of (20kHz + Nyquist frequency)/2 or 30kHz (pragmatic),
+// MAX_RENDERING_RANGE = min of (20kHz + Nyquist frequency)/2 or 30kHz (pragmatic, reduce CPU load),
 //
 // (-∞,MIN_RENDERING_RANGE) no rendering
 // [MIN_RENDERING_RANGE,MAX_AUDIO_RANGE) linear roll-off to 0 amplitude
@@ -479,47 +526,68 @@ CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
 // a synth with LFO-style modulation of frequency.
 // As such, frequency modulation does take place, but it remains in the
 // subsonic range.
-// DC, 0Hz, is specifically allowed.
+// "DC", 0Hz, is specifically allowed.
 //
 // ------------------------------------------------------------
-// amplitude, modulator of frequency / spatial position   unitless
+// amplitude, modulator of frequency    unitless
 // ------------------------------------------------------------
-// The amplitude of a modulator.
+// The amplitude of a frequency modulator.
 // No system imposed limits on range.
-// Modulator values are multipliers on the parameter that
-// they operate on. This does mean that modulating carrier
-// results in a multiplication in dB (on a log scale), whereas
-// modulating carrier frequency results in a multiplication in Hz
-// (on a linear scale).
+// Modulator values are multipliers of frequency.
+// This results in a multiplication in rads/sec (on a linear scale),
+// corresponding to a fixed musical interval. 
 //
 // ------------------------------------------------------------
 // amplitude, modulator of amplitude   dB
 // ------------------------------------------------------------
-// Amplitude is expressed in dB, so modulators add instead of
-// multiplying. For this reason, the unit of an amplitude modulator
+// Amplitude is expressed in dB, so modulators add.
+// For this reason, the unit of an amplitude modulator
 // is also dB. There is a large possible range. When modulator
 // arithmetic results in a value > 0dB for a given partial it will
 // be clipped at 0dB by the rendering engine.
 // Valid range [-144,144]
 //
 // ------------------------------------------------------------
+// amplitude, modulator of distance   m
+// ------------------------------------------------------------
+// Amplitude is expressed in m, so modulators add.
+// Valid range [-16384,16384]
+//
+// ------------------------------------------------------------
+// amplitude, modulator of azimuth   radians
+// ------------------------------------------------------------
+// Amplitude is expressed in radians, so modulators add.
+// Intentionally no limits on range to allow ongoing rotation.
+//
+// ------------------------------------------------------------
+// amplitude, modulator of elevation   radians
+// ------------------------------------------------------------
+// Amplitude is expressed in radians, so modulators add.
+// Valid range [-π,π]
+// Note that elevation and azimuth are not equivalent.
+// Elevation cannot be wrapped in order to provide ongoing
+// rotation.
+//
+// ------------------------------------------------------------
 // phase, wrapped                  radians
 // ------------------------------------------------------------
 // Valid range [-π,π]
-// May take a NULL value in some cases. This has semantics that means
-// "allow phase accumulation to run freely".
+// Linked to a Boolean flag that is an indicator that the 
+// partial is to run freely with no particular "phase target"
+// at a given point in time.
 //
 // ------------------------------------------------------------
 // phase, unwrapped                radians
 // ------------------------------------------------------------
-// No limits on range. There are unusual situations where even
+// No limits on range. There are unusual situations where
 // negative values are possible.
 //
 // ------------------------------------------------------------
 // time                             samples
 // ------------------------------------------------------------
 // In the rendering model, time is measured based on the
-// the sample rate, and uses a mix of continuous and discrete time.
+// the sample rate. This is expressed using either
+//  continuous or discrete time depending upon the situation.
 //
 // In continuous time type is DOUBLE.
 // In discrete time type is INT64.
@@ -546,7 +614,7 @@ CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
 // π/2 = directly above the listener
 // -π/2 = directly below the listener
 //
-// For azimuth and elevation, when modulators take values out of
+// For azimuth (but not for elevation), when modulators take values out of
 // defined ranges, wraparound takes place. A linear modulator
 // can create continuous rotation, which is a typical use case.
 //
@@ -562,7 +630,7 @@ CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
 // ------------------------------------------------------------
 // Tempo does not play a role in the rendering model.
 // It is a responsibility of the transformation component to 
-// transform from tempo maps to sample time.
+// transform from musical time to physical time.
 // It is a responsibility of the 
 // playback component to determine the relationship between a 
 // tempo map to time in samples. This can occur by matching
@@ -608,6 +676,10 @@ CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
 // at the centre of spherical coordinates and facing forwards for this
 // system.
 // 
+// Some parts of the model are in discrete time, some parts are in
+// continuous time. The reasoning is described below - note that
+// alternative approaches are possible.
+//
 // For any given partial, there are two signals - the source signal,
 // and the receiver signal. The receiver signal is considered to be a
 // time-modified (and distance attenuated) source signal.
@@ -621,11 +693,7 @@ CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
 // sample rate. This is one reason why source segments are considered
 // to be in continuous time.
 // 
-// Some parts of the model are in discrete time, some parts are in
-// continuous time. The reasoning is described below - note that
-// alternative approaches are possible.
-//
-// All precomputation is in the source signal domain. This results
+// All precomputation is in the source signal time domain. This results
 // in, for each partial, a contiguous set of segments that can
 // be integrated, to determine the accumulated phase.
 //
@@ -634,24 +702,19 @@ CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
 // allows determination of the correct start point.
 //
 // The amount of source time increment - and therefore the amount
-// of phase to add to the accumulator on the source side per sample
-// is modified according to the velocity for that sample - the
+// of phase to add to the accumulator on the source side per receiver time
+// sample is modified according to the velocity for that sample - the
 // change in distance between that sample and the subsequent
 // sample.
 //
 // There is a guiding principle that audio resolution is 
 // based on the sample rate from the receiver time perspective. This
 // means that an approach that first generates the source
-// signal at the sample rate would not be sufficient. This is because
-// the signal can be slowed when the source is moving towards the receiver,
-// which could result in an audio signal with insufficient resolution.
-// Alias frequencies could leak into the audio range due to Doppler shift
-// when the source is moving away from the receiver.
-//
-// Increasing the sample rate at the source would work, but
-// would be computationally more expensive and would involve interpolating
-// every sample of the source. It would be a valid approach, in terms of 
-// correctness, but it has not been chosen.
+// signal at the sample rate would not be sufficient. For example,
+// a signal at 10kHz could become a signal at 30kHz if the velocity
+// towards the reciever is very high. This needs to be fully attenuated
+// but would not be if the source were treated simply as a stream of
+// samples being resampled to compensate for velocity.
 //
 // The selected approach uses distance in two separate ways. This is a 
 // trade-off whereby handling of distance is slightly inaccurate, but
@@ -659,8 +722,7 @@ CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
 //
 // Distance is quantised at the sample rate with linear interpolation between
 // samples. This means that the resulting distance signal
-// has lower bandwidth than other parameters when the source is moving away
-// from the receiver.
+// can have lower bandwidth than other parameters.
 //
 // In typical cases, the frequency content of the
 // distance signal will be largely sub-audio, so from the Nyquist perspective
@@ -689,11 +751,14 @@ CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
 // defined by the maximum distance and the speed of sound. Therefore, it is a
 // constrained binary search.
 //
-// There is no concept of a "frame" in source time.
-//
 // There are expected to be optimisations for the common case that no use
 // is made of Doppler shift, although it is also just the first test in the 
 // binary search so it will also naturally be fast.
+//
+// TODO: As a note here, Doppler shift is not yet implemented but,
+// as illustrated by the above description, a lot of ground work is
+// in place to implement it in a future version of the rendering
+// engine.
 //
 // ============================================================
 
@@ -703,7 +768,8 @@ CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
 // Score -> SoundEntity -> SoundSource -> PartialSet -> Partial
 
 // ============================================================
-// Label: Defines a label that can be selected by the user for rendering.
+// Label: Defines a label that can be selected by the user
+// for rendering.
 // ============================================================
 CREATE NODE TABLE Label (
     id      SERIAL,
@@ -720,6 +786,13 @@ CREATE NODE TABLE Label (
 // There is no linked list for frame because of its sequential
 // index. This index is also used in other places in the
 // data model.
+//
+// TODO: Note that frames currently do not include a small
+// "lead-in" / "lead-out" portion that will be required in
+// order to obtain correct anti-aliasing filtering when
+// the frames are concatenated. Not a big problem, it will
+// be solved down the line. To be addressed when the summing
+// component is implemented.
 // ============================================================
 CREATE NODE TABLE Frame (
     frame_number            INT32, // Allow very long pieces of music
@@ -788,7 +861,7 @@ CREATE NODE TABLE PartialStateSet (
 // not by the database (LadybugDB has no CHECK constraints).
 //
 // Ranges (compiler-enforced):
-//   frequency      Hz,      allowed to be outside of audio range and even be negative, but will not be rendered.
+//   frequency      Hz,      allowed to be outside of audio range and even be negative, but will then not be rendered.
 //   phase          degrees, [-180, 180]
 //   phase_free_run Boolean,
 //   amplitude      dB,      [-144, 0]      (-144 dB ~ -inf sentinel value)
@@ -839,7 +912,9 @@ CREATE REL TABLE STATE_OF (
 );
 
 // ============================================================
-// HAS_LABEL: Various classes can be annotated with labels
+// HAS_LABEL: Various objects can be annotated with labels that
+// have a meaning to the user. This can be used to allow the
+// user to select certain partials for rendering.
 // ============================================================
 CREATE REL TABLE HAS_LABEL (
     FROM Partial TO Label,
@@ -881,7 +956,7 @@ CREATE REL TABLE PARTIAL_IN_FRAME (
 
 // ============================================================
 // PartialIntegrableSegment: An integrable segment of the
-// phase and frequency for a parial. Note that phase modulators
+// phase and frequency for a partial. Note that phase modulators
 // and Doppler shift compensation do not need to be applied during
 // the precomputation phase. The precomputation phase is concerned
 // with the source frequency and phase, from a spatial audio perspective.
@@ -915,6 +990,11 @@ CREATE NODE TABLE PartialIntegrableSegment (
 // points in their timeline. This can require compensation
 // to be applied, defined by a contiguous sequence
 // of nodes of this type.
+//
+// In a contiguous sequence of PartialPhaseCompensationSegments
+// the start_phase_delta of the first segment must be zero and
+// the_end_phase_delta of the last segment must be zero, unless
+// this corresponds to the end of the partial lifeline.
 // ============================================================
 CREATE NODE TABLE PartialPhaseCompensationSegment (
     id SERIAL,
@@ -934,9 +1014,10 @@ CREATE NODE TABLE PartialPhaseCompensationSegment (
 // prior to this segment and/or including compensation due to the
 // type of curve (e.g. S-curve starts at -1, so the start_nominal_frequency
 // for the first sample with the curve will typically include a compensation 
-// equal to curve_scaling_factor).
+// equal to curve_scaling_factor). In other words, it is not simply
+// equal to the "end_nominal_frequency" of the preceding segment.
 //
-// Note that exact same algorithms, maths conventions etc. must be used
+// Note that same exact algorithms, maths conventions etc. must be used
 // for precomputation and for rendering.
 //
 // Corresponds to the PartialSetMusicalTimeline in the canonical model.
@@ -947,7 +1028,7 @@ CREATE NODE TABLE PartialPhaseCompensationSegment (
 // curve_component         Flag to indicate there is a curve component present. 
 // curve_start_phase       Start phase of the curve component, radians.
 // curve_frequency         radians per sample.
-// curve_scaling_factor      unitless
+// curve_scaling_factor    unitless
 // ============================================================
 CREATE NODE TABLE PartialSegmentNominalFrequency (
     id SERIAL,
@@ -1042,7 +1123,7 @@ CREATE REL TABLE MEMBER_OF_SET_MANY_ONE (
 // 1 step
 // 2 accelerate     implemented as sin(3π/2) to sin(2π)
 // 3 decelerate     implemented as sin(0) to sin(π/2)
-// 4 s-curve        implemented assin(-π/2) to sin(π/2)
+// 4 s-curve        implemented as sin(-π/2) to sin(π/2)
 //
 // Curve amount, FLOAT (has no effect if type is linear)
 // 0 linear
@@ -1071,7 +1152,7 @@ CREATE NODE TABLE SpatialPositionMusicalTimelinePoint (
 // 1 step
 // 2 accelerate     implemented as sin(3π/2) to sin(2π)
 // 3 decelerate     implemented as sin(0) to sin(π/2)
-// 4 s-curve        implemented assin(-π/2) to sin(π/2)
+// 4 s-curve        implemented as sin(-π/2) to sin(π/2)
 //
 // Curve amount, FLOAT (has no effect if type is linear)
 // 0 linear
@@ -1099,7 +1180,7 @@ CREATE NODE TABLE AmplitudePhysicalTimelinePoint (
 // 1 step
 // 2 accelerate     implemented as sin(3π/2) to sin(2π)
 // 3 decelerate     implemented as sin(0) to sin(π/2)
-// 4 s-curve        implemented assin(-π/2) to sin(π/2)
+// 4 s-curve        implemented as sin(-π/2) to sin(π/2)
 //
 // Curve amount, FLOAT (has no effect if type is linear)
 // 0 linear
@@ -1121,7 +1202,7 @@ CREATE NODE TABLE FrequencyPhysicalTimelinePoint (
 // Defines the absolute phase of a single partial for that timeline at a given
 // point in time.
 //
-// This is always linear. It does not need to have that constraint
+// This is always linear. That does not need to be a constraint
 // from a theoretical or maths perspective, but the benefit of
 // curves is unclear. The user will generally not know
 // how much phase will be added / subtracted and so cannot
@@ -1144,7 +1225,7 @@ CREATE NODE TABLE PhasePhysicalTimelinePoint (
 // 1 step
 // 2 accelerate     implemented as sin(3π/2) to sin(2π)
 // 3 decelerate     implemented as sin(0) to sin(π/2)
-// 4 s-curve        implemented assin(-π/2) to sin(π/2)
+// 4 s-curve        implemented as sin(-π/2) to sin(π/2)
 //
 // Curve amount, FLOAT (has no effect if type is linear)
 // 0 linear
@@ -1156,9 +1237,9 @@ CREATE NODE TABLE PhasePhysicalTimelinePoint (
 CREATE NODE TABLE AzimuthPhysicalTimelinePoint (
     id                          SERIAL,
     time                        DOUBLE,
-    azimuth_curve_type        INT8 DEFAULT 0,
-    azimuth_curve_amount      FLOAT DEFAULT 0.0,
-    azimuth                   DOUBLE,
+    azimuth_curve_type          INT8 DEFAULT 0,
+    azimuth_curve_amount        FLOAT DEFAULT 0.0,
+    azimuth                     DOUBLE,
     PRIMARY KEY (id)
 );
 
@@ -1172,7 +1253,7 @@ CREATE NODE TABLE AzimuthPhysicalTimelinePoint (
 // 1 step
 // 2 accelerate     implemented as sin(3π/2) to sin(2π)
 // 3 decelerate     implemented as sin(0) to sin(π/2)
-// 4 s-curve        implemented assin(-π/2) to sin(π/2)
+// 4 s-curve        implemented as sin(-π/2) to sin(π/2)
 //
 // Curve amount, FLOAT (has no effect if type is linear)
 // 0 linear
@@ -1200,7 +1281,7 @@ CREATE NODE TABLE ElevationPhysicalTimelinePoint (
 // 1 step
 // 2 accelerate     implemented as sin(3π/2) to sin(2π)
 // 3 decelerate     implemented as sin(0) to sin(π/2)
-// 4 s-curve        implemented assin(-π/2) to sin(π/2)
+// 4 s-curve        implemented as sin(-π/2) to sin(π/2)
 //
 // Curve amount, FLOAT (has no effect if type is linear)
 // 0 linear
@@ -1212,9 +1293,9 @@ CREATE NODE TABLE ElevationPhysicalTimelinePoint (
 CREATE NODE TABLE DistancePhysicalTimelinePoint (
     id                          SERIAL,
     time                        DOUBLE,
-    distance_curve_type        INT8 DEFAULT 0,
-    distance_curve_amount      FLOAT DEFAULT 0.0,
-    distance                   FLOAT,
+    distance_curve_type         INT8 DEFAULT 0,
+    distance_curve_amount       FLOAT DEFAULT 0.0,
+    distance                    FLOAT,
     PRIMARY KEY (id)
 );
 
@@ -1466,7 +1547,7 @@ CREATE NODE TABLE PhaseModulatorState (
 );
 
 // ============================================================
-// AzimuthModulatorState: The state of a AzimuthModulator
+// AzimuthModulatorState: The state of an AzimuthModulator
 // Currently defined as equivalent to FrequencyModulatorState,
 // but is not subject to the same constraints, could be expanded.
 // ============================================================
@@ -1490,7 +1571,7 @@ CREATE NODE TABLE AzimuthModulatorState (
 );
 
 // ============================================================
-// ElevationModulatorState: The state of a ElevationModulator
+// ElevationModulatorState: The state of an ElevationModulator
 // Currently defined as equivalent to FrequencyModulatorState,
 // but is not subject to the same constraints, could be expanded.
 // ============================================================
@@ -1577,9 +1658,9 @@ CREATE REL TABLE NEXT_POINT (
     FROM DistanceModulatorPhysicalTimeline TO DistanceModulatorPhysicalTimelinePoint,
 
     // @canonical
+    FROM Score TO TempoMap, // Defines time = zero
     FROM TempoMap TO TempoMapPoint,
     FROM PartialSetMusicalTimeline TO PartialSetMusicalTimelinePoint,
-    FROM Score TO TempoMap, // Defines time = zero
 
     // Further nodes of the linked lists
     FROM PartialIntegrableSegment TO PartialIntegrableSegment,
@@ -1623,7 +1704,7 @@ CREATE REL TABLE HAS_PHYSICAL_TIMELINE (
 
 // ============================================================
 // HAS_MUSICAL_TIMELINE: Defines the hierarchy of timelines within a
-// given SoundSource that are measured in beat time, which can
+// given SoundSource that are measured in musical time, which can
 // vary with tempo, time signature or the number of "ticks" in
 // a beat.
 //
@@ -1672,13 +1753,12 @@ CREATE REL TABLE HAS_MODULATOR_MUSICAL_TIMELINE (
 // ============================================================
 
 // ============================================================
-// Optimised lookup from frame to timelines
-// Rendering a frame immediately finds the Frame node.
-// From Frame node via FRAME_ENTRY to FrameEntry.
-// From FrameEntry via FRAME_ENTRY_PARTIAL to the partial
-// in question.
-// From FrameEntry via FRAME_ENTRY_PHYSICAL_TIMELINE to the timelines
-// for that partial.
+// Optimised lookup from frames to timelines
+// Rendering a frame rapidly locates the Frame node.
+//
+// Frame -> FRAME_ENTRY -> FrameEntry
+// FrameEntry -> FRAME_ENTRY_PARTIAL -> Partial
+// FrameEntry -> FRAME_ENTRY_PHYSICAL_TIMELINE -> *PhysicalTimeline
 // ============================================================
 
 // ============================================================
@@ -1736,9 +1816,10 @@ CREATE REL TABLE FRAME_ENTRY_PARTIAL (
 // POINT_AT: Defines when a Timeline point occurs within a 
 // given tempo map.
 //
-// The offset in wall-clock time allows for percussive sounds to have
+// The offset in physical time allows for e.g. percussive sounds to have
 // constant length at different tempi. This can also be useful for
-// attack and release portions of other types of sounds.
+// attack and release portions of other types of sounds. It is,
+// after all, how envelopes work within most convnetional synthesisers.
 //
 // @canonical
 // ============================================================
