@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "RAINBOHz"
+abstract: >-
+  A research system for macro-scale additive synthesis: very large numbers
+  of partials, controlled over the timescale of a complete work described by
+  a score in HzL, a declarative domain-specific language.
+authors:
+  - given-names: Alan
+    family-names: Broady
+    affiliation: "The Open University"
+repository-code: "https://github.com/broadya/RAINBOHz"
+license: Apache-2.0
+keywords:
+  - additive synthesis
+  - audio rendering
+  - domain-specific language
+  - sound design
+  - music programming systems
+  - music composition
