@@ -51,7 +51,7 @@ gtest_discover_tests(playback_client_tests
 # Starts rendering-engine in server mode, loads an example score, runs
 # playback-client with --output-wav, and checks the file against the frames
 # the server rendered, sample for sample. Skipped (77) when the engine has not
-# been built; not registered when there is no Python 3.
+# been built.
 #
 # The engine is taken from rendering-engine's build tree for the same preset,
 # which is this build tree's name. Override with -DPC_RENDERING_ENGINE=...
@@ -66,16 +66,13 @@ cmake_path(SET PC_ENGINE_SCHEMA NORMALIZE
 cmake_path(SET PC_EXAMPLE_SCORE NORMALIZE
     "${CMAKE_CURRENT_SOURCE_DIR}/../../engine-db/examples/tempo-map-score.cypher")
 
-find_package(Python3 COMPONENTS Interpreter QUIET)
-if(Python3_Interpreter_FOUND)
-    add_test(NAME "playback.e2e"
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_playback_check.py"
-            --client "$<TARGET_FILE:playback-client>"
-            --engine "${PC_RENDERING_ENGINE}"
-            --schema "${PC_ENGINE_SCHEMA}"
-            --score "${PC_EXAMPLE_SCORE}"
-            --work-dir "${CMAKE_CURRENT_BINARY_DIR}/e2e")
-    set_tests_properties("playback.e2e" PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
-else()
-    message(STATUS "playback-client: no Python 3 interpreter; the end-to-end test is not registered")
-endif()
+# The interpreter is chosen at the top level (CMakeLists.txt): the root .venv.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_test(NAME "playback.e2e"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_playback_check.py"
+        --client "$<TARGET_FILE:playback-client>"
+        --engine "${PC_RENDERING_ENGINE}"
+        --schema "${PC_ENGINE_SCHEMA}"
+        --score "${PC_EXAMPLE_SCORE}"
+        --work-dir "${CMAKE_CURRENT_BINARY_DIR}/e2e")
+set_tests_properties("playback.e2e" PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)

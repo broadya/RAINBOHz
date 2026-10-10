@@ -65,16 +65,27 @@ if(CCACHE_PROGRAM)
     message(STATUS "rendering-engine: ccache enabled (${CCACHE_PROGRAM})")
 endif()
 
-# Python is used only by the oracle tests (test/CMakeLists.txt), but Ladybug's
-# build looks it up first, so the lookup strategy has to be set here to take
-# effect. LOCATION rather than CMake's default VERSION: the interpreter first
-# on PATH is the one a developer runs by hand and has installed NumPy into,
-# where the newest interpreter on the machine may have nothing installed.
-# On macOS, frameworks are searched before PATH unless told otherwise, and
-# Homebrew installs Python as a framework. Override with
-# -DPython3_EXECUTABLE=... if the one on PATH is not the right one either.
-set(Python3_FIND_STRATEGY LOCATION)
-set(Python3_FIND_FRAMEWORK LAST)
+# Python: one interpreter for the whole repository, the root virtualenv that
+# `make venv` creates (AGENTS.md, Python Conventions); the Python-driven
+# tests run with it. Ladybug's build also looks Python up, for code
+# generation that needs only the standard library and any Python 3.9+. It
+# states no preference of its own, so it gets the same interpreter: CMake
+# caches one for the whole configure. Set before Dependencies so that it
+# reaches Ladybug's lookup. Override with -DPython3_EXECUTABLE=... .
+if(NOT DEFINED Python3_EXECUTABLE)
+    if(CMAKE_HOST_WIN32)
+        cmake_path(SET _venv_python NORMALIZE
+            "${CMAKE_CURRENT_SOURCE_DIR}/../.venv/Scripts/python.exe")
+    else()
+        cmake_path(SET _venv_python NORMALIZE "${CMAKE_CURRENT_SOURCE_DIR}/../.venv/bin/python")
+    endif()
+    if(NOT EXISTS "${_venv_python}")
+        message(FATAL_ERROR "rendering-engine: no Python virtualenv at ${_venv_python}. "
+            "Run `make venv` at the repository root, or pass -DPython3_EXECUTABLE=...")
+    endif()
+    set(Python3_EXECUTABLE "${_venv_python}"
+        CACHE FILEPATH "The Python the build and its tests use (the root .venv)")
+endif()
 
 include(ProjectWarnings)
 include(Dependencies)

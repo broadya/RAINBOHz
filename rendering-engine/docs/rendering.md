@@ -1273,9 +1273,9 @@ A CTest target per example score (`oracle.minimum-score`,
 `--per-set-wav`, then the oracle on every frame of the request and on
 every per-set file written, through `test/oracle/run_oracle_check.py`. It
 is skipped with a notice when NumPy is not importable, so that the C++
-test suite does not depend on Python. CMake looks for the interpreter
-first on `PATH` (frameworks last), which is the one a developer has
-installed NumPy into; `-DPython3_EXECUTABLE=` overrides it.
+test suite does not depend on Python. The interpreter is the repository's
+root `.venv`, where `requirements-dev.txt` installs NumPy;
+`-DPython3_EXECUTABLE=` overrides it.
 
 ## 12. Worked example
 

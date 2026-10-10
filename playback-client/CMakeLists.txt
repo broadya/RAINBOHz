@@ -49,10 +49,28 @@ if(CCACHE_PROGRAM)
     message(STATUS "playback-client: ccache enabled (${CCACHE_PROGRAM})")
 endif()
 
-# The end-to-end test uses the Python first on PATH, as rendering-engine's
-# server tests do.
-set(Python3_FIND_STRATEGY LOCATION)
-set(Python3_FIND_FRAMEWORK LAST)
+# Python: one interpreter for the whole repository, the root virtualenv that
+# `make venv` creates (AGENTS.md, Python Conventions); the end-to-end
+# test runs with it. Ladybug's build (via rendering-engine's
+# Dependencies) also looks Python up, for code
+# generation that needs only the standard library and any Python 3.9+. It
+# states no preference of its own, so it gets the same interpreter: CMake
+# caches one for the whole configure. Set before Dependencies so that it
+# reaches Ladybug's lookup. Override with -DPython3_EXECUTABLE=... .
+if(NOT DEFINED Python3_EXECUTABLE)
+    if(CMAKE_HOST_WIN32)
+        cmake_path(SET _venv_python NORMALIZE
+            "${CMAKE_CURRENT_SOURCE_DIR}/../.venv/Scripts/python.exe")
+    else()
+        cmake_path(SET _venv_python NORMALIZE "${CMAKE_CURRENT_SOURCE_DIR}/../.venv/bin/python")
+    endif()
+    if(NOT EXISTS "${_venv_python}")
+        message(FATAL_ERROR "playback-client: no Python virtualenv at ${_venv_python}. "
+            "Run `make venv` at the repository root, or pass -DPython3_EXECUTABLE=...")
+    endif()
+    set(Python3_EXECUTABLE "${_venv_python}"
+        CACHE FILEPATH "The Python the build and its tests use (the root .venv)")
+endif()
 
 include(ProjectWarnings)
 include(Dependencies)

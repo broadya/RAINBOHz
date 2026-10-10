@@ -406,8 +406,9 @@ Databases (built from the schema DDL, which is the source of truth):
 - `make rendering-engine` — configure and build.
 - `make test-rendering-engine` — build, then run the tests under CTest.
   That includes the rendering oracle (`rendering-engine/docs/rendering.md`
-  §11.1), an independent NumPy check of the engine's output, which is
-  skipped with a notice when the `python3` first on `PATH` has no NumPy.
+  §11.1), an independent NumPy check of the engine's output. The
+  Python-driven tests run with the root `.venv`, as Ladybug's code
+  generation does; configuring fails if it does not exist (`make venv`).
 - `make run-rendering-engine` — run the engine in batch mode, loading two
   Cypher files into an in-memory database: `RE_SCHEMA` (default
   `engine-db/schema/engine-schema.cypher`) and then `RE_STATE` (default

@@ -314,14 +314,14 @@ reset-canonical-db: venv
 # recipe runs from the component directory rather than the repository root.
 
 ## configure-rendering-engine: run CMake configure only (fetches Ladybug on first use)
-configure-rendering-engine:
+configure-rendering-engine: venv
 	cd $(RE_DIR) && cmake --preset $(RE_PRESET)
 
-$(RE_BUILD)/CMakeCache.txt:
+$(RE_BUILD)/CMakeCache.txt: | $(VENV_STAMP)
 	cd $(RE_DIR) && cmake --preset $(RE_PRESET)
 
 ## rendering-engine: build the rendering engine
-rendering-engine: $(RE_BUILD)/CMakeCache.txt
+rendering-engine: $(RE_BUILD)/CMakeCache.txt | $(VENV_STAMP)
 	cd $(RE_DIR) && cmake --build --preset $(RE_PRESET)
 
 ## test-rendering-engine: build and run the rendering engine tests
@@ -362,14 +362,14 @@ clean-rendering-engine:
 # service through the default audio device (playback-client/docs/design.md).
 
 ## configure-playback-client: run CMake configure only
-configure-playback-client:
+configure-playback-client: venv
 	cd $(PC_DIR) && cmake --preset $(PC_PRESET)
 
-$(PC_BUILD)/CMakeCache.txt:
+$(PC_BUILD)/CMakeCache.txt: | $(VENV_STAMP)
 	cd $(PC_DIR) && cmake --preset $(PC_PRESET)
 
 ## playback-client: build the playback client
-playback-client: $(PC_BUILD)/CMakeCache.txt
+playback-client: $(PC_BUILD)/CMakeCache.txt | $(VENV_STAMP)
 	cd $(PC_DIR) && cmake --build --preset $(PC_PRESET)
 
 # The end-to-end test serves with rendering-engine's binary for the same

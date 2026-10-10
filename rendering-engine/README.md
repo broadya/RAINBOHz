@@ -378,7 +378,7 @@ Two caveats worth stating plainly:
 | [cpp-httplib](https://github.com/yhirose/cpp-httplib) | pinned, see `cmake/Dependencies.cmake` | CMake FetchContent (fetched only; its CMake is not run) |
 | [nlohmann/json](https://github.com/nlohmann/json) | pinned, see `cmake/Dependencies.cmake` | CMake FetchContent |
 | GoogleTest | pinned, see `test/CMakeLists.txt` | CMake FetchContent |
-| Python 3 with NumPy | whatever is first on `PATH` | for the oracle tests only; skipped if absent |
+| Python 3.12 | the repository's root `.venv` (`make venv`), or `-DPython3_EXECUTABLE=` | Ladybug's code generation, and the oracle and server tests (NumPy, PyYAML, jsonschema, openapi-spec-validator from `requirements-dev.txt`); configuring fails without it |
 
 CLI11 is header-only and is used by `src/options.cpp` alone; yaml-cpp is built
 static and used by `src/render_request.cpp` alone; dr_wav is one header,
