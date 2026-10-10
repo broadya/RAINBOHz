@@ -1,0 +1,15 @@
+# Everything the build's Python needs, installed into the root .venv by
+# `make venv`. Every Python step in the Makefile, and the C++ components'
+# Python-driven tests, run with that one interpreter.
+#
+# Paths are relative to the repository root, where make runs pip.
+
+# The HzL compiler, editable, with its own tools (pytest, ruff, mypy).
+-e ./hzl-compiler[dev]
+
+# The engine's test harnesses: the rendering oracle (NumPy) and the
+# OpenAPI checks of the server and its document.
+numpy>=1.26
+pyyaml>=6.0
+jsonschema>=4.18
+openapi-spec-validator>=0.7

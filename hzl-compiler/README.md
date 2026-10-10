@@ -22,7 +22,7 @@ route. `examples/tempo-map-score/` here is the HzL twin of one of them, and
 From the repository root:
 
 ```bash
-make hzl-compiler                 # create .venv and install the package into it, once
+make venv                         # create the root .venv with the compiler in it (automatic on first use)
 make hzl-compile                  # compile examples/tempo-map-score to build/
 make hzl-compile HZL_SCORE=hzl-compiler/examples/demo/scores/demo.yaml
 make run-hzl-score HZL_SCORE=hzl-compiler/examples/demo/scores/demo.yaml \
@@ -36,8 +36,8 @@ make test-hzl-oracle              # compiled twin == hand-written score, by the 
 Or directly, once installed:
 
 ```bash
-.venv/bin/hzlc compile examples/demo/scores/demo.yaml -o build/demo.cypher
-.venv/bin/hzlc compile --help
+../.venv/bin/hzlc compile examples/demo/scores/demo.yaml -o build/demo.cypher
+../.venv/bin/hzlc compile --help
 ```
 
 `hzlc compile` takes the score's file and works the source root out from the
@@ -69,7 +69,7 @@ docs/design.md                  how it works and why
 docs/hzl-reference.md           the language, this version
 ```
 
-`build/` and `.venv/` are gitignored.
+`build/` is gitignored. The compiler is installed, editable, in the repository's root `.venv`.
 
 ## Status
 

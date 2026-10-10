@@ -461,10 +461,18 @@ Databases (built from the schema DDL, which is the source of truth):
   for the engine. The component has its own `.clang-format`, `.clang-tidy`
   and `.clangd`, copied from the engine's.
 
+Python:
+
+- `make venv` — create the root `.venv` from `PYTHON` (3.12 or later) and
+  install `requirements-dev.txt` into it: the compiler, editable, with its
+  tools, and the engine's test harness packages. Every target that runs
+  Python depends on it, so it happens on first use; again whenever
+  `requirements-dev.txt` or `hzl-compiler/pyproject.toml` changes.
+- `make clean-venv` — remove it.
+
 `hzl-compiler` (Python):
 
-- `make hzl-compiler` — create `hzl-compiler/.venv` from `PYTHON` (3.12) and
-  install the package into it, editable, with its test dependencies. Once.
+- `make hzl-compiler` — the same as `make venv`: the compiler lives there.
 - `make hzl-compile` — compile `HZL_SCORE` (default the tempo-map twin) to
   `HZL_OUT` (default `hzl-compiler/build/<score>.cypher`). Extra `hzlc`
   options go in `HZL_ARGS`.
@@ -478,10 +486,11 @@ Databases (built from the schema DDL, which is the source of truth):
   in place.
 - `make test-hzl-oracle` — compile the twin, render it, and check every frame
   against `engine-db/examples/tempo-map-score.json` with the rendering
-  oracle. Needs the engine built and NumPy on `python3`.
-- `make clean-hzl-compiler` — remove `hzl-compiler/build` and the venv.
+  oracle. Needs the engine built.
+- `make clean-hzl-compiler` — remove `hzl-compiler/build`.
 
-Aggregates: `make build`, `make test`, `make clean`. `make test` runs the
+Aggregates: `make build`, `make test`, `make clean` (which includes
+`clean-venv`). `make test` runs the
 compiler's lint and tests before the engine's, then the playback client's, and the
 oracle check after.
 
@@ -596,6 +605,13 @@ These apply to `rendering-engine` and to C++ components added later.
 
 These apply to `hzl-compiler` and to Python components added later.
 
+- One Python for the whole build: the root `.venv` (`make venv`). Every
+  Makefile step that runs Python uses `$(VENV_PY)` and depends on `venv`
+  (order-only, `| $(VENV_STAMP)`, for a rule that writes a file), never
+  `$(PYTHON)`, which only creates the venv. A package a component needs
+  goes in its `pyproject.toml`; one a test harness or script needs goes in
+  `requirements-dev.txt`. Nothing is installed into the system Python.
+  `proof-of-concept/` keeps its own venvs and is not part of this.
 - Python 3.12, with type hints on every function, tests included.
   [mypy](https://mypy.readthedocs.io/) checks them in strict mode over
   `src` and `tests`, configured in the component's `pyproject.toml`. A
@@ -764,7 +780,7 @@ versions may differ.
 `scripts/ladybug_schema_to_mermaid.py` — converts one or more LadybugDB DDL `.cypher` files into a Mermaid UML class diagram. REL tables are rendered as association classes (junction-table style) between the node table classes they connect. Multiplicity constraints are shown as cardinality labels on the association lines.
 
 ```
-python3 scripts/ladybug_schema_to_mermaid.py canonical-db/schema/canonical-schema.cypher
+.venv/bin/python scripts/ladybug_schema_to_mermaid.py canonical-db/schema/canonical-schema.cypher
 ```
 
 By default it emits raw Mermaid on stdout. An optional `--markdown` flag wraps
@@ -781,7 +797,7 @@ reimplemented parser believes. Requires the Homebrew `lbug` CLI. Normally
 invoked via `make validate-schemas` (see Build).
 
 ```
-python3 scripts/validate_ladybug_schema.py \
+.venv/bin/python scripts/validate_ladybug_schema.py \
     engine-db/schema/engine-schema.cypher --verbose
 ```
 
