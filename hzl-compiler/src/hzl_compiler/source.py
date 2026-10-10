@@ -50,7 +50,7 @@ class SourceTree:
         self._cache: dict[Ref, tuple[str, Node]] = {}
 
     @classmethod
-    def from_file(cls, path: Path) -> tuple["SourceTree", Ref]:
+    def from_file(cls, path: Path) -> tuple[SourceTree, Ref]:
         """Opens the tree a file belongs to, working the root out from its header.
 
         The header's `namespace` names the directories between the root and
@@ -73,7 +73,9 @@ class SourceTree:
         namespace = body.optional("namespace", "scalar")
         ref = Ref.parse(namespace, name, where)
         if path.stem != ref.name:
-            raise where.at("name").error(f"name {ref.name!r} does not match the file name {path.stem!r}")
+            raise where.at("name").error(
+                f"name {ref.name!r} does not match the file name {path.stem!r}"
+            )
         parts = ref.namespace.split("/")
         parent = path.parent
         if [p.name for p in [parent, *parent.parents][: len(parts)]][::-1] != parts:
@@ -117,7 +119,10 @@ class SourceTree:
         """
         actual, body = self.load_any(ref)
         if actual != hzl_type:
-            raise HzlError(f"{ref} is a {actual}, but a {hzl_type} is needed here", where=Where(ref.path(self.root)))
+            raise HzlError(
+                f"{ref} is a {actual}, but a {hzl_type} is needed here",
+                where=Where(ref.path(self.root)),
+            )
         return body
 
 
@@ -143,7 +148,7 @@ def _read(path: Path) -> tuple[str, Node]:
         raise where.error(f"cannot read: {error.strerror}") from error
     if not isinstance(document, Mapping) or len(document) != 1:
         raise where.error("an HzL file is a mapping with exactly one top-level key, its type")
-    (hzl_type, body), = document.items()
+    ((hzl_type, body),) = document.items()
     if hzl_type not in HZL_TYPES:
         raise where.error(f"unknown HzL type {hzl_type!r}; the types are: {', '.join(HZL_TYPES)}")
     if not isinstance(body, Mapping):
@@ -165,13 +170,20 @@ def _check_header(body: Node, hzl_type: str, ref: Ref) -> None:
     """
     version = body.require("hzl_version", "scalar")
     if str(version) != HZL_VERSION:
-        raise body.error(f"hzl_version {version!r} is not {HZL_VERSION!r}, the version this compiler reads", "hzl_version")
+        raise body.error(
+            f"hzl_version {version!r} is not {HZL_VERSION!r}, the version this compiler reads",
+            "hzl_version",
+        )
     declared = body.require("hzl_type", "str")
     if declared != hzl_type:
-        raise body.error(f"hzl_type {declared!r} does not match the top-level key {hzl_type!r}", "hzl_type")
+        raise body.error(
+            f"hzl_type {declared!r} does not match the top-level key {hzl_type!r}", "hzl_type"
+        )
     name = body.require("name", "scalar")
     if str(name) != ref.name:
         raise body.error(f"name {name!r} does not match the file name {ref.name!r}", "name")
     namespace = body.require("namespace", "str")
     if namespace != ref.namespace:
-        raise body.error(f"namespace {namespace!r} does not match the directories {ref.namespace!r}", "namespace")
+        raise body.error(
+            f"namespace {namespace!r} does not match the directories {ref.namespace!r}", "namespace"
+        )

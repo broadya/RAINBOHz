@@ -28,6 +28,8 @@ make hzl-compile HZL_SCORE=hzl-compiler/examples/demo/scores/demo.yaml
 make run-hzl-score HZL_SCORE=hzl-compiler/examples/demo/scores/demo.yaml \
     RE_REQUEST=hzl-compiler/examples/demo/render-request.yaml   # ...and render it
 make test-hzl-compiler            # pytest
+make lint-hzl-compiler            # ruff lint and format check (part of make test)
+make format-hzl-compiler          # apply ruff's fixes and formatting in place
 make test-hzl-oracle              # compiled twin == hand-written score, by the oracle
 ```
 

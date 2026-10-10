@@ -28,7 +28,9 @@ class Placement:
     where: Where
 
 
-def parse_placements(node: Node, list_key: str, item_key: str, time_key: str) -> tuple[Placement, ...]:
+def parse_placements(
+    node: Node, list_key: str, item_key: str, time_key: str
+) -> tuple[Placement, ...]:
     """Reads a list of `{item_key: {namespace, name}, time_key: "b:t"}` items.
 
     Args:
@@ -47,7 +49,9 @@ def parse_placements(node: Node, list_key: str, item_key: str, time_key: str) ->
     for index, item in enumerate(items):
         where = node.where.at(list_key).at(index)
         if not isinstance(item, dict):
-            raise where.error(f"each item here is a mapping with {item_key!r} and optionally {time_key!r}")
+            raise where.error(
+                f"each item here is a mapping with {item_key!r} and optionally {time_key!r}"
+            )
         item_node = Node(item, where)
         item_node.only(item_key, time_key)
         ref = item_node.ref(item_key)

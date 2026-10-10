@@ -86,7 +86,9 @@ def parse_harmonic_series(node: Node) -> HarmonicSeries:
     header = parse_header(node)
     count = node.require("number_of_harmonics", "int")
     if count < 1:
-        raise node.error(f"number_of_harmonics must be 1 or more, got {count}", "number_of_harmonics")
+        raise node.error(
+            f"number_of_harmonics must be 1 or more, got {count}", "number_of_harmonics"
+        )
     base = node.optional("base_frequency", "float", 1.0)
     check_frequency(base, node.where.at("base_frequency"))
     for prop in PROPERTIES:
@@ -98,9 +100,13 @@ def parse_harmonic_series(node: Node) -> HarmonicSeries:
         header=header,
         base_frequency=base,
         number_of_harmonics=count,
-        frequency=None if frequency is None else check_frequency(frequency, node.where.at("frequency")),
+        frequency=None
+        if frequency is None
+        else check_frequency(frequency, node.where.at("frequency")),
         frequency_expression=node.optional("frequency_expression", "str"),
-        amplitude=None if amplitude is None else check_amplitude(amplitude, node.where.at("amplitude")),
+        amplitude=None
+        if amplitude is None
+        else check_amplitude(amplitude, node.where.at("amplitude")),
         amplitude_expression=node.optional("amplitude_expression", "str"),
         phase=optional_phase(node),
         phase_expression=node.optional("phase_expression", "str"),

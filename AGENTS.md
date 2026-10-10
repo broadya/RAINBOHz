@@ -472,13 +472,17 @@ Databases (built from the schema DDL, which is the source of truth):
   `RE_OUT_DIR`, exactly as `run-rendering-engine` would from a hand-written
   state file.
 - `make test-hzl-compiler` — pytest.
+- `make lint-hzl-compiler` — ruff lint and format check; changes nothing,
+  fails on any finding. Part of `make test`.
+- `make format-hzl-compiler` — apply ruff's safe fixes, then `ruff format`,
+  in place.
 - `make test-hzl-oracle` — compile the twin, render it, and check every frame
   against `engine-db/examples/tempo-map-score.json` with the rendering
   oracle. Needs the engine built and NumPy on `python3`.
 - `make clean-hzl-compiler` — remove `hzl-compiler/build` and the venv.
 
 Aggregates: `make build`, `make test`, `make clean`. `make test` runs the
-compiler's tests before the engine's, then the playback client's, and the
+compiler's lint and tests before the engine's, then the playback client's, and the
 oracle check after.
 
 The build configuration is selected with `RE_PRESET`, which defaults to
@@ -587,6 +591,19 @@ These apply to `rendering-engine` and to C++ components added later.
 - Third-party dependencies are built from pinned source via `FetchContent`, never taken from the system. This is what keeps cross-compilation possible; see ADR 0001.
 - Component-owned public headers must not expose third-party types. Callers should not acquire a transitive dependency on Ladybug's API by including ours.
 - Every function is documented to the Documentation Comments convention below.
+
+### Python Conventions
+
+These apply to `hzl-compiler` and to Python components added later.
+
+- Python 3.12, with type hints on every function.
+- [ruff](https://docs.astral.sh/ruff/) is the linter and formatter,
+  configured in the component's `pyproject.toml`: 100-column lines, rule
+  groups E, W, F, I, UP, B and N. `make lint-hzl-compiler` is clean; keep it
+  that way. Run `make format-hzl-compiler` after editing, and fix by hand
+  what it cannot (usually a long string: split it into adjacent literals).
+- Suppress a finding only with a `# noqa: <code>` on the line and a reason,
+  or with a config entry that says why.
 
 ### Documentation Comments
 

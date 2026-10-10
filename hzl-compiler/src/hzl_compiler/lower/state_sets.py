@@ -15,8 +15,15 @@ from dataclasses import replace
 
 import sympy
 
-from ..errors import HzlError, Where
-from ..hzl.common import FREE_RUN, MIN_AMPLITUDE_DB, Phase, check_amplitude, check_frequency, check_phase
+from ..errors import Where
+from ..hzl.common import (
+    FREE_RUN,
+    MIN_AMPLITUDE_DB,
+    Phase,
+    check_amplitude,
+    check_frequency,
+    check_phase,
+)
 from ..hzl.harmonic_series import HarmonicSeries, parse_harmonic_series
 from ..hzl.partial_state_set import PartialStateSet, PartialStateSpec, parse_partial_state_set
 from ..hzl.scale import Scale, parse_scale
@@ -75,7 +82,11 @@ def evaluate_expression(text: str, harmonic_index: int, where: Where) -> float:
     if unknown:
         raise where.error(f"expression {text!r} uses unknown names: {', '.join(sorted(unknown))}")
     try:
-        value = sympy.N(expression.subs(_HARMONIC_INDEX, harmonic_index)) if hasattr(expression, "subs") else expression
+        value = (
+            sympy.N(expression.subs(_HARMONIC_INDEX, harmonic_index))
+            if hasattr(expression, "subs")
+            else expression
+        )
         result = float(value)
     except (TypeError, ValueError) as error:
         raise where.error(
@@ -88,7 +99,11 @@ def lower_scale(scale: Scale) -> PartialStateSet:
     """Makes one partial per note. Identifier is the note's index; label its name."""
     states = tuple(
         PartialStateSpec(
-            identifier=str(index), labels=(note.note,), frequency=note.frequency, amplitude=note.amplitude, phase=note.phase
+            identifier=str(index),
+            labels=(note.note,),
+            frequency=note.frequency,
+            amplitude=note.amplitude,
+            phase=note.phase,
         )
         for index, note in enumerate(scale.notes)
     )
@@ -109,18 +124,30 @@ def lower_harmonic_series(series: HarmonicSeries, where: Where) -> PartialStateS
     for h in range(1, series.number_of_harmonics + 1):
         frequency = series.frequency
         if series.frequency_expression is not None:
-            value = evaluate_expression(series.frequency_expression, h, where.at("frequency_expression"))
-            frequency = check_frequency(series.base_frequency * value, where.at("frequency_expression"))
+            value = evaluate_expression(
+                series.frequency_expression, h, where.at("frequency_expression")
+            )
+            frequency = check_frequency(
+                series.base_frequency * value, where.at("frequency_expression")
+            )
         amplitude = series.amplitude
         if series.amplitude_expression is not None:
-            value = evaluate_expression(series.amplitude_expression, h, where.at("amplitude_expression"))
+            value = evaluate_expression(
+                series.amplitude_expression, h, where.at("amplitude_expression")
+            )
             amplitude = check_amplitude(value, where.at("amplitude_expression"))
         phase = series.phase
         if series.phase_expression is not None:
             value = evaluate_expression(series.phase_expression, h, where.at("phase_expression"))
             phase = check_phase(value, where.at("phase_expression"))
         states.append(
-            PartialStateSpec(identifier=str(h), labels=(f"harmonic {h}",), frequency=frequency, amplitude=amplitude, phase=phase)
+            PartialStateSpec(
+                identifier=str(h),
+                labels=(f"harmonic {h}",),
+                frequency=frequency,
+                amplitude=amplitude,
+                phase=phase,
+            )
         )
     return PartialStateSet(series.header, tuple(states))
 
@@ -145,7 +172,10 @@ def combine_phase(a: Phase, b: Phase) -> Phase:
 
 
 def flattened_cartesian_product(
-    virtual: VirtualPartialStateSet, a: PartialStateSet, b: PartialStateSet, transformation: Transformation
+    virtual: VirtualPartialStateSet,
+    a: PartialStateSet,
+    b: PartialStateSet,
+    transformation: Transformation,
 ) -> PartialStateSet:
     """Combines every partial of `a` with every partial of `b`.
 
@@ -179,7 +209,12 @@ def flattened_cartesian_product(
                 )
             )
     labels: list[str] = []
-    for source in (virtual.header.labels, transformation.header.labels, a.header.labels, b.header.labels):
+    for source in (
+        virtual.header.labels,
+        transformation.header.labels,
+        a.header.labels,
+        b.header.labels,
+    ):
         for label in source:
             if label not in labels:
                 labels.append(label)
@@ -217,11 +252,14 @@ class StateSetResolver:
         if ref in self._cache:
             return self._cache[ref]
         if ref in self._stack:
-            chain = " -> ".join(str(r) for r in self._stack[self._stack.index(ref):] + [ref])
+            chain = " -> ".join(str(r) for r in self._stack[self._stack.index(ref) :] + [ref])
             raise where.error(f"state sets refer to each other in a cycle: {chain}")
         hzl_type, node = self._tree.load_any(ref)
         if hzl_type not in STATE_SET_TYPES:
-            raise where.error(f"{ref} is a {hzl_type}; a state set is needed here (one of: {', '.join(STATE_SET_TYPES)})")
+            raise where.error(
+                f"{ref} is a {hzl_type}; a state set is needed here "
+                f"(one of: {', '.join(STATE_SET_TYPES)})"
+            )
         self._stack.append(ref)
         try:
             if hzl_type == "partial_state_set":
@@ -247,12 +285,14 @@ class StateSetResolver:
         transformation = load_transformation(self._tree, virtual.transformation)
         if transformation.transformation_type is not TransformationType.FLATTENED_CARTESIAN_PRODUCT:
             raise where.at("transformation").error(
-                f"{virtual.transformation} is {transformation.transformation_type.value!r}; a virtual "
-                f"partial state set applies '{TransformationType.FLATTENED_CARTESIAN_PRODUCT.value}'"
+                f"{virtual.transformation} is {transformation.transformation_type.value!r}; "
+                "a virtual partial state set applies "
+                f"'{TransformationType.FLATTENED_CARTESIAN_PRODUCT.value}'"
             )
         if len(virtual.sources) != 2:
             raise where.at("partial_state_sets").error(
-                f"a flattened cartesian product takes exactly two state sets, got {len(virtual.sources)}"
+                "a flattened cartesian product takes exactly two state sets, "
+                f"got {len(virtual.sources)}"
             )
         a = self.resolve(virtual.sources[0], where.at("partial_state_sets").at(0))
         b = self.resolve(virtual.sources[1], where.at("partial_state_sets").at(1))

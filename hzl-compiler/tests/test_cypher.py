@@ -41,7 +41,9 @@ def strip_comments(text: str) -> str:
 
 
 def test_tempo_map_twin_matches_the_expected_script():
-    tree, ref = SourceTree.from_file(EXAMPLES / "tempo-map-score" / "scores" / "tempo_map_score.yaml")
+    tree, ref = SourceTree.from_file(
+        EXAMPLES / "tempo-map-score" / "scores" / "tempo_map_score.yaml"
+    )
     script = emit_cypher(lower_score(tree, ref))
     expected = (EXPECTED / "tempo-map-score.cypher").read_text(encoding="utf-8")
     assert strip_comments(script) == strip_comments(expected)
@@ -60,7 +62,16 @@ def test_spatial_twin_matches_the_expected_script():
 def test_cli_compiles_and_dumps(tmp_path, capsys):
     out = tmp_path / "out" / "score.cypher"
     dump = tmp_path / "out" / "score.json"
-    code = main(["compile", str(EXAMPLES / "tempo-map-score" / "scores" / "tempo_map_score.yaml"), "-o", str(out), "--dump-canonical", str(dump)])
+    code = main(
+        [
+            "compile",
+            str(EXAMPLES / "tempo-map-score" / "scores" / "tempo_map_score.yaml"),
+            "-o",
+            str(out),
+            "--dump-canonical",
+            str(dump),
+        ]
+    )
     assert code == 0
     assert out.read_text().startswith("// ====")
     assert '"tables"' in dump.read_text()
@@ -70,6 +81,9 @@ def test_cli_compiles_and_dumps(tmp_path, capsys):
 def test_cli_reports_hzl_errors(tmp_path, capsys):
     bad = tmp_path / "scores" / "s.yaml"
     bad.parent.mkdir()
-    bad.write_text('score:\n  hzl_version: "0.1.0"\n  hzl_type: score\n  name: s\n  namespace: scores\n  layer: x\n  tempo_map: {namespace: t, name: m}\n  sound_entities: []\n')
+    bad.write_text(
+        'score:\n  hzl_version: "0.1.0"\n  hzl_type: score\n  name: s\n  namespace: scores\n'
+        "  layer: x\n  tempo_map: {namespace: t, name: m}\n  sound_entities: []\n"
+    )
     assert main(["compile", str(bad), "-o", str(tmp_path / "o.cypher"), "-q"]) == 1
     assert "no file for reference t/m" in capsys.readouterr().err

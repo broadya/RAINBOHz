@@ -60,12 +60,17 @@ Phase = float | FreeRun | None
 # there. Each is refused with a message rather than dropped, so that a
 # practitioner who writes one is told it had no effect. Spatial position belongs
 # to a sound source, not a partial, and is written as its trajectory.
-_ON_THE_SOURCE = "spatial position belongs to a sound_source, not a partial; write it in the source's trajectory"
+_ON_THE_SOURCE = (
+    "spatial position belongs to a sound_source, not a partial; write it in the source's trajectory"
+)
 NOT_IN_THIS_VERSION = {
     "azimuth": _ON_THE_SOURCE,
     "elevation": _ON_THE_SOURCE,
     "distance": _ON_THE_SOURCE,
-    "pan": "pan is not in HzL; write an azimuth in the source's trajectory, and the channel mode makes the stereo image",
+    "pan": (
+        "pan is not in HzL; write an azimuth in the source's trajectory, "
+        "and the channel mode makes the stereo image"
+    ),
 }
 
 
@@ -142,7 +147,8 @@ def check_amplitude(value: float, where: Where) -> float:
     """
     if not (math.isfinite(value) and MIN_AMPLITUDE_DB <= value <= MAX_AMPLITUDE_DB):
         raise where.error(
-            f"amplitude is in dB and must lie in [{MIN_AMPLITUDE_DB:g}, {MAX_AMPLITUDE_DB:g}], got {value!r}"
+            "amplitude is in dB and must lie in "
+            f"[{MIN_AMPLITUDE_DB:g}, {MAX_AMPLITUDE_DB:g}], got {value!r}"
         )
     return value
 
@@ -155,12 +161,15 @@ def check_phase(value: float, where: Where) -> float:
     """
     if not (math.isfinite(value) and MIN_PHASE_DEG <= value <= MAX_PHASE_DEG):
         raise where.error(
-            f"phase is in degrees and must lie in [{MIN_PHASE_DEG:g}, {MAX_PHASE_DEG:g}], got {value!r}"
+            "phase is in degrees and must lie in "
+            f"[{MIN_PHASE_DEG:g}, {MAX_PHASE_DEG:g}], got {value!r}"
         )
     return value
 
 
-def check_in_range(name: str, unit: str, low: float, high: float, value: float, where: Where) -> float:
+def check_in_range(
+    name: str, unit: str, low: float, high: float, value: float, where: Where
+) -> float:
     """Checks a value is finite and within [low, high].
 
     Out of range is refused, not wrapped or clamped: wraparound is for

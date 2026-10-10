@@ -50,7 +50,9 @@ class Row:
         names are the property names. `EngineConfigRow` overrides this because
         its schema columns are camelCase.
         """
-        return {f.name: getattr(self, f.name) for f in fields(self) if getattr(self, f.name) is not None}
+        return {
+            f.name: getattr(self, f.name) for f in fields(self) if getattr(self, f.name) is not None
+        }
 
 
 @dataclass(frozen=True)
@@ -294,9 +296,16 @@ class Model:
     def to_dict(self) -> dict[str, Any]:
         """The model as plain data, for a JSON dump a person can inspect."""
         return {
-            "tables": {table: [row.properties() for row in rows] for table, rows in self.rows.items()},
+            "tables": {
+                table: [row.properties() for row in rows] for table, rows in self.rows.items()
+            },
             "edges": [
-                {"rel": e.rel, "from": e.src.variable, "to": e.dst.variable, "properties": e.properties}
+                {
+                    "rel": e.rel,
+                    "from": e.src.variable,
+                    "to": e.dst.variable,
+                    "properties": e.properties,
+                }
                 for e in self.edges
             ],
         }

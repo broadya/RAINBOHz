@@ -54,7 +54,9 @@ def parse_transformation(node: Node) -> Transformation:
         kind = TransformationType(text)
     except ValueError:
         names = ", ".join(repr(t.value) for t in TransformationType)
-        raise inner.error(f"unknown transformation_type {text!r}; the types are: {names}", "transformation_type") from None
+        raise inner.error(
+            f"unknown transformation_type {text!r}; the types are: {names}", "transformation_type"
+        ) from None
     return Transformation(header, kind)
 
 

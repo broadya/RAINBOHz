@@ -21,7 +21,7 @@ class Where:
     file: Path | None = None
     path: str = ""
 
-    def at(self, step: str | int) -> "Where":
+    def at(self, step: str | int) -> Where:
         """Returns the location one step deeper.
 
         Args:
@@ -35,7 +35,7 @@ class Where:
             return Where(self.file, f"{self.path}[{step}]")
         return Where(self.file, f"{self.path}.{step}" if self.path else step)
 
-    def error(self, message: str) -> "HzlError":
+    def error(self, message: str) -> HzlError:
         """Builds an error at this location, for the caller to raise."""
         return HzlError(message, where=self)
 

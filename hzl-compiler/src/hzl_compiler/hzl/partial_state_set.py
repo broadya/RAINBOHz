@@ -76,10 +76,16 @@ def parse_partial_state(node: Node) -> PartialStateSpec:
     frequency = node.optional("frequency", "float")
     amplitude = node.optional("amplitude", "float")
     return PartialStateSpec(
-        identifier=parse_identifier(node.require("identifier", "scalar"), node.where.at("identifier")),
+        identifier=parse_identifier(
+            node.require("identifier", "scalar"), node.where.at("identifier")
+        ),
         labels=node.labels(),
-        frequency=None if frequency is None else check_frequency(frequency, node.where.at("frequency")),
-        amplitude=None if amplitude is None else check_amplitude(amplitude, node.where.at("amplitude")),
+        frequency=None
+        if frequency is None
+        else check_frequency(frequency, node.where.at("frequency")),
+        amplitude=None
+        if amplitude is None
+        else check_amplitude(amplitude, node.where.at("amplitude")),
         phase=optional_phase(node),
     )
 
@@ -98,7 +104,10 @@ def parse_partial_state_set(node: Node) -> PartialStateSet:
         state = parse_partial_state(item)
         if state.identifier in seen:
             raise item.error(
-                f"identifier {state.identifier!r} is already used by partial_states[{seen[state.identifier]}]",
+                (
+                    f"identifier {state.identifier!r} is already used by "
+                    f"partial_states[{seen[state.identifier]}]"
+                ),
                 "identifier",
             )
         seen[state.identifier] = index

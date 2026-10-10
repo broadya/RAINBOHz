@@ -33,7 +33,7 @@ class Ref:
     name: str
 
     @classmethod
-    def parse(cls, namespace: object, name: object, where: Where) -> "Ref":
+    def parse(cls, namespace: object, name: object, where: Where) -> Ref:
         """Validates the two parts of a reference as written in YAML.
 
         Args:

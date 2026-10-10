@@ -137,6 +137,7 @@ make test-rendering-engine   # and run its tests
 make hzl-compile             # compile an HzL score to Cypher (hzl-compiler/)
 make run-hzl-score           # ...and render it with the engine
 make test-hzl-compiler       # the compiler's tests
+make lint-hzl-compiler       # ruff: the compiler's lint and formatting check
 ```
 
 The C++ components are built with CMake behind those targets, and using CMake

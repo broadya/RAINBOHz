@@ -141,7 +141,11 @@ def parse_position(node: Node, *, complete: bool) -> SpatialPosition:
     values: dict[str, float | None] = {}
     for name, unit, low, high in SPATIAL_PROPERTIES:
         value = node.require(name, "float") if complete else node.optional(name, "float")
-        values[name] = None if value is None else check_in_range(name, unit, low, high, value, node.where.at(name))
+        values[name] = (
+            None
+            if value is None
+            else check_in_range(name, unit, low, high, value, node.where.at(name))
+        )
     position = SpatialPosition(**values)
     if position.is_empty():
         raise node.error("a position gives at least one of azimuth, elevation and distance")
@@ -158,7 +162,9 @@ def parse_trajectory_stage(node: Node) -> TrajectoryStage:
         HzlError: on a missing or bad duration, a non-finite offset, a bad
             curve, a missing or bad position, or an unknown key.
     """
-    curve_keys = [key for name, *_ in SPATIAL_PROPERTIES for key in (f"{name}_curve", f"{name}_curve_amount")]
+    curve_keys = [
+        key for name, *_ in SPATIAL_PROPERTIES for key in (f"{name}_curve", f"{name}_curve_amount")
+    ]
     node.only("duration", "offset_seconds", "curve", "curve_amount", *curve_keys, "position")
     duration = MusicalTime.parse(node.require("duration", "scalar"), node.where.at("duration"))
     offset = node.optional("offset_seconds", "float")
@@ -187,7 +193,8 @@ def parse_trajectory(node: Node) -> Trajectory:
     header = parse_header(node)
     initial = parse_position(node.mapping("initial_position"), complete=True)
     stages = tuple(
-        parse_trajectory_stage(item) for item in node.sequence("trajectory_stages", "trajectory_stage", required=False)
+        parse_trajectory_stage(item)
+        for item in node.sequence("trajectory_stages", "trajectory_stage", required=False)
     )
     return Trajectory(header, initial, stages, node.where)
 

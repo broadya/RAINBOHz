@@ -38,7 +38,9 @@ def parse_sound_entity(node: Node) -> SoundEntity:
     """
     node.only(*HEADER_KEYS, "sound_sources")
     header = parse_header(node)
-    return SoundEntity(header, parse_placements(node, "sound_sources", "sound_source", "offset"), node.where)
+    return SoundEntity(
+        header, parse_placements(node, "sound_sources", "sound_source", "offset"), node.where
+    )
 
 
 def load_sound_entity(tree: SourceTree, ref: Ref) -> SoundEntity:

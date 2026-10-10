@@ -42,7 +42,11 @@ def parse_virtual_partial_state_set(node: Node) -> VirtualPartialStateSet:
     sources = []
     for item in node.sequence("partial_state_sets", "partial_state_set"):
         item.only("namespace", "name")
-        sources.append(Ref.parse(item.optional("namespace", "scalar"), item.optional("name", "scalar"), item.where))
+        sources.append(
+            Ref.parse(
+                item.optional("namespace", "scalar"), item.optional("name", "scalar"), item.where
+            )
+        )
     return VirtualPartialStateSet(header, transformation, tuple(sources))
 
 

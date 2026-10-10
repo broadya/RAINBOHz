@@ -36,7 +36,7 @@ class MusicalTime:
     ticks: int = 0
 
     @classmethod
-    def parse(cls, value: object, where: Where) -> "MusicalTime":
+    def parse(cls, value: object, where: Where) -> MusicalTime:
         """Reads a `beats:ticks` value as the YAML loader delivers it.
 
         Accepts a string such as `"2:480"`, a string holding a bare integer

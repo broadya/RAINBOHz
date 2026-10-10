@@ -70,7 +70,9 @@ def parse_tempo_map(node: Node) -> TempoMap:
     header = parse_header(node)
     ticks_per_beat = node.require("ticks_per_beat", "int")
     if ticks_per_beat < 1:
-        raise node.error(f"ticks_per_beat must be 1 or more, got {ticks_per_beat}", "ticks_per_beat")
+        raise node.error(
+            f"ticks_per_beat must be 1 or more, got {ticks_per_beat}", "ticks_per_beat"
+        )
     items = node.sequence("points", "tempo_map_point")
     if not items:
         raise node.error("a tempo map needs at least one point", "points")
@@ -81,13 +83,19 @@ def parse_tempo_map(node: Node) -> TempoMap:
         ticks = position.to_ticks(ticks_per_beat, item.where.at("position"))
         tempo = item.require("tempo", "float")
         if not (math.isfinite(tempo) and MIN_TEMPO_BPM <= tempo <= MAX_TEMPO_BPM):
-            raise item.error(f"tempo is BPM in [{MIN_TEMPO_BPM:g}, {MAX_TEMPO_BPM:g}], got {tempo!r}", "tempo")
+            raise item.error(
+                f"tempo is BPM in [{MIN_TEMPO_BPM:g}, {MAX_TEMPO_BPM:g}], got {tempo!r}", "tempo"
+            )
         hold = item.require("hold", "bool")
         if index == 0 and ticks != 0:
-            raise item.error(f"the first point must be at position 0:0, time zero of the score; got {position}", "position")
+            raise item.error(
+                f"the first point must be at position 0:0, time zero of the score; got {position}",
+                "position",
+            )
         if points and ticks <= points[-1].position_ticks:
             raise item.error(
-                f"positions must strictly increase; {position} is not after {points[-1].position}", "position"
+                f"positions must strictly increase; {position} is not after {points[-1].position}",
+                "position",
             )
         points.append(TempoMapPoint(position, ticks, tempo, hold))
     if not points[-1].hold:

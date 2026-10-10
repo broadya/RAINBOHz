@@ -160,7 +160,8 @@ PC_DOC_SOURCES := $(filter-out $(PC_DIR)/test/%,$(PC_SOURCES)) \
         playback-client configure-playback-client test-playback-client \
         run-playback-client format-playback-client tidy-playback-client \
         clean-playback-client \
-        hzl-compiler hzl-compile test-hzl-compiler test-hzl-oracle run-hzl-score \
+        hzl-compiler hzl-compile test-hzl-compiler format-hzl-compiler lint-hzl-compiler \
+        test-hzl-oracle run-hzl-score \
         clean-hzl-compiler build test clean help
 
 ## all: documentation only (diagrams and API docs) -- compiling a component is an explicit request
@@ -426,6 +427,18 @@ hzl-compile: hzl-compiler
 test-hzl-compiler: hzl-compiler
 	cd $(HZL_DIR) && .venv/bin/python -m pytest
 
+# ruff is configured in hzl-compiler/pyproject.toml and installed into the
+# venv with the dev extras. format-* fixes what ruff can fix safely and then
+# formats; lint-* changes nothing and fails on any finding, as make test does.
+
+## format-hzl-compiler: apply ruff's safe fixes and formatting in place
+format-hzl-compiler: hzl-compiler
+	cd $(HZL_DIR) && .venv/bin/ruff check --fix --exit-zero . && .venv/bin/ruff format .
+
+## lint-hzl-compiler: check the compiler with ruff, lint and formatting (part of make test)
+lint-hzl-compiler: hzl-compiler
+	cd $(HZL_DIR) && .venv/bin/ruff check . && .venv/bin/ruff format --check .
+
 # The compiled twin must give the engine a database it transforms into the
 # same physical values as the hand-written score, which is what the oracle's
 # JSON mirror holds. The oracle runner takes --state and --score separately,
@@ -464,7 +477,7 @@ build: rendering-engine playback-client hzl-compiler
 # compiler, and a schema that does not load makes the rest moot.
 
 ## test: run every component's tests
-test: validate-schemas test-hzl-compiler test-rendering-engine test-playback-client test-hzl-oracle
+test: validate-schemas lint-hzl-compiler test-hzl-compiler test-rendering-engine test-playback-client test-hzl-oracle
 
 ## clean: remove all generated artefacts
 clean: clean-docs clean-rendering-engine clean-playback-client clean-hzl-compiler

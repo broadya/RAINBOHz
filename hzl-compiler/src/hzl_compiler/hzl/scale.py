@@ -83,8 +83,12 @@ def parse_scale(node: Node) -> Scale:
         notes.append(
             Note(
                 note=name,
-                frequency=None if frequency is None else check_frequency(frequency, where.at("frequency")),
-                amplitude=None if amplitude is None else check_amplitude(amplitude, where.at("amplitude")),
+                frequency=None
+                if frequency is None
+                else check_frequency(frequency, where.at("frequency")),
+                amplitude=None
+                if amplitude is None
+                else check_amplitude(amplitude, where.at("amplitude")),
                 phase=optional_phase(note_node),
             )
         )

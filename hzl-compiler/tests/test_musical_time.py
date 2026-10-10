@@ -10,7 +10,13 @@ W = Where(None, "x")
 
 @pytest.mark.parametrize(
     "value, expected",
-    [("2:480", MusicalTime(2, 480)), ("4", MusicalTime(4, 0)), (4, MusicalTime(4, 0)), (0, MusicalTime(0, 0)), (" 1 : 2 ", MusicalTime(1, 2))],
+    [
+        ("2:480", MusicalTime(2, 480)),
+        ("4", MusicalTime(4, 0)),
+        (4, MusicalTime(4, 0)),
+        (0, MusicalTime(0, 0)),
+        (" 1 : 2 ", MusicalTime(1, 2)),
+    ],
 )
 def test_parse_accepts_beats_ticks_and_whole_beats(value, expected):
     assert MusicalTime.parse(value, W) == expected

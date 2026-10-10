@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
-
 from conftest import BASE, hzl
+
 from hzl_compiler.errors import HzlError
 from hzl_compiler.hzl.partial_state_set import load_partial_state_set
 from hzl_compiler.ref import Ref
@@ -35,7 +35,13 @@ def test_version_and_type_are_checked(tree):
     t = tree({"ns/x": hzl("partial_state_set", "ns/x", EMPTY_SET).replace('"0.1.0"', '"9.0"')})
     with pytest.raises(HzlError, match="hzl_version '9.0' is not '0.1.0'"):
         t.load(Ref("ns", "x"), "partial_state_set")
-    t = tree({"ns/z": hzl("partial_state_set", "ns/z", EMPTY_SET).replace("hzl_type: partial_state_set", "hzl_type: scale")})
+    t = tree(
+        {
+            "ns/z": hzl("partial_state_set", "ns/z", EMPTY_SET).replace(
+                "hzl_type: partial_state_set", "hzl_type: scale"
+            )
+        }
+    )
     with pytest.raises(HzlError, match="hzl_type 'scale' does not match the top-level key"):
         t.load(Ref("ns", "z"), "partial_state_set")
 
@@ -44,7 +50,9 @@ def test_missing_file_and_wrong_type_are_reported(tree):
     t = tree(BASE)
     with pytest.raises(HzlError, match="no file for reference ns/missing"):
         t.load(Ref("ns", "missing"), "scale")
-    with pytest.raises(HzlError, match="tempo_maps/main is a tempo_map, but a scale is needed here"):
+    with pytest.raises(
+        HzlError, match="tempo_maps/main is a tempo_map, but a scale is needed here"
+    ):
         t.load(Ref("tempo_maps", "main"), "scale")
 
 

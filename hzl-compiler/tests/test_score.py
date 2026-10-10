@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
-
 from conftest import BASE, hzl
+
 from hzl_compiler.errors import HzlError
 from hzl_compiler.lower.score import EngineOptions, lower_score
 from hzl_compiler.ref import Ref
@@ -24,7 +24,9 @@ ENV = hzl(
 
 
 def compile_(tree, files=None, options=EngineOptions()):
-    return lower_score(tree({**BASE, "envelopes/env": ENV, **(files or {})}), Ref("scores", "score"), options)
+    return lower_score(
+        tree({**BASE, "envelopes/env": ENV, **(files or {})}), Ref("scores", "score"), options
+    )
 
 
 def test_placements_add_up_in_ticks_and_rows_are_linked(tree):
@@ -34,7 +36,11 @@ def test_placements_add_up_in_ticks_and_rows_are_linked(tree):
     assert model.rows["TempoMap"][0].name == "tempo_maps/main"
     assert [p.name for p in model.rows["Partial"]] == ["state_sets#a", "state_sets#b"]
     # entity at 1:0, source +0:480, envelope +1:0 -> 2400 ticks; a stage of 2:0 -> 4320
-    point_at = [e for e in model.edges if e.rel == "POINT_AT" and e.src.table == "PartialSetMusicalTimelinePoint"]
+    point_at = [
+        e
+        for e in model.edges
+        if e.rel == "POINT_AT" and e.src.table == "PartialSetMusicalTimelinePoint"
+    ]
     assert [e.properties["sync_point"] for e in point_at] == [2400, 4320]
     assert all(e.properties["offset_seconds"] == 0.0 for e in point_at)
     assert model.count("PartialStateSet") == 2 and model.count("PartialState") == 4
@@ -42,8 +48,13 @@ def test_placements_add_up_in_ticks_and_rows_are_linked(tree):
 
 
 def test_phase_kinds_become_phase_and_phase_free_run(tree):
-    start = BASE["state_sets/start"].replace("amplitude: -6.0, labels: [lead", "amplitude: -6.0, phase: -90, labels: [lead")
-    end = BASE["state_sets/end"].replace("{identifier: b, frequency: 330.0, amplitude: -144.0}", "{identifier: b, frequency: 330.0, amplitude: -144.0, phase: free}")
+    start = BASE["state_sets/start"].replace(
+        "amplitude: -6.0, labels: [lead", "amplitude: -6.0, phase: -90, labels: [lead"
+    )
+    end = BASE["state_sets/end"].replace(
+        "{identifier: b, frequency: 330.0, amplitude: -144.0}",
+        "{identifier: b, frequency: 330.0, amplitude: -144.0, phase: free}",
+    )
     model = compile_(tree, {"state_sets/start": start, "state_sets/end": end})
     assert [s.properties() for s in model.rows["PartialState"]] == [
         {"frequency": 440.0, "amplitude": -6.0, "phase": -90.0, "phase_free_run": False},
@@ -56,13 +67,28 @@ def test_phase_kinds_become_phase_and_phase_free_run(tree):
 def test_labels_are_shared_rows_linked_from_partials_and_score(tree):
     model = compile_(tree)
     assert sorted(label.name for label in model.rows["Label"]) == ["demo", "lead", "pad", "x"]
-    has_label = {(e.src.table, e.src.index, model.rows["Label"][e.dst.index].name) for e in model.edges if e.rel == "HAS_LABEL"}
-    assert {("Score", 0, "demo"), ("Partial", 0, "lead"), ("Partial", 0, "x"), ("Partial", 1, "pad")} == has_label
+    has_label = {
+        (e.src.table, e.src.index, model.rows["Label"][e.dst.index].name)
+        for e in model.edges
+        if e.rel == "HAS_LABEL"
+    }
+    assert {
+        ("Score", 0, "demo"),
+        ("Partial", 0, "lead"),
+        ("Partial", 0, "x"),
+        ("Partial", 1, "pad"),
+    } == has_label
 
 
 def test_an_envelope_is_placed_once(tree):
-    twice = BASE["sources/source"] + '    - envelope: {namespace: envelopes, name: env}\n      offset: "4:0"\n'
-    with pytest.raises(HzlError, match=r"envelopes\[1\]: envelope envelopes/env is already placed at .*envelopes\[0\]"):
+    twice = (
+        BASE["sources/source"]
+        + '    - envelope: {namespace: envelopes, name: env}\n      offset: "4:0"\n'
+    )
+    with pytest.raises(
+        HzlError,
+        match=r"envelopes\[1\]: envelope envelopes/env is already placed at .*envelopes\[0\]",
+    ):
         compile_(tree, {"sources/source": twice})
 
 
@@ -74,7 +100,13 @@ def test_tempo_map_rules_are_reported_in_hzl_terms(tree):
         compile_(tree, {"tempo_maps/main": main.replace('position: "0:0"', 'position: "1:0"')})
     with pytest.raises(HzlError, match=r"tempo is BPM in \[1, 1000\]"):
         compile_(tree, {"tempo_maps/main": main.replace("tempo: 120.0", "tempo: 2000.0")})
-    two = main.replace('{position: "0:0", tempo: 120.0, hold: true}', '{position: "0:0", tempo: 120.0, hold: false}\n    - tempo_map_point: {position: "0:0", tempo: 60.0, hold: true}')
+    two = main.replace(
+        '{position: "0:0", tempo: 120.0, hold: true}',
+        (
+            '{position: "0:0", tempo: 120.0, hold: false}\n'
+            '    - tempo_map_point: {position: "0:0", tempo: 60.0, hold: true}'
+        ),
+    )
     with pytest.raises(HzlError, match="positions must strictly increase"):
         compile_(tree, {"tempo_maps/main": two})
 
@@ -86,7 +118,9 @@ def test_ticks_beyond_the_beat_are_refused_where_written(tree):
 
 
 def test_a_position_on_a_source_is_refused_in_favour_of_a_trajectory(tree):
-    with pytest.raises(HzlError, match="sound_source.position: a source's position is its trajectory"):
+    with pytest.raises(
+        HzlError, match="sound_source.position: a source's position is its trajectory"
+    ):
         compile_(tree, {"sources/source": BASE["sources/source"] + "  position: {azimuth: 0.0}\n"})
 
 

@@ -102,7 +102,10 @@ def emit_cypher(model: Model, comment_lines: Iterable[str] = ()) -> str:
 
     by_rel: dict[str, list[str]] = {}
     for edge in model.edges:
-        pattern = f"({edge.src.variable})-[:{edge.rel}{properties(edge.properties)}]->({edge.dst.variable})"
+        pattern = (
+            f"({edge.src.variable})-[:{edge.rel}{properties(edge.properties)}]"
+            f"->({edge.dst.variable})"
+        )
         by_rel.setdefault(edge.rel, []).append(pattern)
     for rel, patterns in by_rel.items():
         lines.append(f"// {rel}: {len(patterns)}")

@@ -139,7 +139,9 @@ def parse_curve(node: Node, type_key: str, amount_key: str, default: CurveSpec) 
     name = node.optional(type_key, "str")
     if name is not None:
         if name not in CURVE_NAMES:
-            raise node.error(f"unknown curve {name!r}; the curves are: {', '.join(CURVE_NAMES)}", type_key)
+            raise node.error(
+                f"unknown curve {name!r}; the curves are: {', '.join(CURVE_NAMES)}", type_key
+            )
         kind = CURVE_NAMES[name]
     amount = node.optional(amount_key, "float", default.amount)
     if not 0.0 <= amount <= 1.0:
@@ -161,7 +163,9 @@ def parse_envelope_transform(node: Node) -> EnvelopeTransform:
         try:
             pattern = re.compile(text)
         except re.error as error:
-            raise node.error(f"filter is not a valid regular expression: {error}", "filter") from error
+            raise node.error(
+                f"filter is not a valid regular expression: {error}", "filter"
+            ) from error
     return EnvelopeTransform(
         filter=pattern,
         transformation=node.ref("transformation"),
@@ -218,9 +222,14 @@ def parse_envelope(node: Node) -> Envelope:
     """
     node.only(*HEADER_KEYS, "initial_partial_state_set", "envelope_stages")
     header = parse_header(node)
-    stages = tuple(parse_envelope_stage(item) for item in node.sequence("envelope_stages", "envelope_stage"))
+    stages = tuple(
+        parse_envelope_stage(item) for item in node.sequence("envelope_stages", "envelope_stage")
+    )
     if not stages:
-        raise node.error("an envelope needs at least one stage: a partial needs an end as well as a start", "envelope_stages")
+        raise node.error(
+            "an envelope needs at least one stage: a partial needs an end as well as a start",
+            "envelope_stages",
+        )
     return Envelope(header, node.ref("initial_partial_state_set"), stages, node.where)
 
 

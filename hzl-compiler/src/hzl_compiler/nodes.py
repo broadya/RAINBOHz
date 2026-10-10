@@ -114,11 +114,11 @@ class Node:
             return default
         return self._checked(key, value, kind)
 
-    def mapping(self, key: str) -> "Node":
+    def mapping(self, key: str) -> Node:
         """Returns the required mapping at `key` as a Node located there."""
         return Node(self.require(key, "mapping"), self.where.at(key))
 
-    def sequence(self, key: str, item_key: str, *, required: bool = True) -> list["Node"]:
+    def sequence(self, key: str, item_key: str, *, required: bool = True) -> list[Node]:
         """Returns the list at `key`, whose items are each `{item_key: {...}}`.
 
         This is the PoC's list shape, kept as it was: every item of
@@ -139,7 +139,9 @@ class Node:
         for index, item in enumerate(items):
             item_where = self.where.at(key).at(index)
             if not isinstance(item, Mapping) or list(item) != [item_key]:
-                raise item_where.error(f"each item here is a mapping with the single key {item_key!r}")
+                raise item_where.error(
+                    f"each item here is a mapping with the single key {item_key!r}"
+                )
             body = item[item_key]
             if not isinstance(body, Mapping):
                 raise item_where.at(item_key).error("expected a mapping")
@@ -150,7 +152,9 @@ class Node:
         """Returns the required `{namespace, name}` reference at `key`."""
         node = self.mapping(key)
         node.only("namespace", "name")
-        return Ref.parse(node.optional("namespace", "scalar"), node.optional("name", "scalar"), node.where)
+        return Ref.parse(
+            node.optional("namespace", "scalar"), node.optional("name", "scalar"), node.where
+        )
 
     def optional_ref(self, key: str) -> Ref | None:
         """Returns the reference at `key`, or None when absent."""

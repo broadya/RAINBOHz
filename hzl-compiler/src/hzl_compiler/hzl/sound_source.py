@@ -47,7 +47,13 @@ def parse_sound_source(node: Node) -> SoundSource:
             trajectory), the trajectory reference or the envelope list is
             malformed, or a key is unknown.
     """
-    node.reject("position", "a source's position is its trajectory: write it in a trajectory file and name it with 'trajectory'")
+    node.reject(
+        "position",
+        (
+            "a source's position is its trajectory: "
+            "write it in a trajectory file and name it with 'trajectory'"
+        ),
+    )
     node.only(*HEADER_KEYS, "trajectory", "envelopes")
     header = parse_header(node)
     return SoundSource(

@@ -33,7 +33,7 @@ from ..canonical.model import (
 from ..errors import Where
 from ..hzl.common import FREE_RUN, Phase
 from ..hzl.envelope import load_envelope
-from ..hzl.score import Score, load_score
+from ..hzl.score import load_score
 from ..hzl.sound_entity import load_sound_entity
 from ..hzl.sound_source import load_sound_source
 from ..hzl.tempo_map import load_tempo_map
@@ -74,7 +74,9 @@ class EngineOptions:
         if self.sample_rate < 1:
             raise ValueError(f"sample rate must be positive, got {self.sample_rate}")
         if self.channel_mode not in CHANNEL_MODES:
-            raise ValueError(f"channel mode must be one of {sorted(CHANNEL_MODES)}, got {self.channel_mode}")
+            raise ValueError(
+                f"channel mode must be one of {sorted(CHANNEL_MODES)}, got {self.channel_mode}"
+            )
 
 
 def lower_score(tree: SourceTree, ref: Ref, options: EngineOptions = EngineOptions()) -> Model:
@@ -119,7 +121,9 @@ def lower_score(tree: SourceTree, ref: Ref, options: EngineOptions = EngineOptio
         model.link("HAS_SOUNDENTITY", score_key, entity_key)
         for source_placement in entity.sound_sources:
             source = load_sound_source(tree, source_placement.ref)
-            source_start = entity_start + source_placement.offset.to_ticks(tpb, source_placement.where.at("offset"))
+            source_start = entity_start + source_placement.offset.to_ticks(
+                tpb, source_placement.where.at("offset")
+            )
             source_key = model.add(SoundSourceRow(source.header.qualified_name))
             model.link("HAS_SOUNDSOURCE", entity_key, source_key)
             if source.trajectory is None:
@@ -130,18 +134,27 @@ def lower_score(tree: SourceTree, ref: Ref, options: EngineOptions = EngineOptio
             for envelope_placement in source.envelopes:
                 if envelope_placement.ref in placed:
                     raise envelope_placement.where.error(
-                        f"envelope {envelope_placement.ref} is already placed at {placed[envelope_placement.ref]}; "
+                        f"envelope {envelope_placement.ref} is already placed at "
+                        f"{placed[envelope_placement.ref]}; "
                         f"an envelope appears once in a score in this version"
                     )
                 placed[envelope_placement.ref] = envelope_placement.where
                 envelope = load_envelope(tree, envelope_placement.ref)
-                start = source_start + envelope_placement.offset.to_ticks(tpb, envelope_placement.where.at("offset"))
+                start = source_start + envelope_placement.offset.to_ticks(
+                    tpb, envelope_placement.where.at("offset")
+                )
                 timeline = lower_envelope(envelope, tree, resolver, tpb)
                 _add_timeline(model, source_key, map_key, timeline, start)
     return model
 
 
-def _add_timeline(model: Model, source_key: NodeKey, map_key: NodeKey, timeline: PartialSetTimeline, start_ticks: int) -> None:
+def _add_timeline(
+    model: Model,
+    source_key: NodeKey,
+    map_key: NodeKey,
+    timeline: PartialSetTimeline,
+    start_ticks: int,
+) -> None:
     """Adds a partial set, its partials and its musical timeline to `model`.
 
     Args:
@@ -188,12 +201,20 @@ def _add_timeline(model: Model, source_key: NodeKey, map_key: NodeKey, timeline:
         model.link("POINT_STATE", point_key, set_key_at_point)
         for identifier, values in point.states.items():
             phase, free_run = _phase_columns(values.phase)
-            state_key = model.add(PartialStateRow(values.frequency, values.amplitude, phase, free_run))
+            state_key = model.add(
+                PartialStateRow(values.frequency, values.amplitude, phase, free_run)
+            )
             model.link("MEMBER_OF_SET_MANY_ONE", state_key, set_key_at_point)
             model.link("STATE_OF", state_key, partial_keys[identifier])
 
 
-def _add_position(model: Model, source_key: NodeKey, map_key: NodeKey, points: tuple[PositionPoint, ...], start_ticks: int) -> None:
+def _add_position(
+    model: Model,
+    source_key: NodeKey,
+    map_key: NodeKey,
+    points: tuple[PositionPoint, ...],
+    start_ticks: int,
+) -> None:
     """Adds a source's spatial position timeline to `model`.
 
     Args:
@@ -228,7 +249,9 @@ def _add_position(model: Model, source_key: NodeKey, map_key: NodeKey, points: t
             offset_seconds=0.0 if point.offset_seconds is None else point.offset_seconds,
         )
         state = point.position
-        state_key = model.add(SpatialPositionStateRow(state.azimuth, state.elevation, state.distance))
+        state_key = model.add(
+            SpatialPositionStateRow(state.azimuth, state.elevation, state.distance)
+        )
         model.link("POINT_STATE", point_key, state_key)
 
 

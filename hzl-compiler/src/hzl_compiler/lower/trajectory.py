@@ -60,12 +60,16 @@ def lower_trajectory(trajectory: Trajectory, ticks_per_beat: int) -> tuple[Posit
     Raises:
         HzlError: if a duration is malformed for the map.
     """
-    curves = [(s.azimuth_curve, s.elevation_curve, s.distance_curve) for s in trajectory.stages] + [(LINEAR,) * 3]
+    curves = [(s.azimuth_curve, s.elevation_curve, s.distance_curve) for s in trajectory.stages] + [
+        (LINEAR,) * 3
+    ]
     points = [PositionPoint(0, None, *curves[0], trajectory.initial_position)]
     elapsed = 0
     for index, stage in enumerate(trajectory.stages):
         elapsed += stage.duration.to_ticks(ticks_per_beat, stage.where.at("duration"))
-        points.append(PositionPoint(elapsed, stage.offset_seconds, *curves[index + 1], stage.position))
+        points.append(
+            PositionPoint(elapsed, stage.offset_seconds, *curves[index + 1], stage.position)
+        )
     return tuple(points)
 
 
