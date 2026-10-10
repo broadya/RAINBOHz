@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
-from conftest import BASE, hzl
+from conftest import BASE, TreeBuilder, hzl
 
 from hzl_compiler.errors import HzlError
 from hzl_compiler.hzl.common import FREE_RUN
 from hzl_compiler.hzl.envelope import Curve, load_envelope
 from hzl_compiler.lower.state_sets import StateSetResolver
-from hzl_compiler.lower.timeline import lower_envelope
+from hzl_compiler.lower.timeline import PartialSetTimeline, lower_envelope
 from hzl_compiler.ref import Ref
 
 
@@ -60,12 +60,12 @@ FILTERED = """\
 """
 
 
-def lower(tree, files):
+def lower(tree: TreeBuilder, files: dict[str, str]) -> PartialSetTimeline:
     t = tree({**BASE, **files})
     return lower_envelope(load_envelope(t, Ref("envelopes", "env")), t, StateSetResolver(t), 960)
 
 
-def test_initial_set_gives_partials_and_first_point(tree):
+def test_initial_set_gives_partials_and_first_point(tree: TreeBuilder) -> None:
     tl = lower(tree, {"envelopes/env": envelope(UPDATE_END)})
     assert tl.name == "envelopes/env" and tl.labels == ("env",)
     assert [(p.identifier, p.name, p.labels) for p in tl.partials] == [
@@ -78,7 +78,7 @@ def test_initial_set_gives_partials_and_first_point(tree):
     assert tl.points[1].states["b"].amplitude == -144.0
 
 
-def test_a_stage_curve_sits_on_the_point_the_stage_starts_from(tree):
+def test_a_stage_curve_sits_on_the_point_the_stage_starts_from(tree: TreeBuilder) -> None:
     tl = lower(tree, {"envelopes/env": envelope(UPDATE_END)})
     assert (
         tl.points[0].frequency_curve.type is Curve.S_CURVE
@@ -94,7 +94,9 @@ def test_a_stage_curve_sits_on_the_point_the_stage_starts_from(tree):
     )
 
 
-def test_update_matches_by_identifier_within_the_filter_and_keeps_only_present_values(tree):
+def test_update_matches_by_identifier_within_the_filter_and_keeps_only_present_values(
+    tree: TreeBuilder,
+) -> None:
     tl = lower(
         tree, {"state_sets/middle": MIDDLE, "envelopes/env": envelope(FILTERED + UPDATE_END)}
     )
@@ -106,7 +108,7 @@ def test_update_matches_by_identifier_within_the_filter_and_keeps_only_present_v
     assert tl.points[2].offset_ticks == 960 + 1920
 
 
-def test_filter_selects_by_any_label(tree):
+def test_filter_selects_by_any_label(tree: TreeBuilder) -> None:
     only_a = FILTERED.replace('filter: "^lea"', 'filter: "nothing"').replace(
         'filter: "pad"', 'filter: "^x$"'
     )
@@ -114,7 +116,7 @@ def test_filter_selects_by_any_label(tree):
     assert list(tl.points[1].states) == ["a"]
 
 
-def test_later_transform_overrides_earlier_property_by_property(tree):
+def test_later_transform_overrides_earlier_property_by_property(tree: TreeBuilder) -> None:
     louder = MIDDLE.replace("state_sets/middle", "state_sets/louder").replace(
         "name: middle", "name: louder"
     )
@@ -139,7 +141,9 @@ def test_later_transform_overrides_earlier_property_by_property(tree):
     assert tl.points[1].states["b"].frequency == 330.0
 
 
-def test_phase_is_carried_and_a_later_transform_overrides_it_only_where_given(tree):
+def test_phase_is_carried_and_a_later_transform_overrides_it_only_where_given(
+    tree: TreeBuilder,
+) -> None:
     start = BASE["state_sets/start"].replace(
         "amplitude: -6.0, labels: [lead", "amplitude: -6.0, phase: 45, labels: [lead"
     )
@@ -170,7 +174,7 @@ def test_phase_is_carried_and_a_later_transform_overrides_it_only_where_given(tr
     assert [tl.points[2].states[i].phase for i in "ab"] == [None, None]
 
 
-def test_every_partial_needs_both_values_at_the_last_point(tree):
+def test_every_partial_needs_both_values_at_the_last_point(tree: TreeBuilder) -> None:
     stage = FILTERED.replace('filter: "^lea"', 'filter: "."').replace(
         'filter: "pad"', 'filter: "."'
     )
@@ -184,25 +188,25 @@ def test_every_partial_needs_both_values_at_the_last_point(tree):
         lower(tree, {"state_sets/middle": MIDDLE, "envelopes/env": envelope(stage)})
 
 
-def test_every_partial_needs_both_values_at_the_start(tree):
+def test_every_partial_needs_both_values_at_the_start(tree: TreeBuilder) -> None:
     start = BASE["state_sets/start"].replace("frequency: 660.0, ", "")
     with pytest.raises(HzlError, match="partial 'b' of state_sets/start has no frequency"):
         lower(tree, {"state_sets/start": start, "envelopes/env": envelope(UPDATE_END)})
 
 
-def test_only_update_is_allowed_in_a_stage(tree):
+def test_only_update_is_allowed_in_a_stage(tree: TreeBuilder) -> None:
     with pytest.raises(HzlError, match="only 'Update' is in this version"):
         lower(
             tree, {"envelopes/env": envelope(UPDATE_END.replace("name: update", "name: product"))}
         )
 
 
-def test_an_envelope_needs_a_stage(tree):
+def test_an_envelope_needs_a_stage(tree: TreeBuilder) -> None:
     with pytest.raises(HzlError, match="at least one stage"):
         lower(tree, {"envelopes/env": envelope("  []\n")})
 
 
-def test_bad_curve_and_filter_are_reported(tree):
+def test_bad_curve_and_filter_are_reported(tree: TreeBuilder) -> None:
     with pytest.raises(HzlError, match="unknown curve 'wobbly'"):
         lower(tree, {"envelopes/env": envelope(UPDATE_END.replace("s_curve", "wobbly"))})
     bad_filter = UPDATE_END.replace(
@@ -212,7 +216,7 @@ def test_bad_curve_and_filter_are_reported(tree):
         lower(tree, {"envelopes/env": envelope(bad_filter)})
 
 
-def test_a_duration_is_exact_beats_and_ticks(tree):
+def test_a_duration_is_exact_beats_and_ticks(tree: TreeBuilder) -> None:
     with pytest.raises(
         HzlError, match=r"envelope_stages\[0\].envelope_stage.duration: expected musical time"
     ):

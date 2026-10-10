@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
-from conftest import BASE, hzl
+from conftest import BASE, TreeBuilder, hzl
 
 from hzl_compiler.errors import HzlError, Where
-from hzl_compiler.hzl.common import FREE_RUN
+from hzl_compiler.hzl.common import FREE_RUN, Phase
+from hzl_compiler.hzl.partial_state_set import PartialStateSet
 from hzl_compiler.lower.state_sets import StateSetResolver, combine_phase, evaluate_expression
 from hzl_compiler.ref import Ref
 
@@ -49,11 +50,11 @@ PRODUCT = hzl(
 )
 
 
-def resolve(tree, files, ref):
+def resolve(tree: TreeBuilder, files: dict[str, str], ref: str) -> PartialStateSet:
     return StateSetResolver(tree({**BASE, **files})).resolve(Ref(*ref.split("/")), W)
 
 
-def test_scale_lowers_to_one_partial_per_note(tree):
+def test_scale_lowers_to_one_partial_per_note(tree: TreeBuilder) -> None:
     s = resolve(tree, {"scales/c": SCALE}, "scales/c")
     assert [(p.identifier, p.labels, p.frequency, p.amplitude) for p in s.states] == [
         ("0", ("C4",), 261.63, None),
@@ -62,7 +63,7 @@ def test_scale_lowers_to_one_partial_per_note(tree):
     assert s.header.namespace == "scales"
 
 
-def test_harmonic_series_evaluates_expressions(tree):
+def test_harmonic_series_evaluates_expressions(tree: TreeBuilder) -> None:
     s = resolve(tree, {"series/h": HARMONICS}, "series/h")
     assert [p.identifier for p in s.states] == ["1", "2", "3"]
     assert [p.labels for p in s.states] == [("harmonic 1",), ("harmonic 2",), ("harmonic 3",)]
@@ -71,7 +72,7 @@ def test_harmonic_series_evaluates_expressions(tree):
     assert s.states[1].amplitude == pytest.approx(-20 * 0.3010299956639812)
 
 
-def test_expression_errors_are_reported():
+def test_expression_errors_are_reported() -> None:
     with pytest.raises(HzlError, match="does not parse"):
         evaluate_expression("1 +", 1, W)
     with pytest.raises(HzlError, match="unknown names: n"):
@@ -80,18 +81,18 @@ def test_expression_errors_are_reported():
         evaluate_expression("sqrt(-harmonic_index)", 1, W)
 
 
-def test_harmonic_series_out_of_range_amplitude_is_an_error(tree):
+def test_harmonic_series_out_of_range_amplitude_is_an_error(tree: TreeBuilder) -> None:
     loud = HARMONICS.replace('"-20*log10(harmonic_index)"', '"6*harmonic_index"')
     with pytest.raises(HzlError, match=r"amplitude_expression: amplitude is in dB"):
         resolve(tree, {"series/h": loud}, "series/h")
 
 
-def test_constant_and_expression_together_are_refused(tree):
+def test_constant_and_expression_together_are_refused(tree: TreeBuilder) -> None:
     with pytest.raises(HzlError, match="either 'frequency' or 'frequency_expression'"):
         resolve(tree, {"series/h": HARMONICS + "  frequency: 100.0\n"}, "series/h")
 
 
-def test_flattened_cartesian_product(tree):
+def test_flattened_cartesian_product(tree: TreeBuilder) -> None:
     s = resolve(tree, {"scales/c": SCALE, "series/h": HARMONICS, "virtual/v": PRODUCT}, "virtual/v")
     assert len(s.states) == 6
     first, *_, last = s.states
@@ -105,13 +106,13 @@ def test_flattened_cartesian_product(tree):
     assert s.header.namespace == "virtual"
 
 
-def test_product_amplitude_is_floored_at_silence(tree):
+def test_product_amplitude_is_floored_at_silence(tree: TreeBuilder) -> None:
     quiet = SCALE.replace("amplitude: -3.0", "amplitude: -140.0")
     s = resolve(tree, {"scales/c": quiet, "series/h": HARMONICS, "virtual/v": PRODUCT}, "virtual/v")
     assert s.states[-1].amplitude == -144.0
 
 
-def test_product_needs_two_sources_and_the_product_transformation(tree):
+def test_product_needs_two_sources_and_the_product_transformation(tree: TreeBuilder) -> None:
     three = PRODUCT + "    - partial_state_set: {namespace: scales, name: c}\n"
     with pytest.raises(HzlError, match="exactly two state sets, got 3"):
         resolve(tree, {"scales/c": SCALE, "series/h": HARMONICS, "virtual/v": three}, "virtual/v")
@@ -120,18 +121,18 @@ def test_product_needs_two_sources_and_the_product_transformation(tree):
         resolve(tree, {"scales/c": SCALE, "series/h": HARMONICS, "virtual/v": wrong}, "virtual/v")
 
 
-def test_reference_cycles_are_refused(tree):
+def test_reference_cycles_are_refused(tree: TreeBuilder) -> None:
     loop = PRODUCT.replace("{namespace: series, name: h}", "{namespace: virtual, name: v}")
     with pytest.raises(HzlError, match="cycle: virtual/v -> virtual/v"):
         resolve(tree, {"scales/c": SCALE, "virtual/v": loop}, "virtual/v")
 
 
-def test_a_non_state_set_reference_is_refused(tree):
+def test_a_non_state_set_reference_is_refused(tree: TreeBuilder) -> None:
     with pytest.raises(HzlError, match="tempo_maps/main is a tempo_map; a state set is needed"):
         resolve(tree, {}, "tempo_maps/main")
 
 
-def test_spatial_properties_on_a_partial_are_refused(tree):
+def test_spatial_properties_on_a_partial_are_refused(tree: TreeBuilder) -> None:
     p = hzl(
         "partial_state_set",
         "state_sets/p",
@@ -141,7 +142,7 @@ def test_spatial_properties_on_a_partial_are_refused(tree):
         resolve(tree, {"state_sets/p": p}, "state_sets/p")
 
 
-def test_phase_is_a_target_in_degrees_free_or_the_default(tree):
+def test_phase_is_a_target_in_degrees_free_or_the_default(tree: TreeBuilder) -> None:
     p = hzl(
         "partial_state_set",
         "state_sets/p",
@@ -171,7 +172,7 @@ def test_phase_is_a_target_in_degrees_free_or_the_default(tree):
         ("true", "expected scalar for 'phase', got boolean True"),
     ],
 )
-def test_bad_phases_are_refused_where_written(tree, value, message):
+def test_bad_phases_are_refused_where_written(tree: TreeBuilder, value: str, message: str) -> None:
     p = hzl(
         "partial_state_set",
         "state_sets/p",
@@ -181,7 +182,7 @@ def test_bad_phases_are_refused_where_written(tree, value, message):
         resolve(tree, {"state_sets/p": p}, "state_sets/p")
 
 
-def test_scale_notes_carry_phase(tree):
+def test_scale_notes_carry_phase(tree: TreeBuilder) -> None:
     scale = SCALE.replace("frequency: 261.63", "frequency: 261.63\n      phase: 45").replace(
         "amplitude: -3.0", "amplitude: -3.0\n      phase: free"
     )
@@ -191,7 +192,7 @@ def test_scale_notes_carry_phase(tree):
     ]
 
 
-def test_harmonic_series_phase_is_a_constant_or_an_expression(tree):
+def test_harmonic_series_phase_is_a_constant_or_an_expression(tree: TreeBuilder) -> None:
     constant = HARMONICS.replace('amplitude_expression: "-20*log10(harmonic_index)"', "phase: free")
     assert {p.phase for p in resolve(tree, {"series/h": constant}, "series/h").states} == {FREE_RUN}
     expression = HARMONICS.replace(
@@ -205,7 +206,7 @@ def test_harmonic_series_phase_is_a_constant_or_an_expression(tree):
     ]
 
 
-def test_harmonic_series_phase_expression_is_range_checked(tree):
+def test_harmonic_series_phase_expression_is_range_checked(tree: TreeBuilder) -> None:
     series = HARMONICS.replace(
         'amplitude_expression: "-20*log10(harmonic_index)"',
         'phase_expression: "100*harmonic_index"',
@@ -214,7 +215,7 @@ def test_harmonic_series_phase_expression_is_range_checked(tree):
         resolve(tree, {"series/h": series}, "series/h")
 
 
-def test_harmonic_series_phase_is_given_one_way(tree):
+def test_harmonic_series_phase_is_given_one_way(tree: TreeBuilder) -> None:
     both = HARMONICS.replace(
         'amplitude_expression: "-20*log10(harmonic_index)"', 'phase: 0\n  phase_expression: "0"'
     )
@@ -234,12 +235,12 @@ def test_harmonic_series_phase_is_given_one_way(tree):
         (None, None, None),
     ],
 )
-def test_product_combines_phases_by_the_authors_rule(a, b, expected):
+def test_product_combines_phases_by_the_authors_rule(a: Phase, b: Phase, expected: Phase) -> None:
     assert combine_phase(a, b) == expected
     assert combine_phase(b, a) == expected
 
 
-def test_product_carries_phase(tree):
+def test_product_carries_phase(tree: TreeBuilder) -> None:
     scale = SCALE.replace("frequency: 261.63", "frequency: 261.63\n      phase: 30").replace(
         "amplitude: -3.0", "amplitude: -3.0\n      phase: free"
     )
@@ -251,7 +252,7 @@ def test_product_carries_phase(tree):
     assert [p.phase for p in v.states] == [15.0, 0.0, -15.0, 0.0, -30.0, -60.0]
 
 
-def test_duplicate_identifiers_are_refused(tree):
+def test_duplicate_identifiers_are_refused(tree: TreeBuilder) -> None:
     d = hzl(
         "partial_state_set",
         "state_sets/d",
@@ -264,7 +265,7 @@ def test_duplicate_identifiers_are_refused(tree):
         resolve(tree, {"state_sets/d": d}, "state_sets/d")
 
 
-def test_amplitude_range_is_checked_where_written(tree):
+def test_amplitude_range_is_checked_where_written(tree: TreeBuilder) -> None:
     loud = hzl(
         "partial_state_set",
         "state_sets/l",

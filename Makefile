@@ -427,17 +427,18 @@ hzl-compile: hzl-compiler
 test-hzl-compiler: hzl-compiler
 	cd $(HZL_DIR) && .venv/bin/python -m pytest
 
-# ruff is configured in hzl-compiler/pyproject.toml and installed into the
-# venv with the dev extras. format-* fixes what ruff can fix safely and then
-# formats; lint-* changes nothing and fails on any finding, as make test does.
+# ruff and mypy are configured in hzl-compiler/pyproject.toml and installed
+# into the venv with the dev extras. format-* fixes what ruff can fix safely
+# and then formats; lint-* changes nothing and fails on any finding, which
+# makes make test fail too.
 
 ## format-hzl-compiler: apply ruff's safe fixes and formatting in place
 format-hzl-compiler: hzl-compiler
 	cd $(HZL_DIR) && .venv/bin/ruff check --fix --exit-zero . && .venv/bin/ruff format .
 
-## lint-hzl-compiler: check the compiler with ruff, lint and formatting (part of make test)
+## lint-hzl-compiler: check the compiler with ruff (lint, formatting) and mypy (part of make test)
 lint-hzl-compiler: hzl-compiler
-	cd $(HZL_DIR) && .venv/bin/ruff check . && .venv/bin/ruff format --check .
+	cd $(HZL_DIR) && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/mypy
 
 # The compiled twin must give the engine a database it transforms into the
 # same physical values as the hand-written score, which is what the oracle's

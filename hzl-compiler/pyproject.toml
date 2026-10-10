@@ -19,6 +19,8 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
+    "mypy>=1.11",
+    "types-PyYAML",
 ]
 
 [project.scripts]
@@ -38,6 +40,15 @@ select = ["E", "W", "F", "I", "UP", "B", "N"]
 [tool.ruff.lint.flake8-bugbear]
 # Frozen dataclasses, so a shared default instance is safe (B008).
 extend-immutable-calls = ["hzl_compiler.lower.score.EngineOptions"]
+
+[tool.mypy]
+strict = true
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+# sympy ships no type information.
+module = ["sympy", "sympy.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

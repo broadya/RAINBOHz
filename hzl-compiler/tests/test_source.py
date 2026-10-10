@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
+from pathlib import Path
+
 import pytest
-from conftest import BASE, hzl
+from conftest import BASE, TreeBuilder, hzl
 
 from hzl_compiler.errors import HzlError
 from hzl_compiler.hzl.partial_state_set import load_partial_state_set
@@ -11,7 +13,9 @@ from hzl_compiler.source import SourceTree
 EMPTY_SET = "partial_states: []"
 
 
-def test_from_file_works_out_the_root_from_a_nested_namespace(tmp_path, tree):
+def test_from_file_works_out_the_root_from_a_nested_namespace(
+    tmp_path: Path, tree: TreeBuilder
+) -> None:
     t = tree({"a/b/thing": hzl("partial_state_set", "a/b/thing", EMPTY_SET)})
     opened, ref = SourceTree.from_file(tmp_path / "a" / "b" / "thing.yaml")
     assert opened.root == tmp_path.resolve()
@@ -19,19 +23,19 @@ def test_from_file_works_out_the_root_from_a_nested_namespace(tmp_path, tree):
     assert t.load(ref, "partial_state_set").keys()[0] == "hzl_version"
 
 
-def test_from_file_refuses_a_file_outside_its_namespace(tmp_path, tree):
+def test_from_file_refuses_a_file_outside_its_namespace(tmp_path: Path, tree: TreeBuilder) -> None:
     tree({"a/thing": hzl("partial_state_set", "b/thing", EMPTY_SET)})
     with pytest.raises(HzlError, match="namespace 'b' does not match the directories"):
         SourceTree.from_file(tmp_path / "a" / "thing.yaml")
 
 
-def test_header_must_agree_with_location(tree):
+def test_header_must_agree_with_location(tree: TreeBuilder) -> None:
     t = tree({"ns/x": hzl("partial_state_set", "ns/y", EMPTY_SET)})
     with pytest.raises(HzlError, match="name 'y' does not match the file name 'x'"):
         t.load(Ref("ns", "x"), "partial_state_set")
 
 
-def test_version_and_type_are_checked(tree):
+def test_version_and_type_are_checked(tree: TreeBuilder) -> None:
     t = tree({"ns/x": hzl("partial_state_set", "ns/x", EMPTY_SET).replace('"0.1.0"', '"9.0"')})
     with pytest.raises(HzlError, match="hzl_version '9.0' is not '0.1.0'"):
         t.load(Ref("ns", "x"), "partial_state_set")
@@ -46,7 +50,7 @@ def test_version_and_type_are_checked(tree):
         t.load(Ref("ns", "z"), "partial_state_set")
 
 
-def test_missing_file_and_wrong_type_are_reported(tree):
+def test_missing_file_and_wrong_type_are_reported(tree: TreeBuilder) -> None:
     t = tree(BASE)
     with pytest.raises(HzlError, match="no file for reference ns/missing"):
         t.load(Ref("ns", "missing"), "scale")
@@ -56,13 +60,13 @@ def test_missing_file_and_wrong_type_are_reported(tree):
         t.load(Ref("tempo_maps", "main"), "scale")
 
 
-def test_unknown_keys_are_refused_with_their_path(tree):
+def test_unknown_keys_are_refused_with_their_path(tree: TreeBuilder) -> None:
     t = tree({"ns/x": hzl("partial_state_set", "ns/x", EMPTY_SET + "\ncolour: blue")})
     with pytest.raises(HzlError, match=r"partial_state_set.colour: unknown key 'colour'"):
         load_partial_state_set(t, Ref("ns", "x"))
 
 
-def test_a_file_must_be_one_known_type(tree):
+def test_a_file_must_be_one_known_type(tree: TreeBuilder) -> None:
     t = tree({"ns/x": "banana:\n  a: 1\n"})
     with pytest.raises(HzlError, match="unknown HzL type 'banana'"):
         t.load_any(Ref("ns", "x"))

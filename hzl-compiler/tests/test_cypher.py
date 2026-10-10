@@ -27,11 +27,11 @@ EXPECTED = Path(__file__).resolve().parent / "expected"
         ('a "b" \\ c', '"a \\"b\\" \\\\ c"'),
     ],
 )
-def test_literals(value, text):
+def test_literals(value: object, text: str) -> None:
     assert literal(value) == text
 
 
-def test_literal_refuses_other_types():
+def test_literal_refuses_other_types() -> None:
     with pytest.raises(TypeError):
         literal(None)
 
@@ -40,7 +40,7 @@ def strip_comments(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if not line.startswith("//"))
 
 
-def test_tempo_map_twin_matches_the_expected_script():
+def test_tempo_map_twin_matches_the_expected_script() -> None:
     tree, ref = SourceTree.from_file(
         EXAMPLES / "tempo-map-score" / "scores" / "tempo_map_score.yaml"
     )
@@ -49,7 +49,7 @@ def test_tempo_map_twin_matches_the_expected_script():
     assert strip_comments(script) == strip_comments(expected)
 
 
-def test_spatial_twin_matches_the_expected_script():
+def test_spatial_twin_matches_the_expected_script() -> None:
     # Rendered with channel mode 1, this script gives the frames of
     # engine-db/examples/spatial-musical-score.cypher to within 2e-12
     # (checked by hand on 2026-10-05); this test keeps the script fixed.
@@ -59,7 +59,7 @@ def test_spatial_twin_matches_the_expected_script():
     assert strip_comments(script) == strip_comments(expected)
 
 
-def test_cli_compiles_and_dumps(tmp_path, capsys):
+def test_cli_compiles_and_dumps(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out = tmp_path / "out" / "score.cypher"
     dump = tmp_path / "out" / "score.json"
     code = main(
@@ -78,7 +78,7 @@ def test_cli_compiles_and_dumps(tmp_path, capsys):
     assert "compiled scores/tempo_map_score" in capsys.readouterr().out
 
 
-def test_cli_reports_hzl_errors(tmp_path, capsys):
+def test_cli_reports_hzl_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     bad = tmp_path / "scores" / "s.yaml"
     bad.parent.mkdir()
     bad.write_text(

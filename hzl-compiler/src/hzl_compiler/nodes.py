@@ -14,7 +14,7 @@ paper over that: a field that wants a string gets a string or an error.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from .errors import HzlError, Where
@@ -24,7 +24,7 @@ from .ref import Ref
 # accepts an int as well, since `440` is a reasonable way to write 440 Hz;
 # `int` does not accept a float, since `4.0` beats is not an integer tick
 # count. Neither accepts a bool, which Python would otherwise let through.
-_KINDS = {
+_KINDS: dict[str, Callable[[Any], bool]] = {
     "str": lambda v: isinstance(v, str),
     "int": lambda v: isinstance(v, int) and not isinstance(v, bool),
     "float": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),

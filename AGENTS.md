@@ -472,8 +472,8 @@ Databases (built from the schema DDL, which is the source of truth):
   `RE_OUT_DIR`, exactly as `run-rendering-engine` would from a hand-written
   state file.
 - `make test-hzl-compiler` — pytest.
-- `make lint-hzl-compiler` — ruff lint and format check; changes nothing,
-  fails on any finding. Part of `make test`.
+- `make lint-hzl-compiler` — ruff lint and format check, then mypy;
+  changes nothing, fails on any finding. Part of `make test`.
 - `make format-hzl-compiler` — apply ruff's safe fixes, then `ruff format`,
   in place.
 - `make test-hzl-oracle` — compile the twin, render it, and check every frame
@@ -596,14 +596,19 @@ These apply to `rendering-engine` and to C++ components added later.
 
 These apply to `hzl-compiler` and to Python components added later.
 
-- Python 3.12, with type hints on every function.
+- Python 3.12, with type hints on every function, tests included.
+  [mypy](https://mypy.readthedocs.io/) checks them in strict mode over
+  `src` and `tests`, configured in the component's `pyproject.toml`. A
+  library without type information gets a `[[tool.mypy.overrides]]` entry
+  with a comment, not a blanket setting.
 - [ruff](https://docs.astral.sh/ruff/) is the linter and formatter,
   configured in the component's `pyproject.toml`: 100-column lines, rule
-  groups E, W, F, I, UP, B and N. `make lint-hzl-compiler` is clean; keep it
-  that way. Run `make format-hzl-compiler` after editing, and fix by hand
+  groups E, W, F, I, UP, B and N. `make lint-hzl-compiler` (ruff and mypy)
+  is clean; keep it that way. Run `make format-hzl-compiler` after editing, and fix by hand
   what it cannot (usually a long string: split it into adjacent literals).
-- Suppress a finding only with a `# noqa: <code>` on the line and a reason,
-  or with a config entry that says why.
+- Suppress a finding only with a `# noqa: <code>` or
+  `# type: ignore[<code>]` on the line and a reason, or with a config entry
+  that says why.
 
 ### Documentation Comments
 

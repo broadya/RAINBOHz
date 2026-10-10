@@ -208,7 +208,7 @@ def flattened_cartesian_product(
                     phase=combine_phase(sa.phase, sb.phase),
                 )
             )
-    labels: list[str] = []
+    set_labels: list[str] = []
     for source in (
         virtual.header.labels,
         transformation.header.labels,
@@ -216,9 +216,9 @@ def flattened_cartesian_product(
         b.header.labels,
     ):
         for label in source:
-            if label not in labels:
-                labels.append(label)
-    return PartialStateSet(replace(virtual.header, labels=tuple(labels)), tuple(states))
+            if label not in set_labels:
+                set_labels.append(label)
+    return PartialStateSet(replace(virtual.header, labels=tuple(set_labels)), tuple(states))
 
 
 class StateSetResolver:

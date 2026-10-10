@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
-from conftest import BASE, hzl
+from conftest import BASE, TreeBuilder, hzl
 from test_score import ENV
 
+from hzl_compiler.canonical.model import Edge, Model
 from hzl_compiler.errors import HzlError
 from hzl_compiler.hzl.envelope import Curve
 from hzl_compiler.lower.score import lower_score
@@ -33,17 +34,19 @@ SOURCE_WITH_ORBIT = BASE["sources/source"].replace(
 )
 
 
-def compile_(tree, files=None):
+def compile_(tree: TreeBuilder, files: dict[str, str] | None = None) -> Model:
     return lower_score(
         tree({**BASE, "envelopes/env": ENV, **(files or {})}), Ref("scores", "score")
     )
 
 
-def position_edges(model, rel):
+def position_edges(model: Model, rel: str) -> list[Edge]:
     return [e for e in model.edges if e.rel == rel and e.src.table.startswith("SpatialPosition")]
 
 
-def test_a_source_without_a_trajectory_is_ahead_at_one_metre_from_its_start(tree):
+def test_a_source_without_a_trajectory_is_ahead_at_one_metre_from_its_start(
+    tree: TreeBuilder,
+) -> None:
     model = compile_(tree)
     assert model.count("SpatialPositionMusicalTimeline") == 1
     assert [s.properties() for s in model.rows["SpatialPositionState"]] == [
@@ -61,7 +64,7 @@ def test_a_source_without_a_trajectory_is_ahead_at_one_metre_from_its_start(tree
     assert [(e.src.table, e.src.index) for e in owner] == [("SoundSource", 0)]
 
 
-def test_a_trajectory_lowers_to_sparse_states_from_the_source_start(tree):
+def test_a_trajectory_lowers_to_sparse_states_from_the_source_start(tree: TreeBuilder) -> None:
     model = compile_(tree, {"sources/source": SOURCE_WITH_ORBIT, "trajectories/orbit": ORBIT})
     assert [s.properties() for s in model.rows["SpatialPositionState"]] == [
         {"azimuth": 0.0, "elevation": 0.0, "distance": 1.0},
@@ -82,7 +85,7 @@ def test_a_trajectory_lowers_to_sparse_states_from_the_source_start(tree):
     ]
 
 
-def test_a_stage_curve_lands_on_the_point_the_stage_starts_from(tree):
+def test_a_stage_curve_lands_on_the_point_the_stage_starts_from(tree: TreeBuilder) -> None:
     model = compile_(tree, {"sources/source": SOURCE_WITH_ORBIT, "trajectories/orbit": ORBIT})
     points = [p.properties() for p in model.rows["SpatialPositionMusicalTimelinePoint"]]
     s_curve, step, linear = Curve.S_CURVE.value, Curve.STEP.value, Curve.LINEAR.value
@@ -97,7 +100,7 @@ def test_a_stage_curve_lands_on_the_point_the_stage_starts_from(tree):
     assert points[1]["azimuth_curve_type"] == linear and points[2]["azimuth_curve_type"] == linear
 
 
-def test_one_trajectory_serves_several_sources(tree):
+def test_one_trajectory_serves_several_sources(tree: TreeBuilder) -> None:
     entity = (
         BASE["entities/entity"]
         + '    - sound_source: {namespace: sources, name: other}\n      offset: "2:0"\n'
@@ -122,7 +125,7 @@ def test_one_trajectory_serves_several_sources(tree):
     assert first == [1440, 960 + 1920]
 
 
-def test_a_trajectory_without_stages_is_a_fixed_position(tree):
+def test_a_trajectory_without_stages_is_a_fixed_position(tree: TreeBuilder) -> None:
     fixed = hzl(
         "trajectory",
         "trajectories/orbit",
@@ -176,13 +179,15 @@ def test_a_trajectory_without_stages_is_a_fixed_position(tree):
         ),
     ],
 )
-def test_bad_trajectories_are_refused_where_written(tree, body, message):
+def test_bad_trajectories_are_refused_where_written(
+    tree: TreeBuilder, body: str, message: str
+) -> None:
     bad = hzl("trajectory", "trajectories/orbit", body)
     with pytest.raises(HzlError, match=message):
         compile_(tree, {"sources/source": SOURCE_WITH_ORBIT, "trajectories/orbit": bad})
 
 
-def test_pan_on_a_partial_points_to_the_trajectory(tree):
+def test_pan_on_a_partial_points_to_the_trajectory(tree: TreeBuilder) -> None:
     start = BASE["state_sets/start"].replace(
         "amplitude: -6.0, labels: [pad]", "amplitude: -6.0, pan: 0.5, labels: [pad]"
     )

@@ -174,14 +174,14 @@ def lower_envelope(
                     transform.filter.search(label) for label in partial.labels
                 ):
                     continue
-                spec = by_identifier.get(partial.identifier)
-                if spec is None:
+                update = by_identifier.get(partial.identifier)
+                if update is None:
                     continue
                 current = states.get(partial.identifier, StateValues(None, None))
                 states[partial.identifier] = StateValues(
-                    spec.frequency if spec.frequency is not None else current.frequency,
-                    spec.amplitude if spec.amplitude is not None else current.amplitude,
-                    spec.phase if spec.phase is not None else current.phase,
+                    update.frequency if update.frequency is not None else current.frequency,
+                    update.amplitude if update.amplitude is not None else current.amplitude,
+                    update.phase if update.phase is not None else current.phase,
                 )
         ordered = {p.identifier: states[p.identifier] for p in partials if p.identifier in states}
         points.append(

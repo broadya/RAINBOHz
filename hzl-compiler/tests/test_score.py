@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
-from conftest import BASE, hzl
+from conftest import BASE, TreeBuilder, hzl
 
+from hzl_compiler.canonical.model import Model
 from hzl_compiler.errors import HzlError
 from hzl_compiler.lower.score import EngineOptions, lower_score
 from hzl_compiler.ref import Ref
@@ -23,18 +24,25 @@ ENV = hzl(
 )
 
 
-def compile_(tree, files=None, options=EngineOptions()):
+def compile_(
+    tree: TreeBuilder,
+    files: dict[str, str] | None = None,
+    options: EngineOptions = EngineOptions(),
+) -> Model:
     return lower_score(
         tree({**BASE, "envelopes/env": ENV, **(files or {})}), Ref("scores", "score"), options
     )
 
 
-def test_placements_add_up_in_ticks_and_rows_are_linked(tree):
+def test_placements_add_up_in_ticks_and_rows_are_linked(tree: TreeBuilder) -> None:
     model = compile_(tree, options=EngineOptions(44100, 1))
     assert model.rows["EngineConfig"][0].properties() == {"sampleRate": 44100, "channelMode": 1}
-    assert model.rows["Score"][0].name == "scores/score"
-    assert model.rows["TempoMap"][0].name == "tempo_maps/main"
-    assert [p.name for p in model.rows["Partial"]] == ["state_sets#a", "state_sets#b"]
+    assert model.rows["Score"][0].properties()["name"] == "scores/score"
+    assert model.rows["TempoMap"][0].properties()["name"] == "tempo_maps/main"
+    assert [p.properties()["name"] for p in model.rows["Partial"]] == [
+        "state_sets#a",
+        "state_sets#b",
+    ]
     # entity at 1:0, source +0:480, envelope +1:0 -> 2400 ticks; a stage of 2:0 -> 4320
     point_at = [
         e
@@ -47,7 +55,7 @@ def test_placements_add_up_in_ticks_and_rows_are_linked(tree):
     assert model.rows["PartialState"][2].properties() == {"frequency": 220.0, "amplitude": -144.0}
 
 
-def test_phase_kinds_become_phase_and_phase_free_run(tree):
+def test_phase_kinds_become_phase_and_phase_free_run(tree: TreeBuilder) -> None:
     start = BASE["state_sets/start"].replace(
         "amplitude: -6.0, labels: [lead", "amplitude: -6.0, phase: -90, labels: [lead"
     )
@@ -64,11 +72,16 @@ def test_phase_kinds_become_phase_and_phase_free_run(tree):
     ]
 
 
-def test_labels_are_shared_rows_linked_from_partials_and_score(tree):
+def test_labels_are_shared_rows_linked_from_partials_and_score(tree: TreeBuilder) -> None:
     model = compile_(tree)
-    assert sorted(label.name for label in model.rows["Label"]) == ["demo", "lead", "pad", "x"]
+    assert sorted(label.properties()["name"] for label in model.rows["Label"]) == [
+        "demo",
+        "lead",
+        "pad",
+        "x",
+    ]
     has_label = {
-        (e.src.table, e.src.index, model.rows["Label"][e.dst.index].name)
+        (e.src.table, e.src.index, model.rows["Label"][e.dst.index].properties()["name"])
         for e in model.edges
         if e.rel == "HAS_LABEL"
     }
@@ -80,7 +93,7 @@ def test_labels_are_shared_rows_linked_from_partials_and_score(tree):
     } == has_label
 
 
-def test_an_envelope_is_placed_once(tree):
+def test_an_envelope_is_placed_once(tree: TreeBuilder) -> None:
     twice = (
         BASE["sources/source"]
         + '    - envelope: {namespace: envelopes, name: env}\n      offset: "4:0"\n'
@@ -92,7 +105,7 @@ def test_an_envelope_is_placed_once(tree):
         compile_(tree, {"sources/source": twice})
 
 
-def test_tempo_map_rules_are_reported_in_hzl_terms(tree):
+def test_tempo_map_rules_are_reported_in_hzl_terms(tree: TreeBuilder) -> None:
     main = BASE["tempo_maps/main"]
     with pytest.raises(HzlError, match="the last point must hold"):
         compile_(tree, {"tempo_maps/main": main.replace("hold: true", "hold: false")})
@@ -111,20 +124,20 @@ def test_tempo_map_rules_are_reported_in_hzl_terms(tree):
         compile_(tree, {"tempo_maps/main": two})
 
 
-def test_ticks_beyond_the_beat_are_refused_where_written(tree):
+def test_ticks_beyond_the_beat_are_refused_where_written(tree: TreeBuilder) -> None:
     bad = BASE["entities/entity"].replace('offset: "0:480"', 'offset: "0:960"')
     with pytest.raises(HzlError, match=r"sound_sources\[0\].offset: 0:960 has 960 ticks"):
         compile_(tree, {"entities/entity": bad})
 
 
-def test_a_position_on_a_source_is_refused_in_favour_of_a_trajectory(tree):
+def test_a_position_on_a_source_is_refused_in_favour_of_a_trajectory(tree: TreeBuilder) -> None:
     with pytest.raises(
         HzlError, match="sound_source.position: a source's position is its trajectory"
     ):
         compile_(tree, {"sources/source": BASE["sources/source"] + "  position: {azimuth: 0.0}\n"})
 
 
-def test_engine_options_are_checked():
+def test_engine_options_are_checked() -> None:
     with pytest.raises(ValueError):
         EngineOptions(sample_rate=0)
     with pytest.raises(ValueError):
