@@ -1,5 +1,7 @@
 # RAINBOHz
 
+<img alt="RAINBOHz" src="docs/readme/rainbohz-logo.png">
+
 ## Project Summary
 RAINBOHz is a research project exploring additive synthesis at large scale, referred to as __macro-scale additive synthesis__. It exists at the "macro-scale" from two perspectives. It allows large numbers of additive partials to be used, and it allows control over the macro timescale i.e. over a complete musical work defined by a score.
 
