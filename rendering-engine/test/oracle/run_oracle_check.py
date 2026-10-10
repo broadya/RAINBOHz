@@ -11,8 +11,8 @@ both the whole frame and each partial set's file where one was written.
         --request <yaml> --score <json> --out-dir <dir>
 
 Exit status 0 when the engine and every oracle run succeed, 1 on any failure,
-and 77 (CTest's SKIP_RETURN_CODE here) when NumPy is not available, so that
-the C++ test suite does not depend on Python.
+including NumPy not being installed: a missing package fails the check rather
+than skipping it, so a gap cannot pass as green.
 """
 
 from __future__ import annotations
@@ -24,9 +24,6 @@ import re
 import shutil
 import subprocess
 import sys
-
-SKIP = 77
-
 
 def requested_frames(request_path: str) -> list[int]:
     """Read the frame numbers a request names.
@@ -63,8 +60,8 @@ def main() -> int:
     try:
         import numpy  # noqa: F401
     except ImportError:
-        print("run_oracle_check: NumPy is not available; skipping the oracle check")
-        return SKIP
+        print("run_oracle_check: FAILED: NumPy is not installed; run `make venv` at the repository root", file=sys.stderr)
+        return 1
 
     shutil.rmtree(args.out_dir, ignore_errors=True)
     os.makedirs(args.out_dir)

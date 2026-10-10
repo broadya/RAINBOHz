@@ -450,8 +450,8 @@ Databases (built from the schema DDL, which is the source of truth):
   run the client's tests under CTest: GoogleTest unit tests that drive the
   two threads over a scripted fake API, and `playback.e2e`, which plays three
   loops from a real server to `--output-wav` and checks every sample against
-  the server's frames. The end-to-end test is skipped when the engine is not
-  built for the same preset.
+  the server's frames. The end-to-end test fails when the engine is not
+  built for the same preset; the make target builds it first.
 - `make run-playback-client` — play `PC_START` to `PC_END` (default `0:0` to
   `4:0`), `PC_LOOPS` times, from the server at `PC_SERVER` (default the
   address of `make run-rendering-engine-server`, with `/v1`). The client does
@@ -525,6 +525,7 @@ list.
 - Architecture Decision Records (ADRs) in `docs/adr/` for non-obvious design choices, following the [MADR](https://adr.github.io/madr/) convention. Start from `docs/adr/adr-template.md`; see `docs/adr/README.md` for numbering and status rules. ADRs record the current situation and are edited in place when it changes; git holds the history. A decision replaced outright is marked superseded by its successor.
 - `proof-of-concept/` is for general proof-of-concept work; no PoC is added to any build. Its original sub-directories (`audio-rendering/`, `hzl-language/`, `maths/`) are a historical record: do not modify them.
 - The project is licensed Apache-2.0 (root `LICENSE`). Every first-party source and build file (`.cpp`, `.hpp`, `.py`, `.cmake`, `.sh`, `CMakeLists.txt`, the root `Makefile`) begins with `SPDX-License-Identifier: Apache-2.0` as a comment in the file's own syntax, followed by a blank line; after the `#!` line in a script, and before `#pragma once` in a header. Only the license line, no copyright line. A new file gets it too. Not applied to the frozen PoC directories, generated files, data, Markdown, or the `.cypher` schemas.
+- Tests fail, never skip. A missing package, tool or built binary makes a test fail with a message naming what is missing and how to get it (usually `make venv`); no test exits with a skip code, skips itself, or quietly checks less. A green run means everything ran.
 - No part of this repository is published to PyPI or any other package registry. Every `pyproject.toml` carries `classifiers = ["Private :: Do Not Upload"]`, which PyPI rejects on upload; a new one gets it too. Installing dependencies into a local venv is fine.
 - `CHANGELOG.md` ([Keep a Changelog](https://keepachangelog.com/en/1.1.0/)) is AI-maintained. A change a reader of the project would notice (a feature, behaviour, interface, schema, licence or removal) adds a line under `## [Unreleased]` in the same commit. Internal refactors, test-only and formatting changes do not. On a release, the Unreleased entries move under the new version's heading with its date.
 

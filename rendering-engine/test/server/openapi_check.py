@@ -14,9 +14,8 @@ Also importable: run_server_check.py uses response_schema_validator() to
 check the server's live responses against the document.
 
 Exit status 0 when the document and every example are valid, 1 otherwise,
-and 77 (CTest's SKIP_RETURN_CODE here) when PyYAML, jsonschema or
-openapi-spec-validator is not available, so that the C++ test suite does not
-depend on them.
+including PyYAML, jsonschema or openapi-spec-validator not being installed:
+a missing package fails the check rather than skipping it.
 """
 
 from __future__ import annotations
@@ -24,8 +23,6 @@ from __future__ import annotations
 import argparse
 import sys
 from typing import Any, Iterator
-
-SKIP = 77
 
 # The URI the document is registered under, so that its `#/components/...`
 # references resolve when a piece of it is used as a JSON Schema.
@@ -151,8 +148,8 @@ def main() -> int:
         from openapi_spec_validator import validate
         from openapi_spec_validator.validation.exceptions import OpenAPIValidationError
     except ImportError as error:
-        print(f"openapi_check: {error.name} is not available; skipping the OpenAPI check")
-        return SKIP
+        print(f"openapi_check: FAILED: {error.name} is not installed; run `make venv` at the repository root", file=sys.stderr)
+        return 1
 
     spec = load_spec(args.spec)
     if spec.get("openapi") != "3.1.1":

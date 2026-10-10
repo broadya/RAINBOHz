@@ -98,7 +98,7 @@ gtest_discover_tests(rendering_engine_tests
 # An independent NumPy implementation of the rendering model checks the
 # engine's output frame by frame. One CTest per example score: the driver
 # runs the engine on the score and its request, then the oracle on every file
-# written. Skipped with a notice (exit 77) when NumPy is not importable.
+# written. A missing package fails the test, never skips it.
 
 # The interpreter is chosen at the top level (CMakeLists.txt): the root .venv.
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
@@ -115,7 +115,6 @@ function(re_add_oracle_test name score request)
             --request "${RE_REQUESTS_DIR}/${request}"
             --score "${RE_EXAMPLES_DIR}/${score}.json"
             --out-dir "${CMAKE_CURRENT_BINARY_DIR}/oracle/${name}")
-    set_tests_properties("oracle.${name}" PROPERTIES SKIP_RETURN_CODE 77)
 endfunction()
 
 re_add_oracle_test(minimum-score minimum-score minimum-request.yaml)
@@ -129,11 +128,10 @@ re_add_oracle_test(phase-musical-score phase-musical-score phase-musical-request
 # request as an oracle test, served instead of run as a batch, and the
 # files the server names checked by the same oracle. One score in musical
 # time and one in physical time, so both paths through the transform are
-# served. Every response is checked against the OpenAPI document where
-# PyYAML and jsonschema are installed. For a score in musical time, the
-# optional last argument lists the beats of the first partial's frequency
-# envelope nodes, and the tempo-map calls are checked against the oracle's times.
-# Skipped like the oracle when NumPy is missing.
+# served. Every response is checked against the OpenAPI document. For a
+# score in musical time, the optional last argument lists the beats of the
+# first partial's frequency envelope nodes, and the tempo-map calls are
+# checked against the oracle's times.
 set(RE_OPENAPI_SPEC "${CMAKE_CURRENT_SOURCE_DIR}/../api/openapi.yaml")
 function(re_add_server_test name score request)
     set(beats_args "")
@@ -150,16 +148,14 @@ function(re_add_server_test name score request)
             --out-dir "${CMAKE_CURRENT_BINARY_DIR}/server/${name}"
             --spec "${RE_OPENAPI_SPEC}"
             ${beats_args})
-    set_tests_properties("server.${name}" PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+    set_tests_properties("server.${name}" PROPERTIES TIMEOUT 300)
 endfunction()
 
 re_add_server_test(tempo-map-score tempo-map-score tempo-map-request.yaml "0,2,4,8")
 re_add_server_test(two-partial-sets two-partial-sets two-partial-sets-request.yaml)
 
 # The OpenAPI document (api/openapi.yaml): valid OpenAPI 3.1.1, with every
-# example fitting its schema. Skipped when openapi-spec-validator,
-# jsonschema or PyYAML is missing.
+# example fitting its schema.
 add_test(NAME "server.openapi"
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/server/openapi_check.py"
         --spec "${RE_OPENAPI_SPEC}")
-set_tests_properties("server.openapi" PROPERTIES SKIP_RETURN_CODE 77)

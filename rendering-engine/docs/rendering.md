@@ -1271,11 +1271,10 @@ failure and a non-zero exit.
 A CTest target per example score (`oracle.minimum-score`,
 `oracle.two-partial-sets`) runs the engine on the score with
 `--per-set-wav`, then the oracle on every frame of the request and on
-every per-set file written, through `test/oracle/run_oracle_check.py`. It
-is skipped with a notice when NumPy is not importable, so that the C++
-test suite does not depend on Python. The interpreter is the repository's
-root `.venv`, where `requirements-dev.txt` installs NumPy;
-`-DPython3_EXECUTABLE=` overrides it.
+every per-set file written, through `test/oracle/run_oracle_check.py`. The
+interpreter is the repository's root `.venv`, where `requirements-dev.txt`
+installs NumPy; `-DPython3_EXECUTABLE=` overrides it. Without NumPy the
+test fails, naming `make venv`; it is never skipped.
 
 ## 12. Worked example
 

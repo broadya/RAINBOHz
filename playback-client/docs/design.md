@@ -216,7 +216,8 @@ behind the same interface.
 | `playback.e2e` | The real binary against a real `rendering-engine` server: no score loaded (exit 1 and the hint), a reversed range (exit 2), three loops to `--output-wav` checked sample for sample against the server's frames, the buffer removed, and `--keep-buffer` keeping both lanes |
 
 `make test-playback-client` runs them all. The end-to-end test needs
-`rendering-engine` built for the same preset, and is skipped otherwise.
+`rendering-engine` built for the same preset, and fails otherwise; the make
+target builds it first.
 
 ## 9. Not yet
 

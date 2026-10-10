@@ -50,8 +50,8 @@ gtest_discover_tests(playback_client_tests
 #
 # Starts rendering-engine in server mode, loads an example score, runs
 # playback-client with --output-wav, and checks the file against the frames
-# the server rendered, sample for sample. Skipped (77) when the engine has not
-# been built.
+# the server rendered, sample for sample. Fails when the engine has not been
+# built (make test-playback-client builds it first).
 #
 # The engine is taken from rendering-engine's build tree for the same preset,
 # which is this build tree's name. Override with -DPC_RENDERING_ENGINE=...
@@ -75,4 +75,4 @@ add_test(NAME "playback.e2e"
         --schema "${PC_ENGINE_SCHEMA}"
         --score "${PC_EXAMPLE_SCORE}"
         --work-dir "${CMAKE_CURRENT_BINARY_DIR}/e2e")
-set_tests_properties("playback.e2e" PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+set_tests_properties("playback.e2e" PROPERTIES TIMEOUT 300)

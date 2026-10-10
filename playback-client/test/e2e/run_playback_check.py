@@ -21,9 +21,8 @@ Starts rendering-engine in server mode on a free port, then:
     run_playback_check.py --client <binary> --engine <binary> --schema <cypher>
         --score <cypher> --work-dir <dir>
 
-Exit status 0 when every check holds, 1 on any failure, and 77 (CTest's
-SKIP_RETURN_CODE here) when the rendering-engine binary has not been built.
-Standard library only.
+Exit status 0 when every check holds, 1 on any failure, including the
+rendering-engine binary not having been built. Standard library only.
 """
 
 from __future__ import annotations
@@ -41,7 +40,6 @@ import threading
 import urllib.parse
 import urllib.request
 
-SKIP = 77
 START_SECONDS = 30
 CALL_SECONDS = 120
 CLIENT_SECONDS = 240
@@ -190,9 +188,9 @@ def main() -> int:
     args = parser.parse_args()
 
     if not os.path.exists(args.engine):
-        print(f"run_playback_check: SKIPPED: no rendering-engine at {args.engine}; "
-              "build it with `make rendering-engine`")
-        return SKIP
+        print(f"run_playback_check: FAILED: no rendering-engine at {args.engine}; "
+              "build it with `make rendering-engine`", file=sys.stderr)
+        return 1
 
     shutil.rmtree(args.work_dir, ignore_errors=True)
     frames_dir = os.path.join(args.work_dir, "frames")

@@ -340,11 +340,12 @@ root map's points by following `next`. For the score in musical time, it
 checks the frame position of each beat of a partial's envelope nodes against
 the oracle's independent times. It then renders every frame of the request,
 checks each returned file with the rendering oracle, and shuts the server
-down. When PyYAML and jsonschema are installed, it also validates every
-response body against the OpenAPI document. `test/server/openapi_check.py`
-(CTest `server.openapi`) validates the document itself, and checks every
-example in it against its schema. It is skipped unless openapi-spec-validator,
-jsonschema and PyYAML are installed.
+down. It also validates every response body against the OpenAPI document.
+`test/server/openapi_check.py` (CTest `server.openapi`) validates the
+document itself, and checks every example in it against its schema. Both
+need PyYAML and jsonschema, and the latter openapi-spec-validator, from
+`requirements-dev.txt` in the root `.venv`; without them they fail, never
+skip.
 
 **Postman.** `test/postman/rendering-engine.postman_collection.json` is the same
 ground for Postman, run by hand against a server started with

@@ -19,17 +19,16 @@ in samples, of the corresponding envelope node of the first partial's frequency
 envelope in the score's JSON mirror, split into frame and offset.
 
     run_server_check.py --engine <binary> --schema <cypher> --state <cypher>
-        --request <yaml> --score <json> --out-dir <dir> [--spec <openapi.yaml>]
+        --request <yaml> --score <json> --out-dir <dir> --spec <openapi.yaml>
         [--beats 0,2,4]
 
-With --spec, every response body is also validated against the response
-schema the OpenAPI document gives for its path, method and status, when
-PyYAML and jsonschema are available (openapi_check.py).
+Every response body is also validated against the response schema the
+OpenAPI document gives for its path, method and status (openapi_check.py).
 
 Exit status 0 when every call and every oracle run succeeds, 1 on any failure,
-and 77 (CTest's SKIP_RETURN_CODE here) when NumPy is not available, so that
-the C++ test suite does not depend on Python. Uses the standard library only,
-besides the oracle's NumPy and the optional schema check.
+including NumPy, PyYAML or jsonschema not being installed: a missing package
+fails the check rather than skipping it or checking less. Uses the standard
+library only, besides those three.
 """
 
 from __future__ import annotations
@@ -48,8 +47,6 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import openapi_check  # noqa: E402  (beside this file)
-
-SKIP = 77
 
 # How long to wait for the server to start, and for any one call. A load
 # applies the whole schema in a debug build, which takes about a second.
@@ -195,19 +192,6 @@ def check(condition: bool, what: str) -> int:
     return 1
 
 
-def load_spec(path: str | None) -> dict | None:
-    """The OpenAPI document, or None when there is none or it cannot be used here."""
-    if path is None:
-        return None
-    try:
-        import jsonschema  # noqa: F401
-        import yaml  # noqa: F401
-    except ImportError as error:
-        print(f"run_server_check: {error.name} is not available; responses are not checked against the OpenAPI document")
-        return None
-    return openapi_check.load_spec(path)
-
-
 def check_tempo_map(client: Client, score_path: str, beats: list[int]) -> None:
     """Read the root tempo map, page through its points, and check frame positions.
 
@@ -278,21 +262,23 @@ def main() -> int:
     parser.add_argument("--request", required=True)
     parser.add_argument("--score", required=True)
     parser.add_argument("--out-dir", required=True)
-    parser.add_argument("--spec")
+    parser.add_argument("--spec", required=True)
     parser.add_argument("--beats", help="comma-separated beats of the first partial's frequency envelope nodes")
     args = parser.parse_args()
 
     try:
+        import jsonschema  # noqa: F401
         import numpy  # noqa: F401
-    except ImportError:
-        print("run_server_check: NumPy is not available; skipping the server check")
-        return SKIP
+        import yaml  # noqa: F401
+    except ImportError as error:
+        print(f"run_server_check: FAILED: {error.name} is not installed; run `make venv` at the repository root", file=sys.stderr)
+        return 1
 
     shutil.rmtree(args.out_dir, ignore_errors=True)
     os.makedirs(args.out_dir)
 
     server, base = start_server(args)
-    client = Client(base, load_spec(args.spec))
+    client = Client(base, openapi_check.load_spec(args.spec))
     checks: list[tuple[int, str, list[str]]] = []  # frame, file, oracle arguments
     try:
         status, _ = client.call("POST", "/frames/0/renderings", "/frames/{frame}/renderings")
