@@ -9,6 +9,7 @@ description = "Compiles HzL (Hertz Language) source to the RAINBOHz canonical mo
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
+classifiers = ["Private :: Do Not Upload"]
 dependencies = [
     "pyyaml>=6.0",
     "sympy>=1.12",

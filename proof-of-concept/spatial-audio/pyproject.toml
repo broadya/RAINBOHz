@@ -9,6 +9,7 @@ description = "Proof of concept for RAINBOHz spatial audio: perfect coincident v
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
+classifiers = ["Private :: Do Not Upload"]
 dependencies = [
     "numpy>=1.26",
     "scipy>=1.11",
