@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the in-memory engine-db wrapper.
 //
 // SCAFFOLDING. These assert the properties the scaffolding is meant to

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // The engine's reports: what loading, checking, transforming, precomputing and

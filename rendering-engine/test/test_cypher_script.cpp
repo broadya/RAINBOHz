@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the Cypher statement splitter.
 //
 // No database is involved: the splitter is a pure function over a string, and

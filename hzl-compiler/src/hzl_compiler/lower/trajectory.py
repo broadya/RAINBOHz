@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Lowers a trajectory to a source's spatial position timeline: level L1.
 
 The initial position gives the first point, complete; each stage gives the

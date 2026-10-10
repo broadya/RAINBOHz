@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """`virtual_partial_state_set`: a combinator over other state sets."""
 
 from __future__ import annotations

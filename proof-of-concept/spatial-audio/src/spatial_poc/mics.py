@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Virtual microphones and arrays of them.
 
 All microphones are coincident at the receiver (the origin), so the direction

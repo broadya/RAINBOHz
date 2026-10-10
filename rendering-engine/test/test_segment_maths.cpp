@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the segment maths shared by precomputation and rendering.
 //
 // Expected values are derived by hand from the closed form

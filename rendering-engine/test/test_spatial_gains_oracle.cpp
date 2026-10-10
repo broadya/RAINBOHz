@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Checks positionGains() against the Python oracle, row by row.
 //
 // The golden data is oracle/spatial_gains.csv, a copy of

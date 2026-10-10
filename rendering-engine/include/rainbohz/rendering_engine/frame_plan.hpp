@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // The preparation layer of rendering: from the validated, in-memory data of

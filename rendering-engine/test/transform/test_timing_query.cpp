@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the timing queries behind server mode's GET calls.
 //
 // The parser is tested on its own. Every query is then tested against the

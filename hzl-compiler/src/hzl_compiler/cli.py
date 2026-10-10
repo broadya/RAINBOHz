@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """The `hzlc` command line: compile a score to Cypher."""
 
 from __future__ import annotations

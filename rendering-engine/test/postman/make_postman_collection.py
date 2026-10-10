@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+
 """Write the Postman collection that tests the server's REST API.
 
     make_postman_collection.py [--spec <openapi.yaml>] [--out <collection.json>]

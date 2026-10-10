@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // Server mode: the engine as a long-running REST service (docs/server.md).

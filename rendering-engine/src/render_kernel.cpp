@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "rainbohz/rendering_engine/render_kernel.hpp"
 
 #include "rainbohz/rendering_engine/spatial_gains.hpp"

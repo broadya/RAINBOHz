@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "rainbohz/rendering_engine/wav_writer.hpp"
 
 #define DR_WAV_IMPLEMENTATION

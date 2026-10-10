@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Directivity patterns of perfect virtual microphones.
 
 "Perfect" means the gain depends on direction only, never on frequency. Gains

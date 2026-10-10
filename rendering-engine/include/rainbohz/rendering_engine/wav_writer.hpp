@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // Writes a buffer of samples as a 32-bit float WAV file.

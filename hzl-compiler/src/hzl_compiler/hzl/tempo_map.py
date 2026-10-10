@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """`tempo_map`: tempo against musical position, the clock every placement reads.
 
 The validity rules are the transform's (rendering-engine/docs/transform.md

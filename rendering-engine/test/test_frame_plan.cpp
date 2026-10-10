@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the preparation layer: render segments, chunk cuts and the
 // per-set driver, over in-memory data with no database.
 //

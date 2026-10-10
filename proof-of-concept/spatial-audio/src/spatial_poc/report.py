@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """The `spatial-poc-report` command: gain tables, polar plots and test WAVs.
 
 Tables go to stdout. Plots (PNG) and WAVs go to the output directory.

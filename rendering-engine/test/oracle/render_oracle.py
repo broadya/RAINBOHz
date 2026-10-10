@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+
 """Independent check of one rendered frame against the closed-form model.
 
 An oracle for rendering-engine (rendering-engine/docs/rendering.md section

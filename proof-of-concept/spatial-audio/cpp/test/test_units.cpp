@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "rainbohz/spatial_poc/units.hpp"
 
 #include <gtest/gtest.h>

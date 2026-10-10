@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+
 # init_db.sh
 # Initialise the engine LadybugDB database from schema files.
 #

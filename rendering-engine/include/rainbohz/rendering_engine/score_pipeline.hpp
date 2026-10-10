@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // The engine's two operations, as sequences of steps: load a score, and render

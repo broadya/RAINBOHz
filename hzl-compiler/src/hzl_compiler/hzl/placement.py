@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """A reference placed in musical time, shared by score, entity and source."""
 
 from __future__ import annotations

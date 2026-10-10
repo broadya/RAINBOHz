@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Write the golden gains the C++ PoC is checked against, from the Python oracle.
 
 Run with the spatial-audio venv, where the `spatial_poc` package is installed:

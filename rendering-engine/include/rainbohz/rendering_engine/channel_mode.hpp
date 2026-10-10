@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // The engine's channel modes: which virtual microphones are rendered, and to

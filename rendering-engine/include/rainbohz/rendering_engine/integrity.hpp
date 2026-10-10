@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // Integrity checks over engine-db: invariants the data model relies on but

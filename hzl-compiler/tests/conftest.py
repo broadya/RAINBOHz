@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Shared fixtures: build a small HzL source tree in a temporary directory."""
 
 from __future__ import annotations

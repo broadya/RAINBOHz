@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Dependencies for rendering-engine.
 #
 # Everything is built from source. That is a deliberate choice: the component

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // The amplitude of one partial at one instant: the nominal amplitude ramp,

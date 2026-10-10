@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """`partial_state_set`: the lowest HzL level for states, a list of partials with values.
 
 This is also what every generator and combinator lowers to, so the dataclass

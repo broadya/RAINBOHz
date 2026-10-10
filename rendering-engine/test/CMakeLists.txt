@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Tests for rendering-engine.
 #
 # GoogleTest, fetched and pinned like every other dependency. Ladybug's own

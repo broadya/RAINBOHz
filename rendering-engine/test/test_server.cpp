@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for server mode's handlers, driven directly through ServerCore.
 //
 // No socket is opened: ServerCore takes a call's path segments, query

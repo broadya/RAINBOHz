@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // The client's audio buffer on disk: one directory per run, two lanes in it.

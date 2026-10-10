@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Source positions in the AmbiX spherical convention, and distance attenuation.
 
 Axes are right-handed: x to the front, y to the left, z up. Azimuth is measured

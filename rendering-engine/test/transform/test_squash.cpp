@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the squash rule (docs/transform.md section 6.3, ADR 0014).
 //
 // Each case states a sequence of computed times in semantic order and the

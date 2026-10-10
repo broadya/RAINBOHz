@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the musical unit types, and the seconds types they convert to.
 //
 // As with test_units.cpp, much of this is compile-time: a static_assert

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 include(FetchContent)
 
 # Same pin as rendering-engine/test/CMakeLists.txt.

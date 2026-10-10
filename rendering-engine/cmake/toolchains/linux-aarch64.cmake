@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Cross-compile rendering-engine for Linux/arm64 (AWS Graviton).
 #
 # STATUS: scaffolding. This file records the intended cross-compile

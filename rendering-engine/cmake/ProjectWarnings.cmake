@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Warning set for rendering-engine's own code.
 #
 # Applied as an INTERFACE target and linked PRIVATE, so it never leaks into

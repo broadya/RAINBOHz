@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the spatial stage: the spatial kernel, a source's spatial
 // segments and cuts, and the driver that spreads a source's mono sum over the
 // output channels (docs/rendering.md section 8.5).

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+
 """CTest driver: play a range of a real score through a real server, and check every sample.
 
 Starts rendering-engine in server mode on a free port, then:

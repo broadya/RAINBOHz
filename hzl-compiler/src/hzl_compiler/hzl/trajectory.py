@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """`trajectory`: a sound source's spatial position in musical time.
 
 A trajectory is to a source's position what an envelope is to a partial

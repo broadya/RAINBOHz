@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // `file://` URIs: the form in which server mode names the files it reads and

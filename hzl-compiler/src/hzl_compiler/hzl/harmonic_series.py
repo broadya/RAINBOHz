@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """`harmonic_series`: a generator giving one partial per harmonic, from expressions.
 
 Each property is either a constant, the same for every harmonic, or an

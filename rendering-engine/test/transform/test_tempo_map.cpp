@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the tempo map: the segment formulas, the conversion of ticks to
 // seconds, and every validity rule of docs/transform.md section 6.1.
 

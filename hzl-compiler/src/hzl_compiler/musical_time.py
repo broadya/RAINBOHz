@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Musical time as HzL writes it: exact `beats:ticks`, never a float.
 
 Every position and duration in HzL is a count of beats and a count of ticks

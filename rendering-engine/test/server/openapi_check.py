@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+
 """CTest driver: check that the server's OpenAPI document is valid, and that its examples fit it.
 
     openapi_check.py --spec <openapi.yaml>

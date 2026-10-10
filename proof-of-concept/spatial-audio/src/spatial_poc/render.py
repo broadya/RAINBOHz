@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Rendering a mono source signal through a microphone array."""
 
 from __future__ import annotations

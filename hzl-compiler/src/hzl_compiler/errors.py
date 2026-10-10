@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """The one error type every stage reports faults with, and where a fault is."""
 
 from __future__ import annotations

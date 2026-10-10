@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Tests for playback-client.
 #
 # GoogleTest, pinned as rendering-engine's (rendering-engine/test/CMakeLists.txt).

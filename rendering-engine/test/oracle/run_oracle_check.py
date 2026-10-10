@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+
 """CTest driver: render a score with the engine, then check every frame with the oracle.
 
 Runs rendering-engine in batch mode on one score and one request, with

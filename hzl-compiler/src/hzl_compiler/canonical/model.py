@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """The canonical model as tables: one row list per node table, one edge list.
 
 This is the lowest level of HzL. It is shaped like `engine-db` itself, one

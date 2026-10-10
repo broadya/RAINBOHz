@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for rendering against the real engine-db schema, in memory.
 //
 // Each test builds a small score, precomputes it, renders frames into a

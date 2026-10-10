@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the render kernel.
 //
 // The kernel is an accumulator; every expected value here comes from the

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the transform stage.
 //
 // Two halves. The pure stages are tested directly on in-memory data. The

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // Reading the frames rendering-engine writes, and writing --output-wav.

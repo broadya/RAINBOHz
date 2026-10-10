@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Lowers a score to the canonical model: level L0.
 
 The score names the tempo map and places sound entities; entities place

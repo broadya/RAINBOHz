@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for precomputation.
 //
 // Two halves. The pure stages are tested directly on in-memory data. The

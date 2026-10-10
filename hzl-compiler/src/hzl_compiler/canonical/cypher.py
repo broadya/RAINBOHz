@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Emits a canonical model as the Cypher script `rendering-engine --state` loads.
 
 The output follows the hand-written examples in `engine-db/examples/`: the

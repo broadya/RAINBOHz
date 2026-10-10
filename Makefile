@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # RAINBOHz build entry point.
 #
 # Conventional Makefile, run from the repository root. This is the

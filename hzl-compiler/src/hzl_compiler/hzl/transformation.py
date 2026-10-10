@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """`partial_state_set_transformation`: names how state sets combine.
 
 The file carries only a type for now, as in the PoC. It is kept as its own

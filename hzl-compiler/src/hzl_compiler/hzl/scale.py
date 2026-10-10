@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """`scale`: a generator giving one partial per note, labelled with the note."""
 
 from __future__ import annotations

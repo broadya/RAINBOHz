@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // engine-db: the Ladybug graph database hosted inside rendering-engine.

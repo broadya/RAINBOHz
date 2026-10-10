@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Cross-compile rendering-engine for Linux/x86_64.
 #
 # STATUS: scaffolding, same caveats as linux-aarch64.cmake -- see that file for

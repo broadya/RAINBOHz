@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // Read-only questions about a loaded score's timing: its tempo maps, its

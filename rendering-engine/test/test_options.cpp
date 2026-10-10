@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the command line: the modes, and what each requires and refuses.
 //
 // parseCommandLine() writes its diagnostics to stderr; these tests check only

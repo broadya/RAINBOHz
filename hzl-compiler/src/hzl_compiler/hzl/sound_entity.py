@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """`sound_entity`: a sound present over a period, holding sound sources."""
 
 from __future__ import annotations

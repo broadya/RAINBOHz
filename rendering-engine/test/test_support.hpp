@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // Helpers shared by the rendering tests: reading back a WAV file by hand, and

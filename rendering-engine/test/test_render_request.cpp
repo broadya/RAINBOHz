@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the batch-mode render request.
 //
 // The properties that matter: a well-formed request yields exactly the frames

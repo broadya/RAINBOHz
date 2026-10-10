@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """`envelope`: a partial set's history in musical time, as stages of change.
 
 An envelope starts from a state set, which gives the partials and their first

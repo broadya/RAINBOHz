@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+
 """CTest driver: serve a score over REST, read and render it, and check every frame with the oracle.
 
 Starts rendering-engine in server mode on a free port, with --per-set-wav,

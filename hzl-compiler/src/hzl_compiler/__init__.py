@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """hzl-compiler: lowers HzL source to the canonical model and emits it as Cypher.
 
 HzL (Hertz Language) is the practitioner-facing language of RAINBOHz. This

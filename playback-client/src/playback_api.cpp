@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "rainbohz/playback_client/playback_api.hpp"
 
 #include "rainbohz/playback_client/log.hpp"

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the engine-db integrity checks.
 //
 // The list analysis is tested directly on in-memory ids. The checks are then

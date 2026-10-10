@@ -510,6 +510,7 @@ list.
 - During early development, schema migration = drop and recreate from DDL + full rebuild from source YAML.
 - Architecture Decision Records (ADRs) in `docs/adr/` for non-obvious design choices, following the [MADR](https://adr.github.io/madr/) convention. Start from `docs/adr/adr-template.md`; see `docs/adr/README.md` for numbering and status rules. ADRs record the current situation and are edited in place when it changes; git holds the history. A decision replaced outright is marked superseded by its successor.
 - `proof-of-concept/` is for general proof-of-concept work; no PoC is added to any build. Its original sub-directories (`audio-rendering/`, `hzl-language/`, `maths/`) are a historical record: do not modify them.
+- The project is licensed Apache-2.0 (root `LICENSE`). Every first-party source and build file (`.cpp`, `.hpp`, `.py`, `.cmake`, `.sh`, `CMakeLists.txt`, the root `Makefile`) begins with `SPDX-License-Identifier: Apache-2.0` as a comment in the file's own syntax, followed by a blank line; after the `#!` line in a script, and before `#pragma once` in a header. Only the license line, no copyright line. A new file gets it too. Not applied to the frozen PoC directories, generated files, data, Markdown, or the `.cypher` schemas.
 
 ### Documentation Ownership
 

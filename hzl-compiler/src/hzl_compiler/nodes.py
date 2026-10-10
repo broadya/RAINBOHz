@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Validated access to a YAML mapping, with every value's location to hand.
 
 The YAML loader gives back plain dicts, lists and scalars with no idea of

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the WAV writer.
 //
 // A written file is read back through dr_wav and compared sample for sample,

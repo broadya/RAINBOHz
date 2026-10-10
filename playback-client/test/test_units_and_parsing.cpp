@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "rainbohz/playback_client/frame_plan.hpp"
 #include "rainbohz/playback_client/musical_position.hpp"
 #include "rainbohz/playback_client/options.hpp"

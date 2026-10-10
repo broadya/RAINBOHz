@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the amplitude maths: the ramp, the dB conversion with its clip
 // and floor, and the frequency-range roll-off.
 //

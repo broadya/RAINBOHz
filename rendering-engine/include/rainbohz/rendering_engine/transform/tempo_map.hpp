@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // The tempo map: what defines musical time, and how it converts to seconds.

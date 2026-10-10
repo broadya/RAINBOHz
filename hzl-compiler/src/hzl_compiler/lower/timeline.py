@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Lowers an envelope to a partial set's timeline: level L1.
 
 An envelope is a partial set and its musical timeline in one. The initial

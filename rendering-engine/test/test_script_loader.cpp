@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the Cypher script loader.
 //
 // These drive a real in-memory engine-db. The properties that matter are that

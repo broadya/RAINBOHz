@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the file:// URI conversions.
 //
 // The reading side decides which file the server opens, so its refusals are

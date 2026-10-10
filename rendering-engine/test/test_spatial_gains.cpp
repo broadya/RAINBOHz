@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Property tests for the channel modes, ported from the Python oracle's
 // tests/test_spatial.py (proof-of-concept/spatial-audio). The oracle comparison
 // itself is in test_spatial_gains_oracle.cpp.

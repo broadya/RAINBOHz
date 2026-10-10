@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # 3.28 for FetchContent's EXCLUDE_FROM_ALL, as rendering-engine.
 cmake_minimum_required(VERSION 3.28)
 

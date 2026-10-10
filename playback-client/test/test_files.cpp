@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "rainbohz/playback_client/buffer_dir.hpp"
 #include "rainbohz/playback_client/object_fetch.hpp"
 #include "rainbohz/playback_client/wav_io.hpp"

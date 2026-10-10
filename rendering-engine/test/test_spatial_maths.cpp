@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for the spatial maths: linear interpolation of a source's position,
 // with the azimuth along the shorter arc and wrapped into [-π, π]
 // (docs/rendering.md section 8.5).

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Dependencies for playback-client.
 #
 # Everything is built from pinned source, for the same reasons as

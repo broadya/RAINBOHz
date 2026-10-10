@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """The preset microphone arrays offered by the proof of concept.
 
 Every preset is built from first-order patterns plus, where needed, a decode

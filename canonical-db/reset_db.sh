@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+
 # reset_db.sh
 # Destroy the canonical-form LadybugDB database and reinitialise it from schema.
 #

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """What every HzL file shares: the header, and the value checks the schema delegates.
 
 `engine-db` has no CHECK constraints. Its schema says which ranges are

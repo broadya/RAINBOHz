@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """`sound_source`: the level with one spatial position, holding envelopes.
 
 A sound source's position is its trajectory, a file of its own that the

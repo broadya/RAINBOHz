@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """Lowers anything state-set-valued to a concrete `PartialStateSet`.
 
 Levels L3 and L2 of the language live here: generators (`scale`,

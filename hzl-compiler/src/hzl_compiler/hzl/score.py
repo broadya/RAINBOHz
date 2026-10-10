@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """`score`: the compilation root, placing sound entities on a tempo map."""
 
 from __future__ import annotations

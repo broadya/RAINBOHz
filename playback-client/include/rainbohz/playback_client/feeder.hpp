@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // The playback thread: reads the lanes in loop order and feeds the output.

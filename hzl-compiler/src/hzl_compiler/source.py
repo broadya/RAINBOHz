@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 """The HzL source tree: finding, reading and checking files by reference.
 
 Files are found by the PoC convention `<root>/<namespace>/<name>.yaml`. Every
