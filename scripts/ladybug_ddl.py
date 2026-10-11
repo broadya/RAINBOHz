@@ -53,6 +53,11 @@ DDL_HEAD_RE = re.compile(
 )
 
 
+class CypherScriptError(ValueError):
+    """A script that cannot be split into statements: an unterminated block
+    comment, which would otherwise hide every statement after it."""
+
+
 @dataclass
 class Statement:
     text: str        # comment-stripped statement, no trailing semicolon
@@ -90,6 +95,9 @@ def split_statements(source: str) -> list[Statement]:
     identifiers are not treated as terminators. A missing semicolon therefore
     merges two statements into one -- which is exactly what LadybugDB itself
     sees, so the resulting error is attributed to the correct line range.
+
+    Raises CypherScriptError for an unterminated block comment, naming the line
+    it opened on, rather than drop the rest of the script silently.
     """
     statements: list[Statement] = []
     buffer: list[str] = []
@@ -108,21 +116,32 @@ def split_statements(source: str) -> list[Statement]:
             continue
 
         if pair == "/*":
+            opened_on = line
             index += 2
             while index < length and source[index : index + 2] != "*/":
                 if source[index] == "\n":
                     line += 1
                 index += 1
+            if index >= length:
+                raise CypherScriptError(
+                    f"line {opened_on}: unterminated block comment; "
+                    "it hides the rest of the script"
+                )
             index += 2
             continue
 
         if char in "'\"`":
+            if start_line is None:
+                start_line = line
             quote = char
             buffer.append(char)
             index += 1
             while index < length:
                 if source[index] == "\\" and quote != "`":
-                    buffer.append(source[index : index + 2])
+                    escape = source[index : index + 2]
+                    buffer.append(escape)
+                    if escape == "\\\n":
+                        line += 1
                     index += 2
                     continue
                 buffer.append(source[index])

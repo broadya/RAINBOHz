@@ -16,6 +16,7 @@
 
 namespace {
 
+using rainbohz::rendering_engine::CypherScriptError;
 using rainbohz::rendering_engine::splitStatements;
 
 TEST(CypherScript, EmptySourceYieldsNothing) {
@@ -106,6 +107,45 @@ TEST(CypherScript, NewlinesInsideBlockCommentsStillCount) {
     const auto statements = splitStatements("/* one\ntwo\nthree */\nCREATE (:A);\n");
     ASSERT_EQ(statements.size(), 1U);
     EXPECT_EQ(statements[0].startLine, 4U);
+}
+
+// An unclosed block comment would hide every statement after it, so it
+// fails, naming the line it opened on, rather than drop them silently.
+TEST(CypherScript, UnterminatedBlockCommentIsAnError) {
+    const std::string source = "CREATE (:A);\n"                                      // 1
+                               "/* never closed\n"                                   // 2
+                               "CREATE NODE TABLE B (id INT64, PRIMARY KEY(id));\n"; // 3
+    try {
+        (void)splitStatements(source);
+        FAIL() << "expected CypherScriptError";
+    } catch (const CypherScriptError& e) {
+        EXPECT_NE(std::string{e.what()}.find("line 2"), std::string::npos) << e.what();
+    }
+}
+
+// "*/" at the very end of the source closes the comment.
+TEST(CypherScript, BlockCommentClosedAtEndOfSourceIsNotAnError) {
+    const auto statements = splitStatements("CREATE (:A); /* trailing */");
+    ASSERT_EQ(statements.size(), 1U);
+}
+
+TEST(CypherScript, StatementStartingWithAQuoteTakesItsStartLineFromTheQuote) {
+    const std::string source = "\n"             // 1
+                               "`Weird Name`\n" // 2
+                               "  ;\n";         // 3
+    const auto statements = splitStatements(source);
+    ASSERT_EQ(statements.size(), 1U);
+    EXPECT_EQ(statements[0].startLine, 2U);
+    EXPECT_EQ(statements[0].endLine, 3U);
+}
+
+TEST(CypherScript, EscapedNewlineInsideAStringStillCounts) {
+    const std::string source = "CREATE (:A {s: 'one\\\ntwo'});\n" // 1-2
+                               "CREATE (:B);\n";                  // 3
+    const auto statements = splitStatements(source);
+    ASSERT_EQ(statements.size(), 2U);
+    EXPECT_EQ(statements[0].endLine, 2U);
+    EXPECT_EQ(statements[1].startLine, 3U);
 }
 
 // A missing semicolon merges two statements, which is exactly what Ladybug

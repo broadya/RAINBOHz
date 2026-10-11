@@ -9,6 +9,7 @@
 #include <iterator>
 #include <sstream>
 #include <string>
+#include <vector>
 
 /// @file
 /// @brief Applies a Cypher script file to engine-db, one statement at a time.
@@ -78,9 +79,15 @@ LoadReport& LoadReport::operator+=(const LoadReport& other) {
 LoadReport loadCypherFile(
     EngineDb& db, const std::filesystem::path& file, const StatementObserver& observe) {
     const std::string source = readFile(file);
+    std::vector<CypherStatement> statements;
+    try {
+        statements = splitStatements(source);
+    } catch (const CypherScriptError& e) {
+        throw ScriptLoadError{file.string() + ": " + e.what()};
+    }
 
     LoadReport report;
-    for (const CypherStatement& statement : splitStatements(source)) {
+    for (const CypherStatement& statement : statements) {
         const ExecuteOutcome outcome = db.tryExecute(statement.text);
         if (observe) {
             observe(file, statement, outcome);

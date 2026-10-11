@@ -37,6 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
     from ladybug_ddl import (  # noqa: E402
+        CypherScriptError,
         Statement,
         find_lbug,
         run_statement,
@@ -55,7 +56,11 @@ def validate(path: str, lbug: str, verbose: bool) -> bool:
     with open(path, encoding="utf-8") as handle:
         source = handle.read()
 
-    statements = split_statements(source)
+    try:
+        statements = split_statements(source)
+    except CypherScriptError as error:
+        print(f"\n  {os.path.basename(path)}: INVALID ({error})")
+        return False
     workdir = tempfile.mkdtemp(prefix="ladybug-validate-")
     db_path = os.path.join(workdir, "validate.lbug")
 

@@ -101,6 +101,16 @@ TEST(ScriptLoader, MissingFileThrows) {
         static_cast<void>(loadCypherFile(db, temp.path() / "absent.cypher")), ScriptLoadError);
 }
 
+// An unclosed block comment hides the rest of the script, so nothing in the
+// file is executed: not even the statement before it.
+TEST(ScriptLoader, UnterminatedBlockCommentThrowsBeforeExecutingAnything) {
+    EngineDb db;
+    const TempDirectory temp;
+    const auto file = temp.write("schema.cypher", std::string{kToySchema} + "/* never closed\n");
+    EXPECT_THROW(static_cast<void>(loadCypherFile(db, file)), ScriptLoadError);
+    EXPECT_TRUE(db.tables().empty());
+}
+
 // A directory is not a script. The engine names one schema file and one state
 // file, so there is no directory sweep to fall back on and this must fail
 // rather than quietly load nothing.

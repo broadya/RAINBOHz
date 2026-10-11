@@ -18,11 +18,20 @@
 // rather than completely -- comments, string literals and quoted identifiers.
 
 #include <cstddef>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace rainbohz::rendering_engine {
+
+/// Thrown when a script cannot be split into statements: an unterminated
+/// block comment, which would otherwise hide every statement after it. The
+/// message names the line the comment opened on.
+class CypherScriptError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
 
 /// One executable statement, with the source lines it came from.
 struct CypherStatement {
@@ -77,9 +86,12 @@ struct CypherStatement {
 ///         trimmed of surrounding whitespace and its terminating semicolon.
 ///         A trailing statement with no terminating semicolon is included;
 ///         empty statements (a stray semicolon, a comment-only file) are not.
-///         Malformed input -- an unterminated string or block comment -- is
-///         not an error: it consumes the rest of the source, as it would in
-///         Ladybug.
+///         An unterminated string or quoted identifier is not an error: it
+///         consumes the rest of the source into the current statement, which
+///         Ladybug then rejects, so the failure is still reported.
+/// @throws CypherScriptError  If a block comment is never closed. Nothing
+///         after it could be submitted, so it fails rather than drop the rest
+///         of the script silently.
 std::vector<CypherStatement> splitStatements(std::string_view source);
 
 } // namespace rainbohz::rendering_engine

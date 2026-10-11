@@ -39,6 +39,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ladybug_ddl import (  # noqa: E402
+    CypherScriptError,
     Statement,
     find_lbug,
     run_statement,
@@ -142,7 +143,10 @@ def main() -> int:
 
     for path in files:
         with open(path, encoding="utf-8") as handle:
-            statements = split_statements(handle.read())
+            try:
+                statements = split_statements(handle.read())
+            except CypherScriptError as error:
+                raise SystemExit(f"Error: {path}: {error}") from error
         print(f"  applying {os.path.basename(path)} ({len(statements)} statements)...")
 
         for statement in statements:

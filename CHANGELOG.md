@@ -48,6 +48,9 @@ The target architecture, built from 2026-09-27 onwards.
   every first-party source and build file starts with an SPDX licence line.
 - Both C++ components are fully documented for Doxygen, and any Doxygen
   warning now fails `make docs`.
+- An unterminated `/*` comment in a Cypher script is now an error naming the
+  line it opened on, in `rendering-engine` and the schema tools; it used to
+  hide the rest of the script without a word.
 
 ## Before this changelog
 

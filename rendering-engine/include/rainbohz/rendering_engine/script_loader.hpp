@@ -81,9 +81,10 @@ struct LoadReport {
     LoadReport& operator+=(const LoadReport& other);
 };
 
-/// Thrown when a script cannot be read at all: a missing or unreadable file. A
-/// statement the database rejects is not this -- that is a ScriptFailure in
-/// the report.
+/// Thrown when a script cannot be read at all: a missing or unreadable file,
+/// or one that cannot be split into statements (an unterminated block
+/// comment). A statement the database rejects is not this -- that is a
+/// ScriptFailure in the report.
 class ScriptLoadError : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;
@@ -127,8 +128,8 @@ using StatementObserver = std::function<void(const std::filesystem::path& file,
 ///         ScriptFailure per rejected statement, in source order. Rejections
 ///         are reported here, not thrown.
 /// @throws ScriptLoadError  If `file` is missing, not a regular file, or
-///         cannot be opened or read. Nothing has been executed against `db`
-///         at that point.
+///         cannot be opened or read; or if it has an unterminated block
+///         comment. Nothing has been executed against `db` at that point.
 /// @throws Anything `observe` throws, which ends the load at that statement.
 ///         Statements already applied stay committed.
 /// @see docs/adr/0002, docs/adr/0005

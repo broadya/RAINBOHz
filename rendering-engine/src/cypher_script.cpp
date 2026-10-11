@@ -270,15 +270,20 @@ void skipLineComment(std::string_view source, ScanState& scan) {
 ///                      just past the closing marker, and `line` has advanced
 ///                      by the newlines inside the comment. `buffer` is
 ///                      unchanged.
-/// @post For an unterminated comment, `index` may be up to two past the end
-///       of `source`. Callers compare with `<`, so this ends the scan.
+/// @throws CypherScriptError  If the comment is never closed, naming the line
+///         it opened on.
 void skipBlockComment(std::string_view source, ScanState& scan) {
+    const std::size_t openedOn = scan.line;
     scan.index += 2;
     while (scan.index < source.size() && source.substr(scan.index, 2) != "*/") {
         if (source[scan.index] == '\n') {
             ++scan.line;
         }
         ++scan.index;
+    }
+    if (scan.index >= source.size()) {
+        throw CypherScriptError{"line " + std::to_string(openedOn) +
+                                ": unterminated block comment; it hides the rest of the script"};
     }
     scan.index += 2;
 }
@@ -293,16 +298,16 @@ void skipBlockComment(std::string_view source, ScanState& scan) {
 /// @param source        Script being scanned.
 /// @param[in,out] scan  `index` must be at the opening quote. On return it is
 ///                      just past the closing quote, the run including both
-///                      quotes has been appended to `buffer`, and `line` has
-///                      advanced by the newlines inside it.
+///                      quotes has been appended to `buffer`, `line` has
+///                      advanced by the newlines inside it (escaped ones
+///                      included), and `startLine` is set if this run is the
+///                      statement's first executable text.
 /// @post A backslash as the last character of `source` leaves `index` one
 ///       past the end. Callers compare with `<`, so this ends the scan.
-/// @note Two quirks shared with ladybug_ddl.py, kept so that the two agree:
-///       a newline escaped by a backslash is copied but not counted in
-///       `line`, and `startLine` is not set, so a statement that begins with
-///       a quoted run takes its start line from the next unquoted
-///       non-whitespace character, or from its end line if there is none.
 void consumeQuoted(std::string_view source, ScanState& scan) {
+    if (scan.startLine == 0) {
+        scan.startLine = scan.line;
+    }
     const char quote = source[scan.index];
     scan.buffer += quote;
     ++scan.index;
@@ -310,7 +315,11 @@ void consumeQuoted(std::string_view source, ScanState& scan) {
     while (scan.index < source.size()) {
         // Backticked identifiers do not honour backslash escapes.
         if (source[scan.index] == '\\' && quote != '`') {
-            scan.buffer += source.substr(scan.index, 2);
+            const std::string_view escape = source.substr(scan.index, 2);
+            scan.buffer += escape;
+            if (escape.size() == 2 && escape[1] == '\n') {
+                ++scan.line;
+            }
             scan.index += 2;
             continue;
         }
