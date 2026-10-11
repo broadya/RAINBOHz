@@ -58,6 +58,37 @@ constexpr int kRingDivisor = 2;
 /// request is served in chunks of this size.
 constexpr std::size_t kScratchSamples = 4096;
 
+/// A miniaudio device, uninitialised when it is destroyed if it was ever
+/// initialised.
+///
+/// Owning the device in a member of its own, rather than in DeviceSink's
+/// destructor, means it is closed even when DeviceSink's constructor throws
+/// after ma_device_init() has succeeded: a destructor does not run for an
+/// object whose constructor did not finish, but its finished members are
+/// still destroyed. Neither copyable nor movable, because miniaudio keeps
+/// pointers into the struct.
+struct OwnedDevice {
+    /// A C struct that ma_device_init() fills in; zeroing it first is what
+    /// miniaudio's own examples do, and its enum member is set there.
+    ma_device device{}; // NOLINT(bugprone-invalid-enum-default-initialization)
+    /// Whether ma_device_init() succeeded, so the destructor must uninit it.
+    bool initialised = false;
+
+    OwnedDevice() = default;
+
+    /// Closes the device, stopping it and its callback first if it runs.
+    ~OwnedDevice() {
+        if (initialised) {
+            ma_device_uninit(&device);
+        }
+    }
+
+    OwnedDevice(const OwnedDevice&) = delete;
+    OwnedDevice& operator=(const OwnedDevice&) = delete;
+    OwnedDevice(OwnedDevice&&) = delete;
+    OwnedDevice& operator=(OwnedDevice&&) = delete;
+};
+
 /// The default output device, fed from a ring buffer.
 class DeviceSink final : public AudioSink {
 public:
@@ -75,14 +106,15 @@ public:
         config.sampleRate = static_cast<ma_uint32>(rate.value());
         config.dataCallback = &DeviceSink::callback;
         config.pUserData = this;
-        if (ma_device_init(nullptr, &config, &device_) != MA_SUCCESS) {
+        if (ma_device_init(nullptr, &config, &device_.device) != MA_SUCCESS) {
             throw std::runtime_error{"cannot open the default audio output device"};
         }
-        initialised_ = true;
+        device_.initialised = true;
 
-        const ma_uint32 deviceRate = device_.playback.internalSampleRate;
-        logLine(LogLevel::Info, "audio device: " + std::string{std::data(device_.playback.name)} +
-                                    ", " + std::to_string(device_.playback.channels) +
+        const ma_device& device = device_.device;
+        const ma_uint32 deviceRate = device.playback.internalSampleRate;
+        logLine(LogLevel::Info, "audio device: " + std::string{std::data(device.playback.name)} +
+                                    ", " + std::to_string(device.playback.channels) +
                                     " channel(s) at " + std::to_string(deviceRate) + " Hz");
         if (std::cmp_not_equal(deviceRate, rate.value())) {
             logLine(LogLevel::Info, "the device runs at " + std::to_string(deviceRate) +
@@ -91,12 +123,8 @@ public:
         }
     }
 
-    /// Closes the device.
-    ~DeviceSink() override {
-        if (initialised_) {
-            ma_device_uninit(&device_);
-        }
-    }
+    /// Closes the device, through device_, the first member destroyed.
+    ~DeviceSink() override = default;
 
     DeviceSink(const DeviceSink&) = delete;
     DeviceSink& operator=(const DeviceSink&) = delete;
@@ -104,7 +132,7 @@ public:
     DeviceSink& operator=(DeviceSink&&) = delete;
 
     void start() override {
-        if (ma_device_start(&device_) != MA_SUCCESS) {
+        if (ma_device_start(&device_.device) != MA_SUCCESS) {
             throw std::runtime_error{"cannot start the default audio output device"};
         }
     }
@@ -132,12 +160,12 @@ public:
         // The ring is empty, but the device still holds what it took last:
         // up to its whole buffer, periods × period size. Let that play out.
         const double bufferedSeconds =
-            static_cast<double>(
-                device_.playback.internalPeriodSizeInFrames * device_.playback.internalPeriods) /
-            static_cast<double>(std::max<ma_uint32>(device_.playback.internalSampleRate, 1));
+            static_cast<double>(device_.device.playback.internalPeriodSizeInFrames *
+                                device_.device.playback.internalPeriods) /
+            static_cast<double>(std::max<ma_uint32>(device_.device.playback.internalSampleRate, 1));
         std::this_thread::sleep_for(
             std::chrono::duration<double>(bufferedSeconds) + std::chrono::milliseconds{50});
-        ma_device_stop(&device_);
+        ma_device_stop(&device_.device);
     }
 
     void abort() noexcept override {
@@ -200,12 +228,6 @@ private:
     SampleRing ring_;
     /// The callback's working buffer, allocated once here.
     std::vector<float> scratch_;
-    /// The miniaudio playback device the callback fills.
-    /// A C struct that ma_device_init() fills in; zeroing it first is what
-    /// miniaudio's own examples do, and its enum member is set there.
-    ma_device device_{}; // NOLINT(bugprone-invalid-enum-default-initialization)
-    /// Whether ma_device_init() succeeded, so the destructor must uninit device_.
-    bool initialised_ = false;
     /// Set by the first write(): from then on a dry ring is an underrun.
     std::atomic<bool> primed_{false};
     /// Set by finish() or abort(): from then on a dry ring is expected.
@@ -214,6 +236,10 @@ private:
     std::atomic<bool> aborted_{false};
     /// Silent samples the callback played while audio was expected (underrun()).
     std::atomic<std::uint64_t> underrun_{0};
+    /// The miniaudio playback device the callback fills. Declared last, so
+    /// that it is destroyed first: closing it stops the callback before
+    /// anything the callback touches is destroyed.
+    OwnedDevice device_;
 };
 
 } // namespace

@@ -147,8 +147,8 @@ SessionResult playSession(PlaybackApi& api, ObjectFetcher& fetcher, AudioSink& s
     std::thread network;
     std::thread feeder;
     const SessionThreadsGuard guard{board, sink, {&network, &feeder}};
-    network = std::thread{
-        [&] { runNetwork(board, api, fetcher, plan.frames, buffer, networkSettings); }};
+    network =
+        std::thread{[&] { runNetwork(board, api, fetcher, plan.frames, buffer, networkSettings); }};
     feeder = std::thread{[&] {
         report = runFeeder(board, plan.frames, buffer, sink, feederSettings);
         feederDone.store(true);
