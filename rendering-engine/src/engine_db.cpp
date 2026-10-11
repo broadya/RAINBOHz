@@ -226,7 +226,11 @@ EngineDb::EngineDb(std::string_view path)
 
 // Out of line so that the header never needs Ladybug's definitions in order to
 // destroy the unique_ptr members.
-EngineDb::~EngineDb() = default;
+EngineDb::~EngineDb() {
+    prepared_.clear();
+    connection_.reset();
+    database_.reset();
+}
 
 void EngineDb::execute(std::string_view cypher) {
     auto result = connection_->query(std::string{cypher});

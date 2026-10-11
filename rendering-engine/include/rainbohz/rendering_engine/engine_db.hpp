@@ -198,11 +198,12 @@ public:
     ///                        carries Ladybug's own error text.
     explicit EngineDb(std::string_view path);
 
-    /// Closes the connection, then the database.
+    /// Releases the prepared statements, then closes the connection, then the
+    /// database.
     ///
-    /// Members are destroyed in reverse declaration order, so the Connection
-    /// goes before the Database it points at. An in-memory database and its
-    /// contents are discarded; an on-disk one persists.
+    /// The order is explicit rather than left to member declaration order:
+    /// each of these points into the one after it. An in-memory database and
+    /// its contents are discarded; an on-disk one persists.
     ~EngineDb();
 
     /// @name Copying and moving
@@ -369,7 +370,6 @@ private:
     /// The connection every statement runs on.
     std::unique_ptr<lbug::main::Connection> connection_;
 
-    // Declared after connection_ so that they are destroyed before it.
     /// Prepared statements cached by query(), keyed by their Cypher text.
     std::unordered_map<std::string, std::unique_ptr<lbug::main::PreparedStatement>> prepared_;
 };
