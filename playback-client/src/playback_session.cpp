@@ -2,15 +2,19 @@
 
 #include "rainbohz/playback_client/playback_session.hpp"
 
+#include "rainbohz/playback_client/audio_sink.hpp"
 #include "rainbohz/playback_client/feeder.hpp"
 #include "rainbohz/playback_client/lane_board.hpp"
 #include "rainbohz/playback_client/log.hpp"
 #include "rainbohz/playback_client/network_worker.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <initializer_list>
 #include <string>
 #include <thread>
+#include <vector>
 
 /// @file
 /// @brief Plans a session with the server, and runs its threads.
@@ -23,6 +27,55 @@ namespace {
 
 /// How often the main thread looks at the interrupt flag and the threads.
 constexpr std::chrono::milliseconds kPollInterval{50};
+
+/// Joins the session's threads if playSession() leaves before it has.
+///
+/// A std::thread that is still joinable when it is destroyed ends the
+/// process, so an exception between starting the threads and joining them --
+/// the second thread failing to start, say -- must not get past them. Joining
+/// alone is not enough: the network thread may be waiting for a lane that
+/// only the feeder would free. So the session is stopped and the sink aborted
+/// first, which wakes every wait (lane_board.hpp), and then each thread still
+/// running is joined. On the normal path both are joined already and this
+/// does nothing.
+class SessionThreadsGuard {
+public:
+    /// A guard over `threads`, which it will stop through `board` and `sink`.
+    ///
+    /// @param board    The session's board. Must outlive the guard.
+    /// @param sink     The session's output. Must outlive the guard.
+    /// @param threads  The threads to join; each may be empty or joined.
+    ///                 Must outlive the guard.
+    SessionThreadsGuard(
+        LaneBoard& board, AudioSink& sink, std::initializer_list<std::thread*> threads)
+        : board_{&board}, sink_{&sink}, threads_{threads} {}
+
+    ~SessionThreadsGuard() {
+        if (std::ranges::none_of(threads_, [](const std::thread* t) { return t->joinable(); })) {
+            return;
+        }
+        board_->requestStop();
+        sink_->abort();
+        for (std::thread* thread : threads_) {
+            if (thread->joinable()) {
+                thread->join();
+            }
+        }
+    }
+
+    SessionThreadsGuard(const SessionThreadsGuard&) = delete;
+    SessionThreadsGuard& operator=(const SessionThreadsGuard&) = delete;
+    SessionThreadsGuard(SessionThreadsGuard&&) = delete;
+    SessionThreadsGuard& operator=(SessionThreadsGuard&&) = delete;
+
+private:
+    /// Stopped first, to wake every wait. Never null.
+    LaneBoard* board_;
+    /// Aborted first, so the feeder does not wait for room. Never null.
+    AudioSink* sink_;
+    /// The threads, joined in order if still running. None null.
+    std::vector<std::thread*> threads_;
+};
 
 /// Checks a position's ticks against the map's resolution.
 ///
@@ -89,9 +142,14 @@ SessionResult playSession(PlaybackApi& api, ObjectFetcher& fetcher, AudioSink& s
 
     std::atomic<bool> feederDone{false};
     FeederReport report;
-    std::thread network{
+    // The threads are declared before the guard, so the guard is destroyed
+    // first and joins them before their own destructors run.
+    std::thread network;
+    std::thread feeder;
+    const SessionThreadsGuard guard{board, sink, {&network, &feeder}};
+    network = std::thread{
         [&] { runNetwork(board, api, fetcher, plan.frames, buffer, networkSettings); }};
-    std::thread feeder{[&] {
+    feeder = std::thread{[&] {
         report = runFeeder(board, plan.frames, buffer, sink, feederSettings);
         feederDone.store(true);
     }};
