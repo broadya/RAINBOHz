@@ -139,13 +139,15 @@ public:
     }
 
     bool write(std::span<const float> samples) override {
-        primed_.store(true, std::memory_order_release);
         while (!samples.empty()) {
             if (aborted_.load()) {
                 return false;
             }
             throwIfDeviceLost();
             const std::size_t pushed = ring_.push(samples);
+            if (pushed > 0) {
+                primed_.store(true, std::memory_order_release);
+            }
             samples = samples.subspan(pushed);
             if (!samples.empty()) {
                 std::this_thread::sleep_for(kPollInterval);
@@ -262,7 +264,8 @@ private:
     SampleRing ring_;
     /// The callback's working buffer, allocated once here.
     std::vector<float> scratch_;
-    /// Set by the first write(): from then on a dry ring is an underrun.
+    /// Set once write() has pushed samples: from then on a dry ring is an
+    /// underrun.
     std::atomic<bool> primed_{false};
     /// Set by finish() or abort(): from then on a dry ring is expected.
     std::atomic<bool> finishing_{false};
