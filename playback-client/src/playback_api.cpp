@@ -39,6 +39,7 @@ namespace rainbohz::playback_client {
 
 namespace {
 
+/// The JSON value type the server's answers are parsed into.
 using Json = nlohmann::json;
 
 /// How long to wait for a connection to the server.
@@ -280,6 +281,7 @@ private:
         return body;
     }
 
+    /// The server's origin and the base path every call is under.
     ServerUrl url_;
 };
 

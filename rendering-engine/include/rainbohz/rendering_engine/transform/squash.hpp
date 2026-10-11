@@ -39,6 +39,7 @@ struct Placement {
     /// The time it was placed at.
     SampleTime time;
 
+    /// Memberwise equality: true when every field is equal.
     friend bool operator==(const Placement&, const Placement&) = default;
 };
 

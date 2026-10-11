@@ -51,6 +51,7 @@ public:
     int status() const noexcept { return status_; }
 
 private:
+    /// The HTTP status of the answer; 0 when there was no answer.
     int status_;
 };
 

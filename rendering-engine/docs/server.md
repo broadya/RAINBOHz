@@ -4,7 +4,7 @@
 authentication, one call at a time. The calls are specified by the OpenAPI
 3.1.1 document [`api/openapi.yaml`](../api/openapi.yaml), which is
 authoritative where it and this page differ. The conventions are
-[ADR 0017](../../docs/adr/0017-rest-resources-under-v1-described-by-openapi-3-1.md).
+@see ADR 0017.
 
 `server` mode keeps the engine running between operations, with the loaded
 score in memory, and takes its operations as REST calls. It runs the same
@@ -215,7 +215,7 @@ Where a musical position falls in the sample stream:
 ```
 
 `at` is written as HzL writes positions
-([hzl-reference.md](../../hzl-compiler/docs/hzl-reference.md)): `beats:ticks`,
+(@see hzl-reference.md): `beats:ticks`,
 two non-negative integers with the ticks below the map's `ticks_per_beat`, or a
 bare number of beats. It comes back written in full.
 
@@ -287,7 +287,7 @@ keeping a connection open. A long score load delays every call behind it,
 which is the intended trade: one `engine-db` and one score, and no locking, no
 half-loaded state visible to a concurrent call, and no question of what two
 loads at once would mean. See
-[ADR 0016](../../docs/adr/0016-serve-rest-with-cpp-httplib-one-call-at-a-time.md).
+@see ADR 0016.
 
 ## 6. Example
 

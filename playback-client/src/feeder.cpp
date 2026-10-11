@@ -21,6 +21,7 @@ namespace rainbohz::playback_client {
 
 namespace {
 
+/// The monotonic clock that waits and the startup time are measured with.
 using Clock = std::chrono::steady_clock;
 
 /// Waits shorter than this are not recorded: they are the cost of a lock and
@@ -148,13 +149,22 @@ private:
         }
     }
 
+    /// The lane state shared with the network thread.
     LaneBoard* board_;
+    /// The frames of one pass, and the samples played from each.
     const FramePlan* plan_;
+    /// The run's buffer directory, where the lanes' frame files are.
     const BufferDir* buffer_;
+    /// The audio output every loop is written to.
     AudioSink* sink_;
+    /// How many loops to play, and the sample rate every frame must have.
     FeederSettings settings_;
+    /// When the feeder was made; the startup time is measured from it.
     Clock::time_point started_;
+    /// What the feeder has done so far; run() returns it.
     FeederReport report_;
+    /// The sink's underrun total at the last reportUnderrun(), so only new
+    /// silence is logged.
     SampleCount reported_;
 };
 

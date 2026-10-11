@@ -551,6 +551,8 @@ struct PartialOutcome {
     std::size_t entryCount = 0;
 
     /// True when the partial was precomputed and written.
+    ///
+    /// @return True when `error` is nullopt.
     bool ok() const noexcept { return !error.has_value(); }
 };
 
@@ -568,6 +570,8 @@ struct PrecomputationReport {
     std::size_t failureCount() const noexcept;
 
     /// True when every partial succeeded, including when there are none.
+    ///
+    /// @return True when failureCount() is zero.
     bool ok() const noexcept { return failureCount() == 0; }
 };
 

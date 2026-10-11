@@ -23,7 +23,7 @@ the only part of the engine that reads musical time.
 The canonical model is what a practitioner means: a score in **musical time**,
 on a tempo map, in Hertz and decibels. The rendering model is what the engine
 computes from: **physical time** in samples, radians per sample, one timeline
-per partial per parameter ([ADR 0012](../../docs/adr/0012-distinguish-musical-and-physical-time.md)).
+per partial per parameter (@see ADR 0012).
 Both live in `engine-db`. The transform is the step between them. It reads the
 canonical tables, converts, and writes the rendering tables, so that
 precomputation ([precomputation.md](precomputation.md)) and rendering
@@ -35,7 +35,7 @@ Two things make the step more than a change of units:
   offset in seconds (a percussive attack has the same length at any tempo),
   so after conversion points can land out of order or before time zero. The
   user's order of states is kept and time yields (§6.3,
-  [ADR 0014](../../docs/adr/0014-resolve-time-collisions-by-semantic-order.md)).
+  @see ADR 0014).
 - **Partials come apart.** A canonical timeline belongs to a partial set and
   states several partials at once, each property optional. The rendering
   model wants one list per partial per property. Each partial's envelope for
@@ -47,7 +47,7 @@ Two things make the step more than a change of units:
 | In this version | Not yet |
 | --- | --- |
 | One `TempoMap` per `Score`, reached by `Score → NEXT_POINT → TempoMap` | Several tempo maps and `TEMPO_MAP_SYNCHRONIZATION_POINT`; any such edge is refused |
-| Held tempi and ramps linear in musical position ([ADR 0013](../../docs/adr/0013-tempo-ramps-are-linear-in-musical-position.md)) | Other ramp shapes |
+| Held tempi and ramps linear in musical position (@see ADR 0013) | Other ramp shapes |
 | `PartialSetMusicalTimeline` → one `FrequencyPhysicalTimeline`, one `AmplitudePhysicalTimeline` and one `PhasePhysicalTimeline` per partial | |
 | `SpatialPositionMusicalTimeline` → one `AzimuthPhysicalTimeline`, one `ElevationPhysicalTimeline` and one `DistancePhysicalTimeline` per SoundSource (§6.8) | |
 | `PartialState.phase` in degrees with `phase_free_run`: a target, a free-running point, or no role (§6.6) | |
@@ -409,7 +409,7 @@ Decided with the author on 2026-10-03. `PartialState.phase` and
 `phase_free_run` together become the partial's `PhasePhysicalTimeline`, from
 which precomputation derives the initial phase and the compensation segments
 (precomputation.md §6.8,
-[ADR 0019](../../docs/adr/0019-phase-targets-are-met-by-linear-compensation-segments.md)).
+@see ADR 0019).
 Phase transitions are always linear; the canonical model has no curve and no
 phase lock for them (both removed by the author, 2026-10-03).
 

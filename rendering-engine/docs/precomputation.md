@@ -599,7 +599,7 @@ version computes `t*_k` in source time, which is the zero-delay rule.
 
 ### 6.8 Phase control
 
-Decided with the author on 2026-10-03; [ADR 0019](../../docs/adr/0019-phase-targets-are-met-by-linear-compensation-segments.md)
+Decided with the author on 2026-10-03; @see ADR 0019
 records the decision.
 
 **Phase is a target, not an envelope.** A `PhasePhysicalTimelinePoint`

@@ -77,6 +77,8 @@ struct BlockState {
     explicit BlockState(std::size_t partials);
 
     /// The number of lanes.
+    ///
+    /// @return The length of every array, one lane per partial.
     std::size_t size() const noexcept { return phase.size(); }
 };
 

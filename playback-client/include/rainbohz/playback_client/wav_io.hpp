@@ -68,6 +68,7 @@ public:
 
 private:
     struct Impl;
+    /// dr_wav's state for the open file, kept out of this header.
     std::unique_ptr<Impl> impl_;
 };
 

@@ -156,6 +156,7 @@ struct Census {
     /// Row totals across all tables, including any omitted above (there are
     /// none, but the totals do not depend on that).
     std::int64_t totalNodes = 0;
+    /// Relationship rows across all tables, counted the same way.
     std::int64_t totalRelationships = 0;
 
     /// Tests whether the database holds any data at all.
@@ -361,11 +362,15 @@ public:
     static std::string ladybugVersion();
 
 private:
+    /// The path the database was opened at; ":memory:" for an in-memory one.
     std::string path_;
+    /// The open Ladybug database.
     std::unique_ptr<lbug::main::Database> database_;
+    /// The connection every statement runs on.
     std::unique_ptr<lbug::main::Connection> connection_;
 
     // Declared after connection_ so that they are destroyed before it.
+    /// Prepared statements cached by query(), keyed by their Cypher text.
     std::unordered_map<std::string, std::unique_ptr<lbug::main::PreparedStatement>> prepared_;
 };
 
@@ -405,8 +410,9 @@ public:
     void commit();
 
 private:
+    /// The database the transaction runs on.
     EngineDb* db_; // Never null. A pointer, not a reference member (Core Guidelines C.12).
-    bool committed_ = false;
+    bool committed_ = false; ///< Whether commit() has succeeded, so no rollback is due.
 };
 
 } // namespace rainbohz::rendering_engine

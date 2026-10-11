@@ -78,6 +78,7 @@ public:
     }
 
 private:
+    /// The samples; sample number n is at n modulo capacity().
     std::vector<float> buffer_;
     /// Samples ever pushed. Written by the producer only.
     std::atomic<std::uint64_t> write_{0};

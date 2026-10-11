@@ -993,8 +993,11 @@ constexpr std::array<MusicalTimelineKind, 2> kMusicalTimelines{{
 
 /// What a musical timeline point's POINT_AT says, as read.
 struct PointAt {
+    /// TempoMap.id of the TempoMap the POINT_AT leads to.
     std::optional<std::int64_t> tempoMapId;
+    /// POINT_AT.sync_point.
     std::optional<std::int64_t> syncPoint;
+    /// POINT_AT.offset_seconds, in seconds.
     std::optional<double> offsetSeconds;
 };
 
@@ -1057,8 +1060,11 @@ IntegrityCheck checkPointAt(EngineDb& db, const MusicalTimelineKind& kind) {
 struct MusicalList {
     /// The owner's id: a PartialSet or a SoundSource.
     std::int64_t ownerId = 0;
+    /// The timeline's point ids, in list order.
     std::vector<std::int64_t> points;
+    /// Score.id of the Score the owner hangs from.
     std::optional<std::int64_t> scoreId;
+    /// TempoMap.id of the TempoMap that Score's NEXT_POINT leads to.
     std::optional<std::int64_t> tempoMapId;
 };
 
@@ -1378,7 +1384,9 @@ std::optional<std::int64_t> listOwner(
 
 } // namespace
 
-ListDefects findListDefects(const IdMap& heads, const IdMap& next) {
+// Spelled as in integrity.hpp, not IdMap, so Doxygen pairs the two.
+ListDefects findListDefects(const std::unordered_map<std::int64_t, std::int64_t>& heads,
+    const std::unordered_map<std::int64_t, std::int64_t>& next) {
     ListDefects defects{.cycles = findCycles(next), .merges = {}};
 
     // Heads, by node, and predecessors, by node: the reverse of `heads` and

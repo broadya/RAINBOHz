@@ -53,6 +53,8 @@ public:
     constexpr explicit SampleDuration(double samples) noexcept : value_{samples} {}
 
     /// The duration in samples.
+    ///
+    /// @return The duration as a double, in samples.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
@@ -88,18 +90,24 @@ public:
     }
 
     /// Adds `other` to this value in place.
+    ///
+    /// @param other  The value to add.
+    /// @return `*this`.
     constexpr SampleDuration& operator+=(SampleDuration other) noexcept {
         value_ += other.value_;
         return *this;
     }
     /// Subtracts `other` from this value in place.
+    ///
+    /// @param other  The value to subtract.
+    /// @return `*this`.
     constexpr SampleDuration& operator-=(SampleDuration other) noexcept {
         value_ -= other.value_;
         return *this;
     }
 
 private:
-    double value_ = 0.0;
+    double value_ = 0.0; ///< Length in samples; 0 by default.
 };
 
 /// An absolute point in time, in samples from the start of the score.
@@ -123,6 +131,8 @@ public:
     constexpr explicit SampleTime(double samples) noexcept : value_{samples} {}
 
     /// The position in samples from the start of the score.
+    ///
+    /// @return The position as a double, in samples.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
@@ -146,18 +156,24 @@ public:
     }
 
     /// Adds `d` to this value in place.
+    ///
+    /// @param d  The duration to add.
+    /// @return `*this`.
     constexpr SampleTime& operator+=(SampleDuration d) noexcept {
         value_ += d.value();
         return *this;
     }
     /// Subtracts `d` from this value in place.
+    ///
+    /// @param d  The duration to subtract.
+    /// @return `*this`.
     constexpr SampleTime& operator-=(SampleDuration d) noexcept {
         value_ -= d.value();
         return *this;
     }
 
 private:
-    double value_ = 0.0;
+    double value_ = 0.0; ///< Samples from the start of the score; 0 by default.
 };
 
 /// A position within a frame, in whole samples: sample `n` of frame `k` is
@@ -174,6 +190,8 @@ public:
     constexpr explicit SampleIndex(std::int32_t index) noexcept : value_{index} {}
 
     /// The position within the frame.
+    ///
+    /// @return The index as an INT32, from 0.
     constexpr std::int32_t value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
@@ -189,7 +207,7 @@ public:
     }
 
 private:
-    std::int32_t value_;
+    std::int32_t value_; ///< Position within the frame, from 0.
 };
 
 // ---------------------------------------------------------------------------
@@ -218,6 +236,8 @@ public:
     constexpr explicit SecondsDuration(double seconds) noexcept : value_{seconds} {}
 
     /// The duration in seconds.
+    ///
+    /// @return The duration as a double, in seconds.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
@@ -253,13 +273,16 @@ public:
     }
 
     /// Adds `other` to this value in place.
+    ///
+    /// @param other  The value to add.
+    /// @return `*this`.
     constexpr SecondsDuration& operator+=(SecondsDuration other) noexcept {
         value_ += other.value_;
         return *this;
     }
 
 private:
-    double value_ = 0.0;
+    double value_ = 0.0; ///< Length in seconds; 0 by default.
 };
 
 /// An absolute point in physical time, in seconds from the start of the
@@ -279,6 +302,8 @@ public:
     constexpr explicit SecondsTime(double seconds) noexcept : value_{seconds} {}
 
     /// The position in seconds from the start of the score.
+    ///
+    /// @return The position as a double, in seconds.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
@@ -302,13 +327,16 @@ public:
     }
 
     /// Adds `d` to this value in place.
+    ///
+    /// @param d  The duration to add.
+    /// @return `*this`.
     constexpr SecondsTime& operator+=(SecondsDuration d) noexcept {
         value_ += d.value();
         return *this;
     }
 
 private:
-    double value_ = 0.0;
+    double value_ = 0.0; ///< Seconds from the start of the score; 0 by default.
 };
 
 // ---------------------------------------------------------------------------
@@ -331,6 +359,8 @@ public:
     constexpr explicit Phase(double radians) noexcept : value_{radians} {}
 
     /// The phase in radians, unwrapped.
+    ///
+    /// @return The phase as a double, in radians.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
@@ -356,18 +386,24 @@ public:
     }
 
     /// Adds `other` to this value in place.
+    ///
+    /// @param other  The value to add.
+    /// @return `*this`.
     constexpr Phase& operator+=(Phase other) noexcept {
         value_ += other.value_;
         return *this;
     }
     /// Subtracts `other` from this value in place.
+    ///
+    /// @param other  The value to subtract.
+    /// @return `*this`.
     constexpr Phase& operator-=(Phase other) noexcept {
         value_ -= other.value_;
         return *this;
     }
 
 private:
-    double value_ = 0.0;
+    double value_ = 0.0; ///< Unwrapped phase in radians; 0 by default.
 };
 
 /// Reduces a phase to the range [-π, π].
@@ -419,6 +455,8 @@ public:
         : value_{radiansPerSample} {}
 
     /// The frequency in radians per sample.
+    ///
+    /// @return The frequency as a double, in radians per sample.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
@@ -455,7 +493,7 @@ public:
     }
 
 private:
-    double value_ = 0.0;
+    double value_ = 0.0; ///< Radians per sample; 0 by default.
 };
 
 /// The constant frequency that accumulates `p` over `d`: the rate of a linear
@@ -485,6 +523,8 @@ public:
         : value_{radiansPerSampleSquared} {}
 
     /// The gradient in radians per sample².
+    ///
+    /// @return The gradient as a double, in radians per sample².
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
@@ -500,7 +540,7 @@ public:
     }
 
 private:
-    double value_ = 0.0;
+    double value_ = 0.0; ///< Radians per sample²; 0 by default.
 };
 
 /// The gradient that changes frequency by `change` over `d`.
@@ -534,6 +574,8 @@ public:
     constexpr explicit Decibels(double decibels) noexcept : value_{decibels} {}
 
     /// The amplitude in dB.
+    ///
+    /// @return The amplitude as a double, in dB.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
@@ -551,18 +593,24 @@ public:
     friend constexpr Decibels operator-(Decibels a) noexcept { return Decibels{-a.value_}; }
 
     /// Adds `other` to this value in place.
+    ///
+    /// @param other  The value to add.
+    /// @return `*this`.
     constexpr Decibels& operator+=(Decibels other) noexcept {
         value_ += other.value_;
         return *this;
     }
     /// Subtracts `other` from this value in place.
+    ///
+    /// @param other  The value to subtract.
+    /// @return `*this`.
     constexpr Decibels& operator-=(Decibels other) noexcept {
         value_ -= other.value_;
         return *this;
     }
 
 private:
-    double value_ = 0.0;
+    double value_ = 0.0; ///< Amplitude in dB; 0 (full scale) by default.
 };
 
 /// A rate of change of amplitude, in dB per sample.
@@ -581,6 +629,8 @@ public:
         : value_{decibelsPerSample} {}
 
     /// The gradient in dB per sample.
+    ///
+    /// @return The gradient as a double, in dB per sample.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
@@ -596,7 +646,7 @@ public:
     }
 
 private:
-    double value_ = 0.0;
+    double value_ = 0.0; ///< dB per sample; 0 by default.
 };
 
 /// The gradient that changes amplitude by `change` over `d`.
@@ -626,13 +676,15 @@ public:
     constexpr explicit LinearAmplitude(double multiplier) noexcept : value_{multiplier} {}
 
     /// The multiplier.
+    ///
+    /// @return The multiplier as a double, unitless.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
     friend constexpr auto operator<=>(LinearAmplitude, LinearAmplitude) noexcept = default;
 
 private:
-    double value_ = 0.0;
+    double value_ = 0.0; ///< Unitless multiplier; 0 (silence) by default.
 };
 
 /// A wall-clock frequency, in hertz.
@@ -649,13 +701,15 @@ public:
     constexpr explicit Hertz(double hertz) noexcept : value_{hertz} {}
 
     /// The frequency in Hz.
+    ///
+    /// @return The frequency as a double, in Hz.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
     friend constexpr auto operator<=>(Hertz, Hertz) noexcept = default;
 
 private:
-    double value_;
+    double value_; ///< Frequency in Hz.
 };
 
 /// A phase in degrees: the canonical model's unit for PartialState.phase,
@@ -669,13 +723,15 @@ public:
     constexpr explicit Degrees(double degrees) noexcept : value_{degrees} {}
 
     /// The phase in degrees.
+    ///
+    /// @return The phase as a double, in degrees.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
     friend constexpr auto operator<=>(Degrees, Degrees) noexcept = default;
 
 private:
-    double value_;
+    double value_; ///< Phase in degrees.
 };
 
 /// Converts a canonical phase target to the rendering model's unit.
@@ -718,13 +774,15 @@ public:
     constexpr explicit Azimuth(double radians) noexcept : value_{radians} {}
 
     /// The azimuth in radians.
+    ///
+    /// @return The azimuth as a double, in radians.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
     friend constexpr auto operator<=>(Azimuth, Azimuth) noexcept = default;
 
 private:
-    double value_ = 0.0;
+    double value_ = 0.0; ///< Radians anticlockwise from the front; 0 by default.
 };
 
 /// An elevation, in radians: up from the horizontal plane, π/2 straight up.
@@ -741,13 +799,15 @@ public:
     constexpr explicit Elevation(double radians) noexcept : value_{radians} {}
 
     /// The elevation in radians.
+    ///
+    /// @return The elevation as a double, in radians.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
     friend constexpr auto operator<=>(Elevation, Elevation) noexcept = default;
 
 private:
-    double value_ = 0.0;
+    double value_ = 0.0; ///< Radians up from the horizontal; 0 by default.
 };
 
 /// A distance from the receiver, in metres.
@@ -765,13 +825,15 @@ public:
     constexpr explicit Metres(double metres) noexcept : value_{metres} {}
 
     /// The distance in metres.
+    ///
+    /// @return The distance as a double, in metres.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
     friend constexpr auto operator<=>(Metres, Metres) noexcept = default;
 
 private:
-    double value_ = 1.0;
+    double value_ = 1.0; ///< Distance in metres; 1 (the reference) by default.
 };
 
 /// An azimuth in degrees: the canonical model's unit for
@@ -786,13 +848,15 @@ public:
     constexpr explicit AzimuthDegrees(double degrees) noexcept : value_{degrees} {}
 
     /// The azimuth in degrees.
+    ///
+    /// @return The azimuth as a double, in degrees.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
     friend constexpr auto operator<=>(AzimuthDegrees, AzimuthDegrees) noexcept = default;
 
 private:
-    double value_;
+    double value_; ///< Azimuth in degrees.
 };
 
 /// An elevation in degrees: the canonical model's unit for
@@ -807,13 +871,15 @@ public:
     constexpr explicit ElevationDegrees(double degrees) noexcept : value_{degrees} {}
 
     /// The elevation in degrees.
+    ///
+    /// @return The elevation as a double, in degrees.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
     friend constexpr auto operator<=>(ElevationDegrees, ElevationDegrees) noexcept = default;
 
 private:
-    double value_;
+    double value_; ///< Elevation in degrees.
 };
 
 /// Converts a canonical azimuth to the rendering model's unit.
@@ -852,13 +918,15 @@ public:
     constexpr explicit AngleGradient(double radiansPerSample) noexcept : value_{radiansPerSample} {}
 
     /// The gradient in radians per sample.
+    ///
+    /// @return The gradient as a double, in radians per sample.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
     friend constexpr auto operator<=>(AngleGradient, AngleGradient) noexcept = default;
 
 private:
-    double value_ = 0.0;
+    double value_ = 0.0; ///< Radians per sample; 0 by default.
 };
 
 /// A rate of change of distance, in metres per sample.
@@ -874,13 +942,15 @@ public:
         : value_{metresPerSample} {}
 
     /// The gradient in metres per sample.
+    ///
+    /// @return The gradient as a double, in metres per sample.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
     friend constexpr auto operator<=>(DistanceGradient, DistanceGradient) noexcept = default;
 
 private:
-    double value_ = 0.0;
+    double value_ = 0.0; ///< Metres per sample; 0 by default.
 };
 
 /// A signed linear gain: a multiplier on a sample, unitless.
@@ -899,6 +969,8 @@ public:
     constexpr explicit LinearGain(double multiplier) noexcept : value_{multiplier} {}
 
     /// The multiplier.
+    ///
+    /// @return The multiplier as a double, signed and unitless.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
@@ -911,7 +983,7 @@ public:
     }
 
 private:
-    double value_ = 0.0;
+    double value_ = 0.0; ///< Signed multiplier; 0 (silence) by default.
 };
 
 // ---------------------------------------------------------------------------
@@ -932,13 +1004,15 @@ public:
         : value_{samplesPerSecond} {}
 
     /// The rate in samples per second.
+    ///
+    /// @return The rate as an INT32, in samples per second.
     constexpr std::int32_t value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
     friend constexpr auto operator<=>(SampleRate, SampleRate) noexcept = default;
 
 private:
-    std::int32_t value_;
+    std::int32_t value_; ///< Samples per second.
 };
 
 /// The length of a frame, in samples. Frame *k* covers
@@ -967,13 +1041,15 @@ public:
     }
 
     /// The frame size in samples.
+    ///
+    /// @return The frame size as an INT32, in samples.
     constexpr std::int32_t value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
     friend constexpr auto operator<=>(FrameSize, FrameSize) noexcept = default;
 
 private:
-    std::int32_t value_;
+    std::int32_t value_; ///< Frame length in samples.
 };
 
 /// The index of a frame. Frame 0 is the first frame of the score.
@@ -988,13 +1064,15 @@ public:
     constexpr explicit FrameNumber(std::int32_t index) noexcept : value_{index} {}
 
     /// The frame index.
+    ///
+    /// @return The frame index as an INT32.
     constexpr std::int32_t value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
     friend constexpr auto operator<=>(FrameNumber, FrameNumber) noexcept = default;
 
 private:
-    std::int32_t value_;
+    std::int32_t value_; ///< Frame index; 0 is the first frame of the score.
 };
 
 namespace detail {

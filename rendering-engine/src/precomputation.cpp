@@ -62,62 +62,70 @@ namespace {
 // parameters, never spliced into the text.
 // ---------------------------------------------------------------------------
 
+/// Reads the engine's frame size and sample rate.
 constexpr std::string_view kReadConfig = "MATCH (c:EngineConfig) RETURN c.frameSize, c.sampleRate;";
 
+/// Reads every Partial's id and name, in id order.
 constexpr std::string_view kReadPartials = "MATCH (p:Partial) RETURN p.id, p.name ORDER BY p.id;";
 
-// One row per FrequencyPhysicalTimeline, with the head of its point list, or NULL
-// when the timeline has no points.
+/// One row per FrequencyPhysicalTimeline, with the head of its point list, or NULL
+/// when the timeline has no points.
 constexpr std::string_view kReadFrequencyHeads =
     "MATCH (p:Partial)-[:HAS_PHYSICAL_TIMELINE]->(t:FrequencyPhysicalTimeline) "
     "OPTIONAL MATCH (t)-[:NEXT_POINT]->(f:FrequencyPhysicalTimelinePoint) "
     "RETURN p.id, f.id;";
 
+/// Reads every FrequencyPhysicalTimelinePoint's time, frequency and curve type.
 constexpr std::string_view kReadFrequencyPoints =
     "MATCH (f:FrequencyPhysicalTimelinePoint) "
     "RETURN f.id, f.time, f.frequency, f.frequency_curve_type;";
 
+/// Reads the NEXT_POINT links between FrequencyPhysicalTimelinePoints.
 constexpr std::string_view kReadFrequencyLinks =
     "MATCH (a:FrequencyPhysicalTimelinePoint)-[:NEXT_POINT]->(b:FrequencyPhysicalTimelinePoint) "
     "RETURN a.id, b.id;";
 
-// The amplitude timeline is read for its times only, so that the frame
-// entries of §6.7 can lead into it; its values are rendering's concern.
+/// The amplitude timeline is read for its times only, so that the frame
+/// entries of §6.7 can lead into it; its values are rendering's concern.
 constexpr std::string_view kReadAmplitudeHeads =
     "MATCH (p:Partial)-[:HAS_PHYSICAL_TIMELINE]->(t:AmplitudePhysicalTimeline) "
     "OPTIONAL MATCH (t)-[:NEXT_POINT]->(a:AmplitudePhysicalTimelinePoint) "
     "RETURN p.id, a.id;";
 
+/// Reads every AmplitudePhysicalTimelinePoint's time.
 constexpr std::string_view kReadAmplitudePoints =
     "MATCH (a:AmplitudePhysicalTimelinePoint) RETURN a.id, a.time;";
 
+/// Reads the NEXT_POINT links between AmplitudePhysicalTimelinePoints.
 constexpr std::string_view kReadAmplitudeLinks =
     "MATCH (a:AmplitudePhysicalTimelinePoint)-[:NEXT_POINT]->(b:AmplitudePhysicalTimelinePoint) "
     "RETURN a.id, b.id;";
 
-// The phase timeline: its targets, and the NULL points up to which the
-// partial runs free (§6.8).
+/// The phase timeline: its targets, and the NULL points up to which the
+/// partial runs free (§6.8).
 constexpr std::string_view kReadPhaseHeads =
     "MATCH (p:Partial)-[:HAS_PHYSICAL_TIMELINE]->(t:PhasePhysicalTimeline) "
     "OPTIONAL MATCH (t)-[:NEXT_POINT]->(f:PhasePhysicalTimelinePoint) "
     "RETURN p.id, f.id;";
 
+/// Reads every PhasePhysicalTimelinePoint's time and phase, which may be NULL.
 constexpr std::string_view kReadPhasePoints =
     "MATCH (f:PhasePhysicalTimelinePoint) RETURN f.id, f.time, f.phase;";
 
+/// Reads the NEXT_POINT links between PhasePhysicalTimelinePoints.
 constexpr std::string_view kReadPhaseLinks =
     "MATCH (a:PhasePhysicalTimelinePoint)-[:NEXT_POINT]->(b:PhasePhysicalTimelinePoint) "
     "RETURN a.id, b.id;";
 
-// The SoundSource of each partial, through its PartialSet. HAS_PARTIAL and
-// HAS_PARTIALSET are ONE_MANY, so a partial has at most one row.
+/// The SoundSource of each partial, through its PartialSet. HAS_PARTIAL and
+/// HAS_PARTIALSET are ONE_MANY, so a partial has at most one row.
 constexpr std::string_view kReadPartialSources =
     "MATCH (ss:SoundSource)-[:HAS_PARTIALSET]->(:PartialSet)-[:HAS_PARTIAL]->(p:Partial) "
     "RETURN p.id, ss.id, ss.name;";
 
-// A SoundSource's spatial timelines (§7), read for their times and checked
-// for their values, so that the frame entries of §6.7 can lead into them.
-// One statement of each shape per kind, in kSpatialKinds order.
+/// A SoundSource's spatial timelines (§7), read for their times and checked
+/// for their values, so that the frame entries of §6.7 can lead into them.
+/// One statement of each shape per kind, in kSpatialKinds order.
 constexpr std::array<std::string_view, 3> kReadSpatialHeads{
     "MATCH (s:SoundSource)-[:HAS_PHYSICAL_TIMELINE]->(t:AzimuthPhysicalTimeline) "
     "OPTIONAL MATCH (t)-[:NEXT_POINT]->(a:AzimuthPhysicalTimelinePoint) RETURN s.id, a.id;",
@@ -127,6 +135,8 @@ constexpr std::array<std::string_view, 3> kReadSpatialHeads{
     "OPTIONAL MATCH (t)-[:NEXT_POINT]->(a:DistancePhysicalTimelinePoint) RETURN s.id, a.id;",
 };
 
+/// Reads every azimuth, elevation and distance point's time, value and curve
+/// type, one statement per kind, in kSpatialKinds order.
 constexpr std::array<std::string_view, 3> kReadSpatialPoints{
     "MATCH (a:AzimuthPhysicalTimelinePoint) "
     "RETURN a.id, a.time, a.azimuth, a.azimuth_curve_type;",
@@ -136,6 +146,8 @@ constexpr std::array<std::string_view, 3> kReadSpatialPoints{
     "RETURN a.id, a.time, a.distance, a.distance_curve_type;",
 };
 
+/// Reads the NEXT_POINT links between azimuth, elevation and distance points,
+/// one statement per kind, in kSpatialKinds order.
 constexpr std::array<std::string_view, 3> kReadSpatialLinks{
     "MATCH (a:AzimuthPhysicalTimelinePoint)-[:NEXT_POINT]->(b:AzimuthPhysicalTimelinePoint) "
     "RETURN a.id, b.id;",
@@ -145,62 +157,72 @@ constexpr std::array<std::string_view, 3> kReadSpatialLinks{
     "RETURN a.id, b.id;",
 };
 
-// Output from an earlier run, which is deleted before the new output is
-// written. A PartialSegmentPhysicalTimeline heads two lists: its integrable
-// segments and its compensation segments.
+/// Output from an earlier run, which is deleted before the new output is
+/// written. A PartialSegmentPhysicalTimeline heads two lists: its integrable
+/// segments and its compensation segments.
 constexpr std::string_view kReadExistingPhysicalTimelines =
     "MATCH (p:Partial)-[:HAS_PHYSICAL_TIMELINE]->(t:PartialSegmentPhysicalTimeline) "
     "OPTIONAL MATCH (t)-[:NEXT_POINT]->(s:PartialIntegrableSegment) "
     "OPTIONAL MATCH (t)-[:NEXT_POINT]->(c:PartialPhaseCompensationSegment) "
     "RETURN p.id, t.id, s.id, c.id;";
 
+/// Reads the NEXT_POINT links between PartialIntegrableSegments.
 constexpr std::string_view kReadSegmentLinks =
     "MATCH (a:PartialIntegrableSegment)-[:NEXT_POINT]->(b:PartialIntegrableSegment) "
     "RETURN a.id, b.id;";
 
+/// Reads the NEXT_POINT links between PartialPhaseCompensationSegments.
 constexpr std::string_view kReadCompensationLinks =
     "MATCH (a:PartialPhaseCompensationSegment)-[:NEXT_POINT]->(b:PartialPhaseCompensationSegment) "
     "RETURN a.id, b.id;";
 
+/// Deletes a set of PartialPhaseCompensationSegments by id.
 constexpr std::string_view kDeleteCompensation =
     "UNWIND $ids AS id MATCH (c:PartialPhaseCompensationSegment {id: id}) DETACH DELETE c;";
 
+/// Deletes the PartialSegmentNominalFrequency of the PartialIntegrableSegment $segment.
 constexpr std::string_view kDeleteNominalOfSegment =
     "MATCH (s:PartialIntegrableSegment)-[:SEGMENT_TO_FREQUENCY_NOMINAL]->"
     "(n:PartialSegmentNominalFrequency) WHERE s.id = $segment DETACH DELETE n;";
 
+/// Deletes a PartialIntegrableSegment by id.
 constexpr std::string_view kDeleteSegment =
     "MATCH (s:PartialIntegrableSegment) WHERE s.id = $segment DETACH DELETE s;";
 
+/// Deletes a PartialSegmentPhysicalTimeline by id.
 constexpr std::string_view kDeletePhysicalTimeline =
     "MATCH (t:PartialSegmentPhysicalTimeline) WHERE t.id = $physicalTimeline DETACH DELETE t;";
 
+/// Deletes the PARTIAL_IN_FRAME edges from the Partial $partial to its Frames.
 constexpr std::string_view kDeleteFrameScope =
     "MATCH (p:Partial)-[r:PARTIAL_IN_FRAME]->(:Frame) WHERE p.id = $partial DELETE r;";
 
-// Deleting a segment removes the FRAME_ENTRY_PHYSICAL_TIMELINE edges into it, but the
-// FrameEntry nodes themselves, and their other edges, are the partial's
-// output too and go explicitly (§10).
+/// Deleting a segment removes the FRAME_ENTRY_PHYSICAL_TIMELINE edges into it, but the
+/// FrameEntry nodes themselves, and their other edges, are the partial's
+/// output too and go explicitly (§10).
 constexpr std::string_view kDeleteFrameEntries =
     "MATCH (e:FrameEntry)-[:FRAME_ENTRY_PARTIAL]->(p:Partial) WHERE p.id = $partial "
     "DETACH DELETE e;";
 
+/// Creates a PartialSegmentPhysicalTimeline for the Partial $partial and returns its id.
 constexpr std::string_view kCreatePhysicalTimeline =
     "MATCH (p:Partial) WHERE p.id = $partial "
     "CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:PartialSegmentPhysicalTimeline) RETURN t.id;";
 
 // Frame numbers are INT32 in the schema; range() yields INT64.
+/// Links the Partial $partial by PARTIAL_IN_FRAME to each Frame from $first to $last,
+/// merging any Frame that does not exist yet.
 constexpr std::string_view kCreateFrameScope = "MATCH (p:Partial) WHERE p.id = $partial "
                                                "UNWIND range($first, $last) AS k "
                                                "MERGE (f:Frame {frame_number: CAST(k AS INT32)}) "
                                                "CREATE (p)-[:PARTIAL_IN_FRAME]->(f);";
 
-// One FrameEntry with its eight edges, from the frame number and the ids of
-// the six list nodes it leads to (§6.7): the partial's segment, amplitude
-// point and compensation segment, and its SoundSource's azimuth, elevation
-// and distance points. One statement per frame; UNWIND over a list parameter
-// is the batching path if the count ever shows in a profile (§10). The Frame
-// node exists: kCreateFrameScope has just merged it.
+/// One FrameEntry with its eight edges, from the frame number and the ids of
+/// the six list nodes it leads to (§6.7): the partial's segment, amplitude
+/// point and compensation segment, and its SoundSource's azimuth, elevation
+/// and distance points. One statement per frame; UNWIND over a list parameter
+/// is the batching path if the count ever shows in a profile (§10). The Frame
+/// node exists: kCreateFrameScope has just merged it.
 constexpr std::string_view kCreateFrameEntry =
     "MATCH (f:Frame), (p:Partial), (s:PartialIntegrableSegment), "
     "(a:AmplitudePhysicalTimelinePoint), (c:PartialPhaseCompensationSegment), "
@@ -215,14 +237,15 @@ constexpr std::string_view kCreateFrameEntry =
     "(e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(el), (e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(d) "
     "RETURN e.id;";
 
-// One compensation segment, linked from the PartialSegmentPhysicalTimeline
-// (the first) or from the previous compensation segment (§6.8).
+/// One compensation segment, linked from the PartialSegmentPhysicalTimeline
+/// (the first) or from the previous compensation segment (§6.8).
 constexpr std::string_view kCreateFirstCompensation =
     "MATCH (prev:PartialSegmentPhysicalTimeline) WHERE prev.id = $previous "
     "CREATE (prev)-[:NEXT_POINT]->(c:PartialPhaseCompensationSegment {"
     "start_time: $startTime, end_time: $endTime, "
     "start_phase_delta: $startDelta, end_phase_delta: $endDelta}) RETURN c.id;";
 
+/// As kCreateFirstCompensation, but linked from the previous compensation segment.
 constexpr std::string_view kCreateNextCompensation =
     "MATCH (prev:PartialPhaseCompensationSegment) WHERE prev.id = $previous "
     "CREATE (prev)-[:NEXT_POINT]->(c:PartialPhaseCompensationSegment {"
@@ -511,8 +534,11 @@ double requireFinite(const std::optional<double>& value, std::string_view timeli
     return *value;
 }
 
+/// Name of the frequency timeline, for error messages.
 constexpr std::string_view kFrequencyList = "FrequencyPhysicalTimeline";
+/// Name of the amplitude timeline, for error messages.
 constexpr std::string_view kAmplitudeList = "AmplitudePhysicalTimeline";
+/// Name of the phase timeline, for error messages.
 constexpr std::string_view kPhaseList = "PhasePhysicalTimeline";
 
 // ---------------------------------------------------------------------------

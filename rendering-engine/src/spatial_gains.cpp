@@ -27,23 +27,27 @@ constexpr double kCardioid = 0.5;
 /// Pressure gradient: nulls at the sides, rear lobe reversed.
 constexpr double kFigure8 = 0.0;
 
-constexpr double kInvSqrt2 = std::numbers::sqrt2 / 2.0;
-constexpr double kInvSqrt3 = std::numbers::inv_sqrt3;
+constexpr double kInvSqrt2 = std::numbers::sqrt2 / 2.0; ///< 1/√2, the cosine of 45°.
+constexpr double kInvSqrt3 = std::numbers::inv_sqrt3;   ///< 1/√3.
 
 // Microphone axes. Written as exact unit vectors rather than computed from
 // angles, so that they can be constexpr; the oracle computes them from angles,
 // and the two agree to rounding.
-constexpr Direction kFront{.x = 1.0, .y = 0.0, .z = 0.0};
-constexpr Direction kLeft{.x = 0.0, .y = 1.0, .z = 0.0};
-constexpr Direction kUp{.x = 0.0, .y = 0.0, .z = 1.0};
-constexpr Direction kFrontLeft{.x = kInvSqrt2, .y = kInvSqrt2, .z = 0.0};   // azimuth +45°
-constexpr Direction kFrontRight{.x = kInvSqrt2, .y = -kInvSqrt2, .z = 0.0}; // azimuth −45°
+constexpr Direction kFront{.x = 1.0, .y = 0.0, .z = 0.0}; ///< Straight ahead: azimuth 0°.
+constexpr Direction kLeft{.x = 0.0, .y = 1.0, .z = 0.0};  ///< Hard left: azimuth +90°.
+constexpr Direction kUp{.x = 0.0, .y = 0.0, .z = 1.0};    ///< Straight up: elevation +90°.
+constexpr Direction kFrontLeft{.x = kInvSqrt2, .y = kInvSqrt2, .z = 0.0};   ///< azimuth +45°
+constexpr Direction kFrontRight{.x = kInvSqrt2, .y = -kInvSqrt2, .z = 0.0}; ///< azimuth −45°
 
 // The tetrahedron's vertices: azimuths ±45° and ±135°, elevations
 // ±asin(1/√3) ≈ ±35.26°, which is the cube's corners (±1, ±1, ±1)/√3.
+/// Front-left-up vertex: azimuth +45°, elevation +35.26°.
 constexpr Direction kFlu{.x = kInvSqrt3, .y = kInvSqrt3, .z = kInvSqrt3};
+/// Front-right-down vertex: azimuth −45°, elevation −35.26°.
 constexpr Direction kFrd{.x = kInvSqrt3, .y = -kInvSqrt3, .z = -kInvSqrt3};
+/// Back-left-down vertex: azimuth +135°, elevation −35.26°.
 constexpr Direction kBld{.x = -kInvSqrt3, .y = kInvSqrt3, .z = -kInvSqrt3};
+/// Back-right-up vertex: azimuth −135°, elevation +35.26°.
 constexpr Direction kBru{.x = -kInvSqrt3, .y = -kInvSqrt3, .z = kInvSqrt3};
 
 /// A perfect first-order microphone.
@@ -54,6 +58,7 @@ struct Mic {
     Direction axis = kFront;
 };
 
+/// An omni microphone; its axis does not affect its gain.
 constexpr Mic kOmniMic{.a = kOmni, .axis = kFront};
 
 /// A linear decode: one row per output channel, one column per microphone.
@@ -72,22 +77,25 @@ struct MicArray {
     DecodeMatrix decode{};
 };
 
-// Omni M and figure-8 S to L/R: L = (M + S)/2, R = (M − S)/2. A constant-
-// amplitude pan law (L + R = M): hard left is 0 dB in L only; centre is −6 dB
-// in each.
+/// Omni M and figure-8 S to L/R: L = (M + S)/2, R = (M − S)/2. A constant-
+/// amplitude pan law (L + R = M): hard left is 0 dB in L only; centre is −6 dB
+/// in each.
 constexpr DecodeMatrix kMidSideToLeftRight{{
     {0.5, 0.5, 0.0, 0.0},
     {0.5, -0.5, 0.0, 0.0},
 }};
 
+/// ChannelMode::Mono: a single omni microphone.
 constexpr MicArray kMonoArray{.mics = {kOmniMic}, .micCount = 1};
 
-// Omni M and a figure-8 S whose positive lobe faces left: S = cos(el)·sin(az).
+/// Omni M and a figure-8 S whose positive lobe faces left: S = cos(el)·sin(az).
 constexpr MicArray kMidSideArray{
     .mics = {kOmniMic, Mic{.a = kFigure8, .axis = kLeft}},
     .micCount = 2,
 };
 
+/// ChannelMode::StereoFromMidSide: the mid-side pair, decoded to L/R by
+/// kMidSideToLeftRight.
 constexpr MicArray kStereoFromMidSideArray{
     .mics = kMidSideArray.mics,
     .micCount = 2,
@@ -95,31 +103,36 @@ constexpr MicArray kStereoFromMidSideArray{
     .decode = kMidSideToLeftRight,
 };
 
+/// ChannelMode::StereoFromXY: cardioids at azimuth +45° (L) and −45° (R).
 constexpr MicArray kXYArray{
     .mics = {Mic{.a = kCardioid, .axis = kFrontLeft}, Mic{.a = kCardioid, .axis = kFrontRight}},
     .micCount = 2,
 };
 
+/// ChannelMode::BlumleinClassic: figure-8s at azimuth +45° (L) and −45° (R).
 constexpr MicArray kBlumleinClassicArray{
     .mics = {Mic{.a = kFigure8, .axis = kFrontLeft}, Mic{.a = kFigure8, .axis = kFrontRight}},
     .micCount = 2,
 };
 
+/// ChannelMode::BlumleinRotated: figure-8s facing front (M) and left (S).
 constexpr MicArray kBlumleinRotatedArray{
     .mics = {Mic{.a = kFigure8, .axis = kFront}, Mic{.a = kFigure8, .axis = kLeft}},
     .micCount = 2,
 };
 
+/// ChannelMode::FoaAFormat: cardioids at the tetrahedron's vertices, in the order
+/// kFlu, kFrd, kBld, kBru.
 constexpr MicArray kAFormatArray{
     .mics = {Mic{.a = kCardioid, .axis = kFlu}, Mic{.a = kCardioid, .axis = kFrd},
         Mic{.a = kCardioid, .axis = kBld}, Mic{.a = kCardioid, .axis = kBru}},
     .micCount = 4,
 };
 
-// B-format is encoded directly: an omni and figure-8s along y, z and x, in ACN
-// order. Under SN3D, first order is W = 1, Y = y, Z = z, X = x for a unit
-// source in direction (x, y, z), which is exactly what these patterns give.
-// Decoding the A-format array gives the same result; a test proves it.
+/// B-format is encoded directly: an omni and figure-8s along y, z and x, in ACN
+/// order. Under SN3D, first order is W = 1, Y = y, Z = z, X = x for a unit
+/// source in direction (x, y, z), which is exactly what these patterns give.
+/// Decoding the A-format array gives the same result; a test proves it.
 constexpr MicArray kBFormatArray{
     .mics = {kOmniMic, Mic{.a = kFigure8, .axis = kLeft}, Mic{.a = kFigure8, .axis = kUp},
         Mic{.a = kFigure8, .axis = kFront}},

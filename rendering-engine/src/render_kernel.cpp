@@ -24,6 +24,7 @@ namespace rainbohz::rendering_engine {
 
 namespace {
 
+/// 2π: one full cycle, in radians.
 constexpr double kTwoPi = 2.0 * std::numbers::pi;
 
 /// Reduces a phase to [-π, π] after one increment.

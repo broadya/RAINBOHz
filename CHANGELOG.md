@@ -46,6 +46,8 @@ The target architecture, built from 2026-09-27 onwards.
   lowest level of HzL.
 - The licence, Apache-2.0, is declared in the Python package metadata, and
   every first-party source and build file starts with an SPDX licence line.
+- Both C++ components are fully documented for Doxygen, and any Doxygen
+  warning now fails `make docs`.
 
 ## Before this changelog
 

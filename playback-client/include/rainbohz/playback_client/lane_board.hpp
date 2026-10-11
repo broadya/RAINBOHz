@@ -165,7 +165,9 @@ public:
 private:
     /// One lane's state.
     struct LaneState {
+        /// Whether the lane is Free, Filling or Ready.
         FillState fill = FillState::Free;
+        /// Frames of the current fill published so far; framesPerLane_ once Ready.
         std::size_t framesReady = 0;
     };
 
@@ -181,14 +183,23 @@ private:
     /// @return Its state.
     const LaneState& at(Lane lane) const noexcept { return lane == Lane::A ? a_ : b_; }
 
+    /// Frames in one pass over the range: a lane's size.
     const std::size_t framesPerLane_;
+    /// Guards every member below; each transition holds it throughout.
     mutable std::mutex mutex_;
+    /// Notified on every transition; every wait re-checks its condition.
     std::condition_variable changed_;
+    /// The state of lane A.
     LaneState a_;
+    /// The state of lane B.
     LaneState b_;
+    /// The lane the feeder is reading; empty before beginStreaming().
     std::optional<Lane> playing_;
+    /// Loops handed to the audio output so far (loopPlayed()).
     std::int64_t loopsPlayed_ = 0;
+    /// Set by requestStop() or fail(); once set, every wait returns false.
     bool stop_ = false;
+    /// The first message given to fail(); empty if none was.
     std::optional<std::string> error_;
 };
 

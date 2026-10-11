@@ -31,7 +31,7 @@
 ///
 /// @see options.hpp
 
-// The in-repo schema file, injected by CMake. See CMakeLists.txt.
+/// The in-repo schema file, injected by CMake. See CMakeLists.txt.
 #ifndef RE_DEFAULT_SCHEMA_FILE
 #define RE_DEFAULT_SCHEMA_FILE ""
 #endif
@@ -40,6 +40,7 @@ namespace rainbohz::rendering_engine {
 
 namespace {
 
+/// The default for --schema: RE_DEFAULT_SCHEMA_FILE, or empty when CMake injected none.
 constexpr std::string_view kDefaultSchemaFile = RE_DEFAULT_SCHEMA_FILE;
 
 /// Returns the table of command-line mode names, the single source for both

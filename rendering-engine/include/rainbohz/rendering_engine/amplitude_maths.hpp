@@ -154,6 +154,8 @@ struct RollOff {
     AngularFrequency highOuter;
 
     /// The same edges as plain doubles, for the kernel.
+    ///
+    /// @return The four edges' values, in radians per sample.
     constexpr RollOffRaw raw() const noexcept {
         return RollOffRaw{.lowOuter = lowOuter.value(),
             .lowInner = lowInner.value(),

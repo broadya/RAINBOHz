@@ -69,6 +69,7 @@ struct RenderRequest {
 struct RequestProblem {
     /// 1-based. 0 when the problem belongs to the file as a whole.
     std::size_t line = 0;
+    /// What is wrong, phrased to follow "request.yaml, line N: ".
     std::string message;
 };
 
@@ -107,8 +108,8 @@ public:
     const std::vector<RequestProblem>& problems() const noexcept { return problems_; }
 
 private:
-    std::filesystem::path file_;
-    std::vector<RequestProblem> problems_;
+    std::filesystem::path file_;           ///< The request file the problems belong to.
+    std::vector<RequestProblem> problems_; ///< Everything found wrong, in the order found.
 };
 
 /// Formats one problem as a single diagnostic line.

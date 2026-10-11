@@ -9,7 +9,7 @@ second, and first versions of the third, fifth and sixth are implemented; see
 [rendering.md](rendering.md).
 
 This is the component-level document that
-[architecture/overview.md](../../architecture/overview.md) §2 anticipates:
+@see architecture/overview.md §2 anticipates:
 "Component-level detail belongs in a separate document per component."
 
 ---
@@ -112,7 +112,7 @@ server writing to a local directory, was reserved; `server` is what it became.)
 the loading steps below, up to precomputation, into a fresh in-memory
 `engine-db` that replaces the one before; each rendering call runs the label
 check and renders one frame; the GET calls only read. Calls are served one at a time
-([ADR 0016](../../docs/adr/0016-serve-rest-with-cpp-httplib-one-call-at-a-time.md)).
+(@see ADR 0016).
 
 Within `batch` mode, the first steps of the batch sequence exist, plus the
 reporting that says whether they worked:
@@ -166,7 +166,7 @@ counts are what distinguish a loaded `engine-db` from an empty one.
 
 Cypher reaches the database through an in-process loader, statement by
 statement, so that a failure carries its source line — see
-[ADR 0005](../../docs/adr/0005-load-cypher-into-engine-db-in-process.md).
+@see ADR 0005.
 
 What the harness does **not** yet have, in the order it will need it:
 
@@ -286,7 +286,7 @@ Carried from overview.md §10, plus those specific to this component.
   engine needs: the canonical model, dependency information, precomputation
   output and rendering results. Nothing in the schema yet represents
   dependencies, which incremental transformation needs. See
-  [ADR 0006](../../docs/adr/0006-retire-rendering-db-engine-db-is-the-whole-database.md).
+  @see ADR 0006.
 - **Dirty flags have no representation** in either schema, and §4 depends on them
   entirely.
 - ~~**Frame size.** `FRAME_SIZE` is referenced by the rendering design schema and
@@ -310,7 +310,7 @@ Carried from overview.md §10, plus those specific to this component.
   `engine-db` or as C++ over extracted values is not settled.~~ Settled
   2026-10-03: C++, in precomputation
   ([precomputation.md](precomputation.md) §6.8,
-  [ADR 0019](../../docs/adr/0019-phase-targets-are-met-by-linear-compensation-segments.md)).
+  @see ADR 0019).
 - **Job lifecycle and backpressure.** At target scale (1M+ partials) an instance
   has a great deal of concurrent work in flight. What limits it, and how partial
   failure is handled, are not designed. Idempotency makes retry safe in

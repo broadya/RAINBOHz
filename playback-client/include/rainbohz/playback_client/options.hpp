@@ -63,7 +63,10 @@ struct Options {
 /// 0 after --help or --version, 2 after a usage error. The output has already
 /// been written.
 struct ParseResult {
+    /// The validated options; empty when the program should exit at once.
     std::optional<Options> options;
+    /// The exit status when `options` is empty: 0 after --help or --version, 2 after
+    /// a usage error.
     int exitCode = 0;
 };
 

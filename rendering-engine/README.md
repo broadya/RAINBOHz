@@ -11,7 +11,7 @@ renders the requested frames to WAV files (first version: mono, linear
 curves, labels ignored; see [docs/rendering.md](docs/rendering.md)).
 
 This directory holds the component identified as `rendering-engine` in
-[architecture/overview.md](../architecture/overview.md). What exists today is
+@see architecture/overview.md. What exists today is
 the batch test harness end to end: an in-memory Ladybug database is created,
 the `engine-db` schema is applied to it, and an initial database state is
 loaded from a Cypher file named on the command line, with every failure
@@ -164,7 +164,7 @@ found nothing is accepted too, and stores nothing.
 Every statement is submitted individually so that a failure carries its file
 and source lines, and **the run continues past a failure** so that one bad
 statement does not hide the rest. See
-[ADR 0005](../docs/adr/0005-load-cypher-into-engine-db-in-process.md).
+@see ADR 0005.
 
 `--db-path` is a debugging affordance, not a deployment option: it leaves a
 database behind that can be opened in the `lbug` shell.
@@ -382,9 +382,9 @@ Two caveats worth stating plainly:
 
 CLI11 is header-only and is used by `src/options.cpp` alone; yaml-cpp is built
 static and used by `src/render_request.cpp` alone; dr_wav is one header,
-carried by `src/wav_writer.cpp` alone ([ADR 0009](../docs/adr/0009-write-wav-files-with-dr-wav.md));
+carried by `src/wav_writer.cpp` alone (@see ADR 0009);
 cpp-httplib and nlohmann/json are headers carried by `src/server.cpp` alone
-([ADR 0016](../docs/adr/0016-serve-rest-with-cpp-httplib-one-call-at-a-time.md)).
+(@see ADR 0016).
 All five are linked PRIVATE and appear in no public header, so callers of
 this component do not acquire them — the same rule Ladybug is held to.
 
@@ -434,7 +434,7 @@ For now the build uses our fork, [broadya/ladybug](https://github.com/broadya/la
 v0.20.4 plus upstream's own SERIAL primary-key index fix
 ([LadybugDB/ladybug#1028](https://github.com/LadybugDB/ladybug/pull/1028)),
 backported because it is merged but not yet released
-([ADR 0011](../docs/adr/0011-carry-upstreams-serial-fix-until-released.md)).
+(@see ADR 0011).
 
 **When a release includes #1028**, leave the fork: set `RE_LADYBUG_GIT_REPOSITORY`
 back to `https://github.com/LadybugDB/ladybug` and `RE_LADYBUG_GIT_TAG` to that

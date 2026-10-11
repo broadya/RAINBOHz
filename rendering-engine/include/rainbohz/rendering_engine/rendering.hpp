@@ -102,6 +102,8 @@ struct FrameOutcome {
     std::vector<std::pair<std::int64_t, std::filesystem::path>> setFiles;
 
     /// True when the frame was rendered and its file written.
+    ///
+    /// @return Whether `error` is unset.
     bool ok() const noexcept { return !error.has_value(); }
 };
 
@@ -131,6 +133,8 @@ struct RenderingReport {
     std::size_t failedPartialCount() const noexcept;
 
     /// True when every frame was rendered, including when none was requested.
+    ///
+    /// @return Whether failureCount() is zero.
     bool ok() const noexcept { return failureCount() == 0; }
 };
 

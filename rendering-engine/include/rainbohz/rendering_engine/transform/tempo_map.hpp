@@ -131,13 +131,20 @@ public:
     SecondsTime toSeconds(MusicalTime at) const;
 
     /// The map's resolution.
+    ///
+    /// @return Ticks per beat, as given to the constructor.
     TicksPerBeat ticksPerBeat() const noexcept { return resolution_; }
 
     /// The map's points, in order.
+    ///
+    /// @return The validated points; never empty. Valid while this map is.
     const std::vector<TempoMapPoint>& points() const noexcept { return points_; }
 
 private:
+    /// Ticks per beat, as given to the constructor.
     TicksPerBeat resolution_;
+
+    /// The validated points, in list order; never empty.
     std::vector<TempoMapPoint> points_;
 
     /// Seconds from the start of the map at each point's position.

@@ -7,10 +7,10 @@ while the other plays. It is kept as a demonstration and as a test component;
 more advanced playback components will come later.
 
 This directory holds the component identified as `playback-client` in
-[architecture/overview.md](../architecture/overview.md) §5.3. The architecture
+@see architecture/overview.md §5.3. The architecture
 places it as a client of `playback-server`. That server does not exist yet, so
 this version talks to `rendering-engine`'s REST service directly
-([rendering-engine/docs/server.md](../rendering-engine/docs/server.md)),
+(@see rendering-engine/docs/server.md),
 standing in for it. See [docs/design.md](docs/design.md) for the design: the
 lane protocol, the race conditions it closes, the audio path and the log.
 
@@ -58,7 +58,7 @@ From the repository root:
 
 Dependencies are built from pinned source, as rendering-engine's are: CLI11,
 cpp-httplib, nlohmann/json and dr_wav, at the same pins, plus miniaudio for
-audio output ([ADR 0018](../docs/adr/0018-play-audio-with-miniaudio.md)). No
+audio output (@see ADR 0018). No
 third-party type appears in a public header.
 
 ## Layout

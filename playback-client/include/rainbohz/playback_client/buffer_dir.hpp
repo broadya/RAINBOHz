@@ -101,6 +101,7 @@ public:
     void remove() const;
 
 private:
+    /// The run directory, `<root>/rainbohz-playback-XXXXXX`.
     std::filesystem::path path_;
 };
 

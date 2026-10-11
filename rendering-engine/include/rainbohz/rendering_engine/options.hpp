@@ -48,6 +48,8 @@ enum class Mode : std::uint8_t { Batch, Server, Distributed };
 ///         so it stays valid for the whole program.
 std::string_view modeName(Mode mode) noexcept;
 
+/// The rendering-engine's settings, as parsed from the command line by
+/// parseCommandLine().
 struct Options {
     /// The run mode. `batch` when --mode is not given.
     Mode mode = Mode::Batch;
@@ -114,7 +116,10 @@ struct Options {
 /// `exitCode` -- --help and --version (0), or a usage error (non-zero). CLI11
 /// has already written the corresponding output.
 struct ParseResult {
+    /// The parsed options; empty when the program should exit with `exitCode`.
     std::optional<Options> options;
+    /// The status to exit with when `options` is empty: 0 for --help and
+    /// --version, non-zero for a usage error.
     int exitCode = 0;
 };
 

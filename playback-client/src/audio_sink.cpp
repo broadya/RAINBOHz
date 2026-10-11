@@ -62,9 +62,13 @@ private:
         return *writer_;
     }
 
+    /// The WAV file to write.
     std::filesystem::path file_;
+    /// The sample rate of the samples written, and of the file.
     SampleRate rate_;
+    /// The open writer; empty until start().
     std::optional<WavWriter> writer_;
+    /// Set by abort(): every later write() returns false.
     std::atomic<bool> aborted_{false};
 };
 

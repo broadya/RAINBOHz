@@ -32,11 +32,11 @@ namespace rainbohz::rendering_engine {
 
 /// One statement the database rejected.
 struct ScriptFailure {
-    std::filesystem::path file;
-    std::size_t startLine = 0;
-    std::size_t endLine = 0;
-    std::string label;   ///< CypherStatement::label(), to identify the statement
-    std::string message; ///< Ladybug's error text
+    std::filesystem::path file; ///< The script file the statement came from
+    std::size_t startLine = 0;  ///< 1-based line carrying the first executable character
+    std::size_t endLine = 0;    ///< 1-based line carrying the terminating semicolon
+    std::string label;          ///< CypherStatement::label(), to identify the statement
+    std::string message;        ///< Ladybug's error text
 
     /// Formats the failing statement's source line range, for use in reports.
     ///
@@ -59,6 +59,7 @@ struct LoadReport {
     /// *new* declarations. It does not migrate a table that already exists.
     int alreadyPresent = 0;
 
+    /// Statements the database rejected, in the order they were applied.
     std::vector<ScriptFailure> failures;
 
     /// True when no statement failed.

@@ -57,11 +57,17 @@ void logFill(const FillTiming& timing, std::int64_t fills, double audio) {
 
 /// What the network thread works with, as runNetwork() was given it.
 struct NetworkContext {
+    /// The lane state shared with the feeder.
     LaneBoard* board = nullptr;
+    /// The server's Playback API, which renders each frame.
     PlaybackApi* api = nullptr;
+    /// Copies each rendered frame from its URI into the buffer.
     ObjectFetcher* fetcher = nullptr;
+    /// The frames of one pass; every fill renders all of them.
     const FramePlan* plan = nullptr;
+    /// The run's buffer directory, where the lanes' frame files go.
     const BufferDir* buffer = nullptr;
+    /// How many fills to make, and the sample rate for the real-time factor.
     NetworkSettings settings;
 };
 

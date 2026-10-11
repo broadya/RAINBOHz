@@ -32,40 +32,47 @@ namespace rainbohz::rendering_engine::transform {
 
 namespace {
 
+/// Whose fault a TimingQueryError is; short for TimingQueryError::Kind.
 using Kind = TimingQueryError::Kind;
 
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
 
+/// One TempoMap by id: its id, name and ticks_per_beat.
 constexpr std::string_view kFindMap =
     "MATCH (m:TempoMap {id: $id}) RETURN m.id, m.name, m.ticks_per_beat;";
 
-// NEXT_POINT is ONE_ONE per pair, so there is at most one row per Score.
+/// Each Score and its root TempoMap, if it has one.
+/// NEXT_POINT is ONE_ONE per pair, so there is at most one row per Score.
 constexpr std::string_view kReadScores =
     "MATCH (s:Score) OPTIONAL MATCH (s)-[:NEXT_POINT]->(m:TempoMap) "
     "RETURN s.id, m.id, m.name, m.ticks_per_beat ORDER BY s.id;";
 
+/// The Scores whose root TempoMap is the map $id; none when it is not a root.
 constexpr std::string_view kScoresOfMap =
     "MATCH (s:Score)-[:NEXT_POINT]->(m:TempoMap {id: $id}) RETURN s.id;";
 
-// The edge runs from child to parent.
+/// The child TempoMaps of the map $id, with their synchronization points.
+/// The edge runs from child to parent.
 constexpr std::string_view kReadChildren =
     "MATCH (c:TempoMap)-[s:TEMPO_MAP_SYNCHRONIZATION_POINT]->(p:TempoMap {id: $id}) "
     "RETURN c.id, c.name, c.ticks_per_beat, s.sync_point_parent, s.sync_point_child "
     "ORDER BY c.id;";
 
+/// The first TempoMapPoint of the map $id: the head of its point list.
 constexpr std::string_view kReadHead =
     "MATCH (m:TempoMap {id: $id})-[:NEXT_POINT]->(p:TempoMapPoint) "
     "RETURN p.id, p.position, p.start_tempo, p.hold;";
 
-// The next kWalkChunk points after one, nearest first. NEXT_POINT is ONE_ONE,
-// so each hop count reaches exactly one point.
+/// The next kWalkChunk points after one, nearest first. NEXT_POINT is ONE_ONE,
+/// so each hop count reaches exactly one point.
 constexpr std::string_view kReadChunk =
     "MATCH (a:TempoMapPoint {id: $id})-[e:NEXT_POINT*1..30]->(p:TempoMapPoint) "
     "RETURN p.id, p.position, p.start_tempo, p.hold, length(e) AS hops ORDER BY hops;";
 static_assert(kWalkChunk == 30, "kReadChunk's upper bound is kWalkChunk");
 
+/// Reads the EngineConfig's frame size, sample rate and channel mode.
 constexpr std::string_view kReadConfig =
     "MATCH (c:EngineConfig) RETURN c.frameSize, c.sampleRate, c.channelMode;";
 

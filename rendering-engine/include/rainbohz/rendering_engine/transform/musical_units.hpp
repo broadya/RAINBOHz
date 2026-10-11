@@ -35,6 +35,8 @@ public:
     constexpr explicit MusicalDuration(std::int64_t ticks) noexcept : value_{ticks} {}
 
     /// The duration in ticks.
+    ///
+    /// @return Ticks; may be negative.
     constexpr std::int64_t value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
@@ -50,7 +52,7 @@ public:
     }
 
 private:
-    std::int64_t value_ = 0;
+    std::int64_t value_ = 0; ///< Length in ticks; may be negative.
 };
 
 /// A position in musical time: ticks from the start of one TempoMap.
@@ -70,6 +72,8 @@ public:
     constexpr explicit MusicalTime(std::int64_t ticks) noexcept : value_{ticks} {}
 
     /// The position in ticks from the start of the tempo map.
+    ///
+    /// @return Ticks from tick 0.
     constexpr std::int64_t value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
@@ -89,7 +93,7 @@ public:
     }
 
 private:
-    std::int64_t value_ = 0;
+    std::int64_t value_ = 0; ///< Ticks from the start of the tempo map.
 };
 
 /// The resolution of a TempoMap: how many ticks make one beat.
@@ -105,13 +109,15 @@ public:
     constexpr explicit TicksPerBeat(std::int32_t ticks) noexcept : value_{ticks} {}
 
     /// The ticks per beat.
+    ///
+    /// @return The value given to the constructor, unchecked.
     constexpr std::int32_t value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
     friend constexpr auto operator<=>(TicksPerBeat, TicksPerBeat) noexcept = default;
 
 private:
-    std::int32_t value_;
+    std::int32_t value_; ///< Ticks per beat; not checked to be positive.
 };
 
 /// A tempo, in beats per minute.
@@ -126,13 +132,15 @@ public:
     constexpr explicit Tempo(double beatsPerMinute) noexcept : value_{beatsPerMinute} {}
 
     /// The tempo in beats per minute.
+    ///
+    /// @return Beats per minute, unchecked.
     constexpr double value() const noexcept { return value_; }
 
     /// Orders two values of this type by their representation.
     friend constexpr auto operator<=>(Tempo, Tempo) noexcept = default;
 
 private:
-    double value_;
+    double value_; ///< Beats per minute; not checked against the schema's range.
 };
 
 /// A length of musical time in beats, which is what a tempo divides.

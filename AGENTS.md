@@ -737,9 +737,14 @@ def run_statement(lbug: str, db_path: str, statement: str) -> Result:
 
 - Doxygen (`make docs`) reports every undocumented function, parameter or
   return value as a warning (`WARN_IF_UNDOCUMENTED`, `WARN_NO_PARAMDOC`).
-  Internal functions are extracted as well, so they are checked too. The
-  warnings do not yet fail the build. Once the existing code conforms,
-  `WARN_AS_ERROR` in the component's `Doxyfile` becomes `FAIL_ON_WARNINGS`.
+  Internal functions are extracted as well, so they are checked too. Every
+  member is checked as well: constants, struct fields and type aliases each
+  need their own `///` or `///<`. `WARN_AS_ERROR = FAIL_ON_WARNINGS` in each
+  component's `Doxyfile`, so any warning fails `make docs`.
+- A component's Markdown names a file outside its Doxygen `INPUT` (an ADR,
+  `architecture/`, another component's docs) as plain `@see` text, e.g.
+  `(@see ADR 0016)`, not as a Markdown link: Doxygen cannot resolve such a link
+  and warns.
 - clang's `-Wdocumentation` is part of the rendering-engine warning set. It
   catches documentation that no longer matches the code: a `@param` naming a
   parameter that doesn't exist, or a `@return` on a `void` function. It does

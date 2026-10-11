@@ -69,6 +69,7 @@ public:
     Kind kind() const noexcept { return kind_; }
 
 private:
+    /// Whose fault the failure is.
     Kind kind_;
 };
 

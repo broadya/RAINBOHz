@@ -43,9 +43,9 @@ namespace rainbohz::rendering_engine {
 
 namespace {
 
-constexpr std::string_view kFramesKey = "frames";
-constexpr std::string_view kFrameKey = "frame";
-constexpr std::string_view kLabelsKey = "labels";
+constexpr std::string_view kFramesKey = "frames"; ///< The request's top-level key: the frame list.
+constexpr std::string_view kFrameKey = "frame";   ///< A frame entry's frame number key.
+constexpr std::string_view kLabelsKey = "labels"; ///< A frame entry's labels key.
 
 /// yaml-cpp's tag for a plain (unquoted) scalar. A quoted scalar is tagged "!",
 /// which is how `frame: "3"` is told apart from `frame: 3`.
@@ -86,8 +86,8 @@ std::size_t lineOf(const YAML::Mark& mark) {
 /// short of wrapping Node.
 // NOLINTNEXTLINE(bugprone-exception-escape)
 struct Value {
-    YAML::Node node;
-    std::size_t keyLine = 0;
+    YAML::Node node;         ///< The value as parsed.
+    std::size_t keyLine = 0; ///< 1-based line of the key, or 0 if yaml-cpp does not know it.
 
     /// The line to attribute a problem with this value to.
     ///
@@ -206,7 +206,7 @@ private:
         return names;
     }
 
-    std::vector<RequestProblem> problems_;
+    std::vector<RequestProblem> problems_; ///< Every problem reported, in the order reported.
 };
 
 /// Parses the value of a `frame` key into a frame number.

@@ -142,7 +142,7 @@ up as a wrong value. Those tests also run under ThreadSanitizer, cleanly.
 
 Two sinks implement `AudioSink`.
 
-**The device** (`DeviceSink`, miniaudio, [ADR 0018](../../docs/adr/0018-play-audio-with-miniaudio.md))
+**The device** (`DeviceSink`, miniaudio, @see ADR 0018)
 is the system's default output device. Between it and the feeder is a
 single-producer, single-consumer lock-free ring, about half a second long.
 

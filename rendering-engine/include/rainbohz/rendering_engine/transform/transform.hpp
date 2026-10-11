@@ -115,6 +115,7 @@ struct PhysicalPoint {
     /// Curve amount from here to the next point.
     double curveAmount = 0.0;
 
+    /// Memberwise equality: true when every field is equal.
     friend bool operator==(const PhysicalPoint&, const PhysicalPoint&) = default;
 };
 
@@ -150,6 +151,7 @@ struct PhaseEnvelopeNode {
     /// (free-running) point.
     std::optional<double> degrees;
 
+    /// Memberwise equality: true when every field is equal.
     friend bool operator==(const PhaseEnvelopeNode&, const PhaseEnvelopeNode&) = default;
 };
 
@@ -161,6 +163,7 @@ struct PhasePoint {
     /// The target phase, in [−π, π]; nullopt for a NULL (free-running) point.
     std::optional<Phase> phase;
 
+    /// Memberwise equality: true when every field is equal.
     friend bool operator==(const PhasePoint&, const PhasePoint&) = default;
 };
 
@@ -400,6 +403,8 @@ struct PartialTransformOutcome {
     std::size_t phasePoints = 0;
 
     /// True when the partial was transformed and written.
+    ///
+    /// @return Whether `error` is unset.
     bool ok() const noexcept { return !error.has_value(); }
 };
 
@@ -425,6 +430,8 @@ struct PartialSetTransformOutcome {
     std::size_t failureCount() const noexcept;
 
     /// True when the set and every partial in it succeeded.
+    ///
+    /// @return Whether `error` is unset and failureCount() is 0.
     bool ok() const noexcept { return !error.has_value() && failureCount() == 0; }
 };
 
@@ -445,6 +452,8 @@ struct SoundSourceTransformOutcome {
     std::array<std::size_t, 3> points{};
 
     /// True when the source was transformed and written.
+    ///
+    /// @return Whether `error` is unset.
     bool ok() const noexcept { return !error.has_value(); }
 };
 
@@ -485,14 +494,20 @@ struct TransformReport {
     std::vector<SoundSourceTransformOutcome> sources;
 
     /// How many partials were attempted, over every set that did not fail.
+    ///
+    /// @return The total number of entries in every set's `partials`.
     std::size_t partialCount() const noexcept;
 
     /// How many sets failed whole, plus how many partials failed, plus how
     /// many sources failed.
+    ///
+    /// @return The count; 0 when everything succeeded.
     std::size_t failureCount() const noexcept;
 
     /// True when everything succeeded, including when there was nothing to
     /// transform.
+    ///
+    /// @return Whether failureCount() is 0.
     bool ok() const noexcept { return failureCount() == 0; }
 };
 

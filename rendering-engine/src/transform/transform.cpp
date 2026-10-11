@@ -52,200 +52,237 @@ namespace rainbohz::rendering_engine::transform {
 
 namespace {
 
+/// A node id to node id lookup: each node's id maps to the id of the node its
+/// NEXT_POINT edge points to (readLinks(), walkList()).
 using IdMap = std::unordered_map<std::int64_t, std::int64_t>;
 
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
 
+/// Reads the engine's configured sample rate.
 constexpr std::string_view kReadConfig = "MATCH (c:EngineConfig) RETURN c.sampleRate;";
 
-// A Score and the TempoMap that defines its time zero, if it has one.
-// NEXT_POINT is ONE_ONE per pair, so there is at most one row per Score.
+/// A Score and the TempoMap that defines its time zero, if it has one.
+/// NEXT_POINT is ONE_ONE per pair, so there is at most one row per Score.
 constexpr std::string_view kReadScores =
     "MATCH (s:Score) OPTIONAL MATCH (s)-[:NEXT_POINT]->(m:TempoMap) "
     "RETURN s.id, m.id, m.name, m.ticks_per_beat ORDER BY s.id;";
 
+/// Each TempoMap's point-list head, by TempoMap.id.
 constexpr std::string_view kReadTempoMapHeads =
     "MATCH (m:TempoMap) OPTIONAL MATCH (m)-[:NEXT_POINT]->(p:TempoMapPoint) "
     "RETURN m.id, p.id;";
 
+/// Reads every TempoMapPoint's fields.
 constexpr std::string_view kReadTempoMapPoints =
     "MATCH (p:TempoMapPoint) RETURN p.id, p.position, p.start_tempo, p.hold;";
 
+/// Reads the NEXT_POINT links between TempoMapPoints.
 constexpr std::string_view kReadTempoMapLinks =
     "MATCH (a:TempoMapPoint)-[:NEXT_POINT]->(b:TempoMapPoint) RETURN a.id, b.id;";
 
+/// Counts TEMPO_MAP_SYNCHRONIZATION_POINT edges in the database.
 constexpr std::string_view kCountSyncEdges =
     "MATCH ()-[r:TEMPO_MAP_SYNCHRONIZATION_POINT]->() RETURN count(r);";
 
-// Every PartialSet with a musical timeline, with the head of the timeline's
-// point list, or NULL when it has no points.
+/// Every PartialSet with a musical timeline, with the head of the timeline's
+/// point list, or NULL when it has no points.
 constexpr std::string_view kReadMusicalSets =
     "MATCH (ps:PartialSet)-[:HAS_MUSICAL_TIMELINE]->(t:PartialSetMusicalTimeline) "
     "OPTIONAL MATCH (t)-[:NEXT_POINT]->(p:PartialSetMusicalTimelinePoint) "
     "RETURN ps.id, ps.name, t.id, p.id ORDER BY ps.id;";
 
+/// Each PartialSet's owning Score, reached through SoundEntity and SoundSource.
 constexpr std::string_view kReadSetScores =
     "MATCH (s:Score)-[:HAS_SOUNDENTITY]->(:SoundEntity)-[:HAS_SOUNDSOURCE]->(:SoundSource)"
     "-[:HAS_PARTIALSET]->(ps:PartialSet) RETURN ps.id, s.id;";
 
+/// Each PartialSet's member Partials.
 constexpr std::string_view kReadSetMembers =
     "MATCH (ps:PartialSet)-[:HAS_PARTIAL]->(p:Partial) RETURN ps.id, p.id, p.name ORDER BY p.id;";
 
+/// Reads every PartialSetMusicalTimelinePoint's curve fields, and the
+/// TempoMap and sync fields of its POINT_AT, if it has one.
 constexpr std::string_view kReadMusicalPoints =
     "MATCH (p:PartialSetMusicalTimelinePoint) OPTIONAL MATCH (p)-[a:POINT_AT]->(m:TempoMap) "
     "RETURN p.id, p.frequency_curve_type, p.frequency_curve_amount, "
     "p.amplitude_curve_type, p.amplitude_curve_amount, m.id, a.sync_point, a.offset_seconds;";
 
+/// Reads the NEXT_POINT links between PartialSetMusicalTimelinePoints.
 constexpr std::string_view kReadMusicalLinks =
     "MATCH (a:PartialSetMusicalTimelinePoint)-[:NEXT_POINT]->(b:PartialSetMusicalTimelinePoint) "
     "RETURN a.id, b.id;";
 
-// The states a timeline point defines, each with the partial it belongs to.
+/// The states a timeline point defines, each with the partial it belongs to.
 constexpr std::string_view kReadStates =
     "MATCH (p:PartialSetMusicalTimelinePoint)-[:POINT_STATE]->(:PartialStateSet)"
     "<-[:MEMBER_OF_SET_MANY_ONE]-(st:PartialState)-[:STATE_OF]->(partial:Partial) "
     "RETURN p.id, st.id, partial.id, st.frequency, st.amplitude, st.phase, st.phase_free_run;";
 
-// Output from an earlier run, or physical-time input, which is replaced.
+/// Output from an earlier run, or physical-time input, which is replaced.
 constexpr std::string_view kReadExistingFrequency =
     "MATCH (p:Partial)-[:HAS_PHYSICAL_TIMELINE]->(t:FrequencyPhysicalTimeline) "
     "OPTIONAL MATCH (t)-[:NEXT_POINT]->(f:FrequencyPhysicalTimelinePoint) "
     "RETURN p.id, t.id, f.id;";
 
+/// Reads the NEXT_POINT links between FrequencyPhysicalTimelinePoints.
 constexpr std::string_view kReadFrequencyLinks =
     "MATCH (a:FrequencyPhysicalTimelinePoint)-[:NEXT_POINT]->(b:FrequencyPhysicalTimelinePoint) "
     "RETURN a.id, b.id;";
 
+/// A partial's existing AmplitudePhysicalTimeline, which is replaced.
 constexpr std::string_view kReadExistingAmplitude =
     "MATCH (p:Partial)-[:HAS_PHYSICAL_TIMELINE]->(t:AmplitudePhysicalTimeline) "
     "OPTIONAL MATCH (t)-[:NEXT_POINT]->(a:AmplitudePhysicalTimelinePoint) "
     "RETURN p.id, t.id, a.id;";
 
+/// Reads the NEXT_POINT links between AmplitudePhysicalTimelinePoints.
 constexpr std::string_view kReadAmplitudeLinks =
     "MATCH (a:AmplitudePhysicalTimelinePoint)-[:NEXT_POINT]->(b:AmplitudePhysicalTimelinePoint) "
     "RETURN a.id, b.id;";
 
+/// A partial's existing PhasePhysicalTimeline, which is replaced.
 constexpr std::string_view kReadExistingPhase =
     "MATCH (p:Partial)-[:HAS_PHYSICAL_TIMELINE]->(t:PhasePhysicalTimeline) "
     "OPTIONAL MATCH (t)-[:NEXT_POINT]->(f:PhasePhysicalTimelinePoint) "
     "RETURN p.id, t.id, f.id;";
 
+/// Reads the NEXT_POINT links between PhasePhysicalTimelinePoints.
 constexpr std::string_view kReadPhaseLinks =
     "MATCH (a:PhasePhysicalTimelinePoint)-[:NEXT_POINT]->(b:PhasePhysicalTimelinePoint) "
     "RETURN a.id, b.id;";
 
 // Deleting a point removes its edges, including any FRAME_ENTRY_PHYSICAL_TIMELINE
 // edge from an earlier precomputation; precomputation rebuilds its entries.
+/// Deletes a set of FrequencyPhysicalTimelinePoints by id.
 constexpr std::string_view kDeleteFrequencyPoints =
     "UNWIND $ids AS id MATCH (f:FrequencyPhysicalTimelinePoint {id: id}) DETACH DELETE f;";
 
+/// Deletes a FrequencyPhysicalTimeline by id.
 constexpr std::string_view kDeleteFrequencyTimeline =
     "MATCH (t:FrequencyPhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;";
 
+/// Deletes a set of AmplitudePhysicalTimelinePoints by id.
 constexpr std::string_view kDeleteAmplitudePoints =
     "UNWIND $ids AS id MATCH (a:AmplitudePhysicalTimelinePoint {id: id}) DETACH DELETE a;";
 
+/// Deletes an AmplitudePhysicalTimeline by id.
 constexpr std::string_view kDeleteAmplitudeTimeline =
     "MATCH (t:AmplitudePhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;";
 
+/// Deletes a set of PhasePhysicalTimelinePoints by id.
 constexpr std::string_view kDeletePhasePoints =
     "UNWIND $ids AS id MATCH (f:PhasePhysicalTimelinePoint {id: id}) DETACH DELETE f;";
 
+/// Deletes a PhasePhysicalTimeline by id.
 constexpr std::string_view kDeletePhaseTimeline =
     "MATCH (t:PhasePhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;";
 
+/// Creates a FrequencyPhysicalTimeline for $owner and returns its id.
 constexpr std::string_view kCreateFrequencyTimeline =
     "MATCH (p:Partial) WHERE p.id = $owner "
     "CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:FrequencyPhysicalTimeline) RETURN t.id;";
 
+/// Creates an AmplitudePhysicalTimeline for $owner and returns its id.
 constexpr std::string_view kCreateAmplitudeTimeline =
     "MATCH (p:Partial) WHERE p.id = $owner "
     "CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:AmplitudePhysicalTimeline) RETURN t.id;";
 
+/// Creates a PhasePhysicalTimeline for $owner and returns its id.
 constexpr std::string_view kCreatePhaseTimeline =
     "MATCH (p:Partial) WHERE p.id = $owner "
     "CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:PhasePhysicalTimeline) RETURN t.id;";
 
-// One point, linked from the node before it: the timeline for the first
-// point, the previous point after that. Two fixed variants per property, so
-// that EngineDb prepares each once. The column types differ between the two
-// point tables (frequency DOUBLE, amplitude FLOAT), and the curve columns
-// are INT8 and FLOAT, so the bound values are cast explicitly.
+/// One point, linked from the node before it: the timeline for the first
+/// point, the previous point after that. Two fixed variants per property, so
+/// that EngineDb prepares each once. The column types differ between the two
+/// point tables (frequency DOUBLE, amplitude FLOAT), and the curve columns
+/// are INT8 and FLOAT, so the bound values are cast explicitly.
 constexpr std::string_view kCreateFirstFrequencyPoint =
     "MATCH (prev:FrequencyPhysicalTimeline) WHERE prev.id = $previous "
     "CREATE (prev)-[:NEXT_POINT]->(f:FrequencyPhysicalTimelinePoint {time: $time, "
     "frequency: $value, frequency_curve_type: CAST($curveType AS INT8), "
     "frequency_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN f.id;";
 
+/// As kCreateFirstFrequencyPoint, but linked from the previous point.
 constexpr std::string_view kCreateNextFrequencyPoint =
     "MATCH (prev:FrequencyPhysicalTimelinePoint) WHERE prev.id = $previous "
     "CREATE (prev)-[:NEXT_POINT]->(f:FrequencyPhysicalTimelinePoint {time: $time, "
     "frequency: $value, frequency_curve_type: CAST($curveType AS INT8), "
     "frequency_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN f.id;";
 
+/// As kCreateFirstFrequencyPoint, but for an AmplitudePhysicalTimeline point.
 constexpr std::string_view kCreateFirstAmplitudePoint =
     "MATCH (prev:AmplitudePhysicalTimeline) WHERE prev.id = $previous "
     "CREATE (prev)-[:NEXT_POINT]->(a:AmplitudePhysicalTimelinePoint {time: $time, "
     "amplitude: CAST($value AS FLOAT), amplitude_curve_type: CAST($curveType AS INT8), "
     "amplitude_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN a.id;";
 
+/// As kCreateFirstAmplitudePoint, but linked from the previous point.
 constexpr std::string_view kCreateNextAmplitudePoint =
     "MATCH (prev:AmplitudePhysicalTimelinePoint) WHERE prev.id = $previous "
     "CREATE (prev)-[:NEXT_POINT]->(a:AmplitudePhysicalTimelinePoint {time: $time, "
     "amplitude: CAST($value AS FLOAT), amplitude_curve_type: CAST($curveType AS INT8), "
     "amplitude_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN a.id;";
 
-// Phase points have no curve, and their phase may be NULL. A parameter cannot
-// be NULL, so a NULL point has its own statements, which leave the property
-// unset.
+/// Phase points have no curve, and their phase may be NULL. A parameter cannot
+/// be NULL, so a NULL point has its own statements, which leave the property
+/// unset.
 constexpr std::string_view kCreateFirstPhasePoint =
     "MATCH (prev:PhasePhysicalTimeline) WHERE prev.id = $previous "
     "CREATE (prev)-[:NEXT_POINT]->(f:PhasePhysicalTimelinePoint {time: $time, phase: $phase}) "
     "RETURN f.id;";
 
+/// As kCreateFirstPhasePoint, but linked from the previous point.
 constexpr std::string_view kCreateNextPhasePoint =
     "MATCH (prev:PhasePhysicalTimelinePoint) WHERE prev.id = $previous "
     "CREATE (prev)-[:NEXT_POINT]->(f:PhasePhysicalTimelinePoint {time: $time, phase: $phase}) "
     "RETURN f.id;";
 
+/// As kCreateFirstPhasePoint, but for a NULL (free-running) phase point.
 constexpr std::string_view kCreateFirstFreePhasePoint =
     "MATCH (prev:PhasePhysicalTimeline) WHERE prev.id = $previous "
     "CREATE (prev)-[:NEXT_POINT]->(f:PhasePhysicalTimelinePoint {time: $time}) RETURN f.id;";
 
+/// As kCreateFirstFreePhasePoint, but linked from the previous point.
 constexpr std::string_view kCreateNextFreePhasePoint =
     "MATCH (prev:PhasePhysicalTimelinePoint) WHERE prev.id = $previous "
     "CREATE (prev)-[:NEXT_POINT]->(f:PhasePhysicalTimelinePoint {time: $time}) RETURN f.id;";
 
-// Every SoundSource with a spatial musical timeline, with the head of the
-// timeline's point list, or NULL when it has no points (§6.8).
+/// Every SoundSource with a spatial musical timeline, with the head of the
+/// timeline's point list, or NULL when it has no points (§6.8).
 constexpr std::string_view kReadSpatialSources =
     "MATCH (ss:SoundSource)-[:HAS_MUSICAL_TIMELINE]->(t:SpatialPositionMusicalTimeline) "
     "OPTIONAL MATCH (t)-[:NEXT_POINT]->(p:SpatialPositionMusicalTimelinePoint) "
     "RETURN ss.id, ss.name, t.id, p.id ORDER BY ss.id;";
 
+/// Each SoundSource's owning Score, reached through SoundEntity.
 constexpr std::string_view kReadSourceScores =
     "MATCH (s:Score)-[:HAS_SOUNDENTITY]->(:SoundEntity)-[:HAS_SOUNDSOURCE]->(ss:SoundSource) "
     "RETURN ss.id, s.id;";
 
+/// Reads every SpatialPositionMusicalTimelinePoint's curve fields, and the
+/// TempoMap and sync fields of its POINT_AT, if it has one.
 constexpr std::string_view kReadSpatialMusicalPoints =
     "MATCH (p:SpatialPositionMusicalTimelinePoint) OPTIONAL MATCH (p)-[a:POINT_AT]->(m:TempoMap) "
     "RETURN p.id, p.azimuth_curve_type, p.azimuth_curve_amount, p.elevation_curve_type, "
     "p.elevation_curve_amount, p.distance_curve_type, p.distance_curve_amount, m.id, "
     "a.sync_point, a.offset_seconds;";
 
+/// Reads the NEXT_POINT links between SpatialPositionMusicalTimelinePoints.
 constexpr std::string_view kReadSpatialMusicalLinks =
     "MATCH (a:SpatialPositionMusicalTimelinePoint)-[:NEXT_POINT]->"
     "(b:SpatialPositionMusicalTimelinePoint) RETURN a.id, b.id;";
 
 // POINT_STATE is MANY_ONE, so a point has at most one state.
+/// Reads each timeline point's SpatialPositionState, if it has one.
 constexpr std::string_view kReadSpatialStates =
     "MATCH (p:SpatialPositionMusicalTimelinePoint)-[:POINT_STATE]->(st:SpatialPositionState) "
     "RETURN p.id, st.id, st.azimuth, st.elevation, st.distance;";
 
-// The physical spatial timelines, one statement of each shape per kind, in
-// kSpatialKinds order. As for partials, existing ones are replaced.
+/// The physical spatial timelines, one statement of each shape per kind, in
+/// kSpatialKinds order. As for partials, existing ones are replaced.
 constexpr std::array<std::string_view, 3> kReadExistingSpatial{
     "MATCH (ss:SoundSource)-[:HAS_PHYSICAL_TIMELINE]->(t:AzimuthPhysicalTimeline) "
     "OPTIONAL MATCH (t)-[:NEXT_POINT]->(p:AzimuthPhysicalTimelinePoint) RETURN ss.id, t.id, p.id;",
@@ -257,6 +294,8 @@ constexpr std::array<std::string_view, 3> kReadExistingSpatial{
     "RETURN ss.id, t.id, p.id;",
 };
 
+/// Reads the NEXT_POINT links between physical spatial timeline points, one
+/// statement per kind, in kSpatialKinds order.
 constexpr std::array<std::string_view, 3> kReadSpatialPhysicalLinks{
     "MATCH (a:AzimuthPhysicalTimelinePoint)-[:NEXT_POINT]->(b:AzimuthPhysicalTimelinePoint) "
     "RETURN a.id, b.id;",
@@ -266,18 +305,24 @@ constexpr std::array<std::string_view, 3> kReadSpatialPhysicalLinks{
     "RETURN a.id, b.id;",
 };
 
+/// Deletes a set of physical spatial timeline points by id, one statement
+/// per kind, in kSpatialKinds order.
 constexpr std::array<std::string_view, 3> kDeleteSpatialPoints{
     "UNWIND $ids AS id MATCH (p:AzimuthPhysicalTimelinePoint {id: id}) DETACH DELETE p;",
     "UNWIND $ids AS id MATCH (p:ElevationPhysicalTimelinePoint {id: id}) DETACH DELETE p;",
     "UNWIND $ids AS id MATCH (p:DistancePhysicalTimelinePoint {id: id}) DETACH DELETE p;",
 };
 
+/// Deletes a physical spatial timeline by id, one statement per kind, in
+/// kSpatialKinds order.
 constexpr std::array<std::string_view, 3> kDeleteSpatialTimeline{
     "MATCH (t:AzimuthPhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;",
     "MATCH (t:ElevationPhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;",
     "MATCH (t:DistancePhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;",
 };
 
+/// Creates a physical spatial timeline for $owner and returns its id, one
+/// statement per kind, in kSpatialKinds order.
 constexpr std::array<std::string_view, 3> kCreateSpatialTimeline{
     "MATCH (ss:SoundSource) WHERE ss.id = $owner "
     "CREATE (ss)-[:HAS_PHYSICAL_TIMELINE]->(t:AzimuthPhysicalTimeline) RETURN t.id;",
@@ -287,8 +332,8 @@ constexpr std::array<std::string_view, 3> kCreateSpatialTimeline{
     "CREATE (ss)-[:HAS_PHYSICAL_TIMELINE]->(t:DistancePhysicalTimeline) RETURN t.id;",
 };
 
-// As for frequency and amplitude, two fixed variants per kind. Azimuth and
-// elevation are DOUBLE columns, distance FLOAT.
+/// As for frequency and amplitude, two fixed variants per kind. Azimuth and
+/// elevation are DOUBLE columns, distance FLOAT.
 constexpr std::array<std::string_view, 3> kCreateFirstSpatialPoint{
     "MATCH (prev:AzimuthPhysicalTimeline) WHERE prev.id = $previous "
     "CREATE (prev)-[:NEXT_POINT]->(p:AzimuthPhysicalTimelinePoint {time: $time, "
@@ -304,6 +349,7 @@ constexpr std::array<std::string_view, 3> kCreateFirstSpatialPoint{
     "distance_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN p.id;",
 };
 
+/// As kCreateFirstSpatialPoint, but linked from the previous point.
 constexpr std::array<std::string_view, 3> kCreateNextSpatialPoint{
     "MATCH (prev:AzimuthPhysicalTimelinePoint) WHERE prev.id = $previous "
     "CREATE (prev)-[:NEXT_POINT]->(p:AzimuthPhysicalTimelinePoint {time: $time, "
@@ -324,20 +370,20 @@ constexpr std::array<std::string_view, 3> kCreateNextSpatialPoint{
 // a score", and the curve enumerations)
 // ---------------------------------------------------------------------------
 
-constexpr std::int64_t kMinCurveType = 0;
-constexpr std::int64_t kMaxCurveType = 4;
-constexpr double kMinCurveAmount = 0.0;
-constexpr double kMaxCurveAmount = 1.0;
-constexpr double kMinAmplitude = -144.0;
-constexpr double kMaxAmplitude = 0.0;
-constexpr double kMinPhaseDegrees = -180.0;
-constexpr double kMaxPhaseDegrees = 180.0;
-constexpr double kMinAzimuthDegrees = -180.0;
-constexpr double kMaxAzimuthDegrees = 180.0;
-constexpr double kMinElevationDegrees = -90.0;
-constexpr double kMaxElevationDegrees = 90.0;
-constexpr double kMinDistanceMetres = 1.0;
-constexpr double kMaxDistanceMetres = 16384.0;
+constexpr std::int64_t kMinCurveType = 0;      ///< Lowest valid curve type (schema enum).
+constexpr std::int64_t kMaxCurveType = 4;      ///< Highest valid curve type (schema enum).
+constexpr double kMinCurveAmount = 0.0;        ///< Lowest valid curve amount.
+constexpr double kMaxCurveAmount = 1.0;        ///< Highest valid curve amount.
+constexpr double kMinAmplitude = -144.0;       ///< Lowest valid amplitude, dB.
+constexpr double kMaxAmplitude = 0.0;          ///< Highest valid amplitude, dB.
+constexpr double kMinPhaseDegrees = -180.0;    ///< Lowest valid phase, degrees.
+constexpr double kMaxPhaseDegrees = 180.0;     ///< Highest valid phase, degrees.
+constexpr double kMinAzimuthDegrees = -180.0;  ///< Lowest valid azimuth, degrees.
+constexpr double kMaxAzimuthDegrees = 180.0;   ///< Highest valid azimuth, degrees.
+constexpr double kMinElevationDegrees = -90.0; ///< Lowest valid elevation, degrees.
+constexpr double kMaxElevationDegrees = 90.0;  ///< Highest valid elevation, degrees.
+constexpr double kMinDistanceMetres = 1.0;     ///< Lowest valid distance, metres.
+constexpr double kMaxDistanceMetres = 16384.0; ///< Highest valid distance, metres.
 
 // ---------------------------------------------------------------------------
 // Inputs, as read in bulk before anything is written
@@ -345,16 +391,16 @@ constexpr double kMaxDistanceMetres = 16384.0;
 
 /// A Score and its TempoMap, as read.
 struct ScoreRecord {
-    std::int64_t scoreId = 0;
-    std::optional<std::int64_t> tempoMapId;
-    std::optional<std::string> tempoMapName;
-    std::optional<std::int64_t> ticksPerBeat;
+    std::int64_t scoreId = 0;                 ///< The Score.
+    std::optional<std::int64_t> tempoMapId;   ///< Its TempoMap; nullopt if it has none.
+    std::optional<std::string> tempoMapName;  ///< That TempoMap's name.
+    std::optional<std::int64_t> ticksPerBeat; ///< That TempoMap's ticks_per_beat.
 };
 
 /// A PartialSet with a musical timeline, as read.
 struct MusicalSetRecord {
-    std::int64_t setId = 0;
-    std::optional<std::string> name;
+    std::int64_t setId = 0;          ///< The PartialSet.
+    std::optional<std::string> name; ///< The PartialSet's name.
 
     /// Each PartialSetMusicalTimeline of the set with the head of its point
     /// list (nullopt for an empty one). The schema allows one per set; a
@@ -366,24 +412,24 @@ struct MusicalSetRecord {
 struct PointAtRecord {
     /// The TempoMap its POINT_AT leads to; nullopt when it has none.
     std::optional<std::int64_t> tempoMapId;
-    std::optional<std::int64_t> syncPoint;
-    std::optional<double> offsetSeconds;
+    std::optional<std::int64_t> syncPoint; ///< POINT_AT's sync_point, in musical time.
+    std::optional<double> offsetSeconds;   ///< POINT_AT's offset_seconds.
 };
 
 /// A PartialSetMusicalTimelinePoint with its POINT_AT, as read.
 struct MusicalPointRecord {
-    std::int64_t id = 0;
-    std::optional<std::int64_t> frequencyCurveType;
-    std::optional<double> frequencyCurveAmount;
-    std::optional<std::int64_t> amplitudeCurveType;
-    std::optional<double> amplitudeCurveAmount;
-    PointAtRecord at;
+    std::int64_t id = 0;                            ///< The PartialSetMusicalTimelinePoint.
+    std::optional<std::int64_t> frequencyCurveType; ///< Its frequency_curve_type.
+    std::optional<double> frequencyCurveAmount;     ///< Its frequency_curve_amount.
+    std::optional<std::int64_t> amplitudeCurveType; ///< Its amplitude_curve_type.
+    std::optional<double> amplitudeCurveAmount;     ///< Its amplitude_curve_amount.
+    PointAtRecord at;                               ///< Its POINT_AT, if it has one.
 };
 
 /// A SoundSource with a spatial musical timeline, as read.
 struct SpatialSourceRecord {
-    std::int64_t sourceId = 0;
-    std::optional<std::string> name;
+    std::int64_t sourceId = 0;       ///< The SoundSource.
+    std::optional<std::string> name; ///< The SoundSource's name.
 
     /// Each SpatialPositionMusicalTimeline of the source with the head of
     /// its point list (nullopt for an empty one). The schema allows one.
@@ -393,72 +439,100 @@ struct SpatialSourceRecord {
 /// A SpatialPositionMusicalTimelinePoint with its POINT_AT, as read; the
 /// curve fields in kSpatialKinds order.
 struct SpatialMusicalPointRecord {
-    std::int64_t id = 0;
-    std::array<std::optional<std::int64_t>, 3> curveType;
-    std::array<std::optional<double>, 3> curveAmount;
-    PointAtRecord at;
+    std::int64_t id = 0; ///< The SpatialPositionMusicalTimelinePoint.
+    std::array<std::optional<std::int64_t>, 3>
+        curveType; ///< Azimuth, elevation, distance curve types.
+    std::array<std::optional<double>, 3>
+        curveAmount;  ///< Azimuth, elevation, distance curve amounts.
+    PointAtRecord at; ///< Its POINT_AT, if it has one.
 };
 
 /// A SpatialPositionState reached from a timeline point, as read.
 struct SpatialStateRecord {
-    std::int64_t stateId = 0;
-    std::optional<double> azimuth;
-    std::optional<double> elevation;
-    std::optional<double> distance;
+    std::int64_t stateId = 0;        ///< The SpatialPositionState.
+    std::optional<double> azimuth;   ///< Its azimuth, degrees.
+    std::optional<double> elevation; ///< Its elevation, degrees.
+    std::optional<double> distance;  ///< Its distance, metres.
 };
 
 /// A PartialState reached from a timeline point, as read.
 struct StateRecord {
-    std::int64_t stateId = 0;
-    std::int64_t partialId = 0;
-    std::optional<double> frequency;
-    std::optional<double> amplitude;
+    std::int64_t stateId = 0;        ///< The PartialState.
+    std::int64_t partialId = 0;      ///< The Partial it is STATE_OF.
+    std::optional<double> frequency; ///< Its frequency, Hz.
+    std::optional<double> amplitude; ///< Its amplitude, dB.
 
     /// Degrees; with phaseFreeRun, one of three meanings (§6.6).
     std::optional<double> phase;
-    std::optional<bool> phaseFreeRun;
+    std::optional<bool> phaseFreeRun; ///< Its phase_free_run.
 };
 
 /// A partial's existing physical timeline of one kind, with its point ids in
 /// list order, to be deleted.
 struct ExistingTimeline {
-    std::int64_t timelineId = 0;
-    std::optional<std::int64_t> head;
+    std::int64_t timelineId = 0;      ///< The physical timeline to delete.
+    std::optional<std::int64_t> head; ///< Its NEXT_POINT head, or nullopt if empty.
 };
 
 /// Everything the run reads, for every set at once.
 struct Inputs {
+    /// Every Score, with its TempoMap if it has one.
     std::vector<ScoreRecord> scores;
+    /// Each TempoMap's point-list heads, by TempoMap.id (more than one is a
+    /// validation error raised later).
     std::unordered_map<std::int64_t, std::vector<std::optional<std::int64_t>>> tempoMapHeads;
+    /// Every TempoMapPoint's fields, by its id.
     std::unordered_map<std::int64_t, TempoMapPointRecord> tempoMapPoints;
+    /// The NEXT_POINT links between TempoMapPoints.
     IdMap tempoMapNext;
+    /// The number of TEMPO_MAP_SYNCHRONIZATION_POINT edges in the database.
     std::int64_t syncEdges = 0;
 
+    /// Every PartialSet with a musical timeline.
     std::vector<MusicalSetRecord> sets;
+    /// Each PartialSet's owning Score, by PartialSet.id.
     std::unordered_map<std::int64_t, std::int64_t> scoreOfSet;
+    /// Each PartialSet's member Partials (id and name), by PartialSet.id.
     std::unordered_map<std::int64_t,
         std::vector<std::pair<std::int64_t, std::optional<std::string>>>>
         membersOfSet;
+    /// Every PartialSetMusicalTimelinePoint, by its id.
     std::unordered_map<std::int64_t, MusicalPointRecord> musicalPoints;
+    /// The NEXT_POINT links between PartialSetMusicalTimelinePoints.
     IdMap musicalNext;
+    /// Each timeline point's PartialStates, by point id.
     std::unordered_map<std::int64_t, std::vector<StateRecord>> statesOfPoint;
 
+    /// Each Partial's existing FrequencyPhysicalTimelines, by Partial.id.
     std::unordered_map<std::int64_t, std::vector<ExistingTimeline>> existingFrequency;
+    /// The NEXT_POINT links between FrequencyPhysicalTimelinePoints.
     IdMap frequencyNext;
+    /// Each Partial's existing AmplitudePhysicalTimelines, by Partial.id.
     std::unordered_map<std::int64_t, std::vector<ExistingTimeline>> existingAmplitude;
+    /// The NEXT_POINT links between AmplitudePhysicalTimelinePoints.
     IdMap amplitudeNext;
+    /// Each Partial's existing PhasePhysicalTimelines, by Partial.id.
     std::unordered_map<std::int64_t, std::vector<ExistingTimeline>> existingPhase;
+    /// The NEXT_POINT links between PhasePhysicalTimelinePoints.
     IdMap phaseNext;
 
+    /// Every SoundSource with a spatial musical timeline.
     std::vector<SpatialSourceRecord> sources;
+    /// Each SoundSource's owning Score, by SoundSource.id.
     std::unordered_map<std::int64_t, std::int64_t> scoreOfSource;
+    /// Every SpatialPositionMusicalTimelinePoint, by its id.
     std::unordered_map<std::int64_t, SpatialMusicalPointRecord> spatialPoints;
+    /// The NEXT_POINT links between SpatialPositionMusicalTimelinePoints.
     IdMap spatialMusicalNext;
+    /// Each timeline point's SpatialPositionState, by point id (at most one
+    /// per point).
     std::unordered_map<std::int64_t, std::vector<SpatialStateRecord>> statesOfSpatialPoint;
 
     /// Per kind, in kSpatialKinds order: each source's existing physical
     /// timelines, and the links between their points.
     std::array<std::unordered_map<std::int64_t, std::vector<ExistingTimeline>>, 3> existingSpatial;
+    /// Per kind, in kSpatialKinds order: the NEXT_POINT links between the
+    /// physical spatial timeline points.
     std::array<IdMap, 3> spatialPhysicalNext;
 };
 
@@ -694,8 +768,8 @@ std::string describePoint(std::size_t index, std::int64_t id) {
 
 /// A Score's validated TempoMap, with its id.
 struct ScoreTempoMap {
-    std::int64_t mapId = 0;
-    TempoMap map;
+    std::int64_t mapId = 0; ///< The TempoMap.
+    TempoMap map;           ///< Its validated, in-memory form.
 };
 
 /// Builds and validates the TempoMap of every Score that has one (§6.1).
@@ -952,17 +1026,19 @@ SetEnvelopes gatherSet(const Inputs& inputs, const MusicalSetRecord& set, const 
 
 /// Everything to be written for one partial.
 struct PartialOutput {
-    std::int64_t partialId = 0;
+    std::int64_t partialId = 0; ///< The Partial.
 
     /// Existing timelines to delete, each with its point ids.
     std::vector<std::pair<std::int64_t, std::vector<std::int64_t>>> staleFrequency;
-    std::vector<std::pair<std::int64_t, std::vector<std::int64_t>>> staleAmplitude;
-    std::vector<std::pair<std::int64_t, std::vector<std::int64_t>>> stalePhase;
+    std::vector<std::pair<std::int64_t, std::vector<std::int64_t>>>
+        staleAmplitude; ///< As staleFrequency, amplitude.
+    std::vector<std::pair<std::int64_t, std::vector<std::int64_t>>>
+        stalePhase; ///< As staleFrequency, phase.
 
     /// The points to write, in physical units.
     std::vector<PhysicalPoint> frequency;
-    std::vector<PhysicalPoint> amplitude;
-    std::vector<PhasePoint> phase;
+    std::vector<PhysicalPoint> amplitude; ///< As frequency, amplitude.
+    std::vector<PhasePoint> phase;        ///< As frequency, phase.
 };
 
 /// Writes one chain of points, linked from a freshly created timeline.

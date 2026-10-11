@@ -6,7 +6,7 @@ agreed design, settled with the author on 2026-09-24; the code followed on
 the compensation list joins the gather, the render segments and the anchor.
 Spatial position and the eight channel modes were added on 2026-10-04: each
 SoundSource's mono sum is spread over the output channels by its position
-(§8.5, [ADR 0020](../../docs/adr/0020-spatial-gains-are-applied-per-sound-source-after-summing.md)).
+(§8.5, @see ADR 0020).
 It is `sample_value.hpp`, `amplitude_maths.hpp`, `channel_mode.hpp`,
 `spatial_gains.hpp`, `spatial_maths.hpp`,
 `render_kernel.hpp`, `frame_plan.hpp`, `wav_writer.hpp` and `rendering.hpp`
@@ -117,7 +117,7 @@ distinguish wrapped from unwrapped.
 ### 3.1 Two timebases
 
 Two clocks appear in this document, both in samples, and both are physical
-time ([ADR 0012](../../docs/adr/0012-distinguish-musical-and-physical-time.md)).
+time (@see ADR 0012).
 Musical time never reaches the render path:
 
 - **Receiver time** is the timebase of the output. It is discrete: sample *n*
@@ -203,7 +203,7 @@ the stereo, M/S and Blumlein modes, four for the FOA modes, in the order
 §8.5 gives. It is written
 by **dr_wav**, a library built for the purpose, pinned and built from source
 like every other dependency
-([ADR 0009](../../docs/adr/0009-write-wav-files-with-dr-wav.md)); the engine
+(@see ADR 0009); the engine
 does not write RIFF chunks itself. The channel count is a parameter of the
 same call. A frame with no partial in
 scope — including a frame number for which no `Frame` node exists — is
@@ -613,7 +613,7 @@ from the exact integral by `g/2` per sample — over one second of glide a
 visible phase jump when the next segment re-anchors. The exact increment
 costs the same one addition and agrees with precomputation at every
 boundary. The decision and its alternatives are
-[ADR 0007](../../docs/adr/0007-advance-phase-by-the-exact-one-sample-increment.md).
+@see ADR 0007.
 
 Under Doppler, a receiver sample consumes `dτ` of source time rather than 1,
 and the increment is `Φ(τ + dτ) − Φ(τ) = freq·dτ + ½ g dτ²`, with `dτ` the
@@ -626,7 +626,7 @@ folded into the same per-chunk constant: `phaseStepOffset = g/2 + c`, and
 the loop is unchanged in cost. Under Doppler it becomes `c dτ`. The slope is
 not added to `freq`: it is a correction to the phase, not part of the
 nominal frequency, so the roll-off (§8.2) does not see it
-([ADR 0019](../../docs/adr/0019-phase-targets-are-met-by-linear-compensation-segments.md)).
+(@see ADR 0019).
 
 The phase is kept **wrapped** into `[−π, π]`, the range the schema gives
 for wrapped phase, by subtracting or adding 2π after each increment. A
@@ -762,7 +762,7 @@ recorded in §14, not done.
 **Why stateless.** A per-partial fade counter was considered — decrement 1 dB
 per out-of-range sample, increment 1 dB per in-range sample, saturating at
 −144 and 0 — and rejected on two grounds
-([ADR 0008](../../docs/adr/0008-frequency-range-roll-off-is-a-stateless-function.md)).
+(@see ADR 0008).
 It is history-dependent stepping, which AGENTS.md forbids ("Partial state is
 a pure function of time"), and it breaks random access in the concrete
 sense that the counter's value at a frame start depends on samples before
@@ -829,7 +829,7 @@ convention. Azimuth is in radians anticlockwise from the front (π/2 is
 left), elevation in radians up from the horizontal, and distance in metres
 from the receiver, at least 1. Every partial of the source shares that
 position, so the spatial stage runs **once per source**, on the sum of its
-sets, not per partial ([ADR 0020](../../docs/adr/0020-spatial-gains-are-applied-per-sound-source-after-summing.md)):
+sets, not per partial (@see ADR 0020):
 
 ```math
 \text{out}_c[n] \mathrel{+}= g_c\big(\text{position}(t_n)\big)\cdot \sum_{\text{sets of the source}} \text{mono}[n]

@@ -36,15 +36,15 @@ AUTOLINK_SUPPORT       = YES
 
 # Warnings are how the convention is enforced. WARN_NO_PARAMDOC reports a
 # function with some documentation but a missing @param or @return.
-# WARN_AS_ERROR stays NO until the existing code has been brought up to the
-# convention; after that it should become FAIL_ON_WARNINGS.
+# FAIL_ON_WARNINGS runs to the end, so every warning is listed, then fails
+# the run.
 QUIET                  = YES
 WARNINGS               = YES
 WARN_IF_UNDOCUMENTED   = YES
 WARN_IF_DOC_ERROR      = YES
 WARN_IF_INCOMPLETE_DOC = YES
 WARN_NO_PARAMDOC       = YES
-WARN_AS_ERROR          = NO
+WARN_AS_ERROR          = FAIL_ON_WARNINGS
 WARN_FORMAT            = "$file:$line: $text"
 
 GENERATE_HTML          = YES

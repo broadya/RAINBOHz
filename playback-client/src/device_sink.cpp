@@ -196,18 +196,23 @@ private:
         }
     }
 
+    /// Samples written and not yet taken by the callback.
     SampleRing ring_;
     /// The callback's working buffer, allocated once here.
     std::vector<float> scratch_;
-    // A C struct that ma_device_init() fills in; zeroing it first is what
-    // miniaudio's own examples do, and its enum member is set there.
+    /// The miniaudio playback device the callback fills.
+    /// A C struct that ma_device_init() fills in; zeroing it first is what
+    /// miniaudio's own examples do, and its enum member is set there.
     ma_device device_{}; // NOLINT(bugprone-invalid-enum-default-initialization)
+    /// Whether ma_device_init() succeeded, so the destructor must uninit device_.
     bool initialised_ = false;
     /// Set by the first write(): from then on a dry ring is an underrun.
     std::atomic<bool> primed_{false};
     /// Set by finish() or abort(): from then on a dry ring is expected.
     std::atomic<bool> finishing_{false};
+    /// Set by abort(): write() returns false and the callback plays silence.
     std::atomic<bool> aborted_{false};
+    /// Silent samples the callback played while audio was expected (underrun()).
     std::atomic<std::uint64_t> underrun_{0};
 };
 

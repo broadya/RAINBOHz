@@ -39,7 +39,7 @@ public:
     friend constexpr auto operator<=>(SampleRate, SampleRate) noexcept = default;
 
 private:
-    std::int32_t value_;
+    std::int32_t value_; ///< Samples per second, in Hz.
 };
 
 /// A number of samples: a length of audio, or a distance between two
@@ -88,7 +88,7 @@ public:
     }
 
 private:
-    std::int64_t value_ = 0;
+    std::int64_t value_ = 0; ///< The number of samples.
 };
 
 /// Samples per frame: the length of every frame the server renders.
@@ -114,7 +114,7 @@ public:
     friend constexpr auto operator<=>(FrameSize, FrameSize) noexcept = default;
 
 private:
-    std::int32_t value_;
+    std::int32_t value_; ///< Samples per frame.
 };
 
 /// A frame number, Frame.frame_number in engine-db: frame n holds samples
@@ -135,7 +135,7 @@ public:
     friend constexpr auto operator<=>(FrameNumber, FrameNumber) noexcept = default;
 
 private:
-    std::int32_t value_;
+    std::int32_t value_; ///< Frame.frame_number.
 };
 
 /// An absolute sample: its index in the score's sample stream, from sample 0
@@ -175,7 +175,7 @@ public:
     }
 
 private:
-    std::int64_t value_;
+    std::int64_t value_; ///< Samples from sample 0.
 };
 
 } // namespace rainbohz::playback_client

@@ -63,12 +63,13 @@ namespace {
 // Queries
 // ---------------------------------------------------------------------------
 
+/// Reads the EngineConfig's frame size, sample rate and channel mode.
 constexpr std::string_view kReadConfig =
     "MATCH (c:EngineConfig) RETURN c.frameSize, c.sampleRate, c.channelMode;";
 
-// Query 1 of §6.3: the frame's entries, each with its partial and the set
-// aggregating it. Both are OPTIONAL so that an entry leading nowhere, or a
-// partial in no set, is seen and refused rather than silently dropped.
+/// Query 1 of §6.3: the frame's entries, each with its partial and the set
+/// aggregating it. Both are OPTIONAL so that an entry leading nowhere, or a
+/// partial in no set, is seen and refused rather than silently dropped.
 constexpr std::string_view kReadEntries =
     "MATCH (f:Frame)-[:FRAME_ENTRY]->(e:FrameEntry) "
     "WHERE f.frame_number = CAST($frame AS INT32) "
@@ -77,9 +78,9 @@ constexpr std::string_view kReadEntries =
     "OPTIONAL MATCH (ss:SoundSource)-[:HAS_PARTIALSET]->(ps) "
     "RETURN e.id, p.id, p.name, ps.id, ss.id, ss.name ORDER BY p.id, e.id;";
 
-// Query 2: each entry's segment with its nominal frequency, and whether the
-// segment has a predecessor segment (an entry segment starting after the
-// frame start must be the head of its list, or the entry is stale).
+/// Query 2: each entry's segment with its nominal frequency, and whether the
+/// segment has a predecessor segment (an entry segment starting after the
+/// frame start must be the head of its list, or the entry is stale).
 constexpr std::string_view kReadEntrySegments =
     "MATCH (f:Frame)-[:FRAME_ENTRY]->(e:FrameEntry)"
     "-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(s:PartialIntegrableSegment) "
@@ -90,23 +91,25 @@ constexpr std::string_view kReadEntrySegments =
     "n.start_nominal_frequency, n.linear_component, n.linear_gradient, n.curve_component, "
     "prev.id;";
 
+/// Each entry's AmplitudePhysicalTimelinePoint in the frame.
 constexpr std::string_view kReadEntryPoints =
     "MATCH (f:Frame)-[:FRAME_ENTRY]->(e:FrameEntry)"
     "-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(a:AmplitudePhysicalTimelinePoint) "
     "WHERE f.frame_number = CAST($frame AS INT32) "
     "RETURN e.id, a.id, a.time, a.amplitude, a.amplitude_curve_type;";
 
+/// Each entry's PartialPhaseCompensationSegment in the frame.
 constexpr std::string_view kReadEntryCompensation =
     "MATCH (f:Frame)-[:FRAME_ENTRY]->(e:FrameEntry)"
     "-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(c:PartialPhaseCompensationSegment) "
     "WHERE f.frame_number = CAST($frame AS INT32) "
     "RETURN e.id, c.id, c.start_time, c.end_time, c.start_phase_delta, c.end_phase_delta;";
 
-// Each entry's point on its SoundSource's azimuth, elevation and distance
-// timelines, in kSpatialKinds order, and whether it has a predecessor point
-// (an entry after the frame's start must be the first point of its list).
-// The same for every partial of a source; rendering walks from it once per
-// source.
+/// Each entry's point on its SoundSource's azimuth, elevation and distance
+/// timelines, in kSpatialKinds order, and whether it has a predecessor point
+/// (an entry after the frame's start must be the first point of its list).
+/// The same for every partial of a source; rendering walks from it once per
+/// source.
 constexpr std::array<std::string_view, 3> kReadEntrySpatial{
     "MATCH (f:Frame)-[:FRAME_ENTRY]->(e:FrameEntry)"
     "-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(a:AzimuthPhysicalTimelinePoint) "
@@ -125,8 +128,8 @@ constexpr std::array<std::string_view, 3> kReadEntrySpatial{
     "RETURN e.id, a.id, a.time, a.distance, a.distance_curve_type, prev.id;",
 };
 
-// Query 3: one hop along NEXT_POINT for every node still walking, by
-// primary-key lookup (engine_db.hpp, DbParameter, on why UNWIND).
+/// Query 3: one hop along NEXT_POINT for every node still walking, by
+/// primary-key lookup (engine_db.hpp, DbParameter, on why UNWIND).
 constexpr std::string_view kNextSegments =
     "UNWIND $ids AS id "
     "MATCH (a:PartialIntegrableSegment {id: id})-[:NEXT_POINT]->(b:PartialIntegrableSegment) "
@@ -134,18 +137,23 @@ constexpr std::string_view kNextSegments =
     "RETURN a.id, b.id, b.start_time, b.end_time, b.start_phase, "
     "n.start_nominal_frequency, n.linear_component, n.linear_gradient, n.curve_component;";
 
+/// As kNextSegments, for AmplitudePhysicalTimelinePoints: each point's successor.
 constexpr std::string_view kNextPoints =
     "UNWIND $ids AS id "
     "MATCH (a:AmplitudePhysicalTimelinePoint {id: "
     "id})-[:NEXT_POINT]->(b:AmplitudePhysicalTimelinePoint) "
     "RETURN a.id, b.id, b.time, b.amplitude, b.amplitude_curve_type;";
 
+/// As kNextSegments, for PartialPhaseCompensationSegments: each segment's
+/// successor.
 constexpr std::string_view kNextCompensation =
     "UNWIND $ids AS id "
     "MATCH (a:PartialPhaseCompensationSegment {id: id})-[:NEXT_POINT]->"
     "(b:PartialPhaseCompensationSegment) "
     "RETURN a.id, b.id, b.start_time, b.end_time, b.start_phase_delta, b.end_phase_delta;";
 
+/// As kNextSegments, for physical spatial timeline points: each point's
+/// successor, one statement per kind, in kSpatialKinds order.
 constexpr std::array<std::string_view, 3> kNextSpatial{
     "UNWIND $ids AS id "
     "MATCH (a:AzimuthPhysicalTimelinePoint {id: id})-[:NEXT_POINT]->"
@@ -172,45 +180,46 @@ constexpr std::int64_t kLinearCurveType = 0;
 /// A PartialIntegrableSegment with its PartialSegmentNominalFrequency, as
 /// read. Every property is nullable in the schema, so every one is optional.
 struct SegmentRecord {
-    std::int64_t id = 0;
-    std::optional<double> startTime;
-    std::optional<double> endTime;
-    std::optional<double> startPhase;
-    std::optional<double> startFrequency;
-    std::optional<bool> linearComponent;
-    std::optional<double> linearGradient;
-    std::optional<bool> curveComponent;
+    std::int64_t id = 0;                  ///< PartialIntegrableSegment.id.
+    std::optional<double> startTime;      ///< start_time, in samples.
+    std::optional<double> endTime;        ///< end_time, in samples.
+    std::optional<double> startPhase;     ///< start_phase, in radians.
+    std::optional<double> startFrequency; ///< start_nominal_frequency, radians per sample.
+    std::optional<bool> linearComponent;  ///< linear_component: whether it has a gradient.
+    std::optional<double> linearGradient; ///< linear_gradient, radians per sample².
+    std::optional<bool> curveComponent;   ///< curve_component; must not be true.
     /// Whether the segment has a NEXT_POINT successor. Set by the walk.
     bool hasSuccessor = false;
 };
 
 /// An AmplitudePhysicalTimelinePoint as read.
 struct PointRecord {
-    std::int64_t id = 0;
-    std::optional<double> time;
-    std::optional<double> amplitude;
-    std::optional<std::int64_t> curveType;
+    std::int64_t id = 0;                   ///< AmplitudePhysicalTimelinePoint.id.
+    std::optional<double> time;            ///< time, in samples.
+    std::optional<double> amplitude;       ///< amplitude, in dB.
+    std::optional<std::int64_t> curveType; ///< amplitude_curve_type; kLinearCurveType renders.
     /// Whether the point has a NEXT_POINT successor. Set by the walk.
     bool hasSuccessor = false;
 };
 
 /// A PartialPhaseCompensationSegment as read.
 struct CompensationRecord {
-    std::int64_t id = 0;
-    std::optional<double> startTime;
-    std::optional<double> endTime;
-    std::optional<double> startDelta;
-    std::optional<double> endDelta;
+    std::int64_t id = 0;              ///< PartialPhaseCompensationSegment.id.
+    std::optional<double> startTime;  ///< start_time, in samples.
+    std::optional<double> endTime;    ///< end_time, in samples.
+    std::optional<double> startDelta; ///< start_phase_delta, in radians.
+    std::optional<double> endDelta;   ///< end_phase_delta, in radians.
     /// Whether the segment has a NEXT_POINT successor. Set by the walk.
     bool hasSuccessor = false;
 };
 
 /// An azimuth, elevation or distance point as read.
 struct SpatialRecord {
-    std::int64_t id = 0;
-    std::optional<double> time;
+    std::int64_t id = 0;        ///< The azimuth, elevation or distance point's id.
+    std::optional<double> time; ///< time, in samples.
+    /// The azimuth or elevation in radians, or the distance in metres.
     std::optional<double> value;
-    std::optional<std::int64_t> curveType;
+    std::optional<std::int64_t> curveType; ///< The `*_curve_type`; kLinearCurveType renders.
     /// Whether the point has a NEXT_POINT successor. Set by the walk.
     bool hasSuccessor = false;
     /// Whether the point has a predecessor point. Read for entry points only.
@@ -219,9 +228,10 @@ struct SpatialRecord {
 
 /// Everything gathered for one FrameEntry, before validation.
 struct EntryRecord {
-    std::int64_t entryId = 0;
-    std::optional<std::int64_t> partialId;
-    std::optional<std::string> partialName;
+    std::int64_t entryId = 0;               ///< FrameEntry.id.
+    std::optional<std::int64_t> partialId;  ///< The entry's Partial.id; NULL if it leads nowhere.
+    std::optional<std::string> partialName; ///< That Partial's name, which may be NULL.
+    /// The PartialSet(s) aggregating the partial, distinct; valid with exactly one.
     std::vector<std::int64_t> partialSetIds;
     /// The SoundSource(s) aggregating the partial's set(s), distinct.
     std::vector<std::int64_t> soundSourceIds;
@@ -248,7 +258,7 @@ struct EntryRecord {
 /// before validation: one walk per kind, shared by every partial of the
 /// source, from the earliest entry point any of them has.
 struct SourceRecord {
-    std::int64_t soundSourceId = 0;
+    std::int64_t soundSourceId = 0; ///< SoundSource.id.
     /// "SoundSource <name> (id <id>)", for messages.
     std::string description;
     /// Per spatial kind: the earliest entry point and, after the walk, its
@@ -1099,8 +1109,10 @@ void validateSourceEntry(const EntryRecord& entry, const PartialData& data,
 
 /// The configuration a run needs, read once.
 struct Config {
-    SampleRate sampleRate{0};
+    SampleRate sampleRate{0}; ///< EngineConfig.sampleRate.
+    /// EngineConfig.frameSize, or one second at sampleRate when it is NULL.
     FrameSize frameSize{0};
+    /// EngineConfig.channelMode: the output channels each frame's file has.
     ChannelMode channelMode = ChannelMode::Mono;
 };
 

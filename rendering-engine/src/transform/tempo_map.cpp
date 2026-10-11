@@ -25,6 +25,7 @@ namespace {
 
 /// The schema's valid tempo range, BPM (engine-schema.cypher, "tempo").
 constexpr double kMinTempo = 1.0;
+/// The schema's highest valid tempo, BPM.
 constexpr double kMaxTempo = 1000.0;
 
 /// Formats a double for an error message, with enough digits to identify it.

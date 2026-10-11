@@ -31,8 +31,8 @@ namespace {
 
 namespace pc = rainbohz::playback_client;
 
-// Set by the signal handler; polled by the session. A signal handler can
-// reach nothing but a global, and may touch nothing but a lock-free atomic.
+/// Set by the signal handler; polled by the session. A signal handler can
+/// reach nothing but a global, and may touch nothing but a lock-free atomic.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::atomic<bool> gInterrupted{false};
 

@@ -41,13 +41,13 @@ namespace rainbohz::rendering_engine {
 
 namespace {
 
-// Ladybug treats an empty path and ":memory:" identically, but being explicit
-// here keeps the in-memory default visible at the call site rather than
-// depending on a library convention.
+/// Ladybug treats an empty path and ":memory:" identically, but being explicit
+/// here keeps the in-memory default visible at the call site rather than
+/// depending on a library convention.
 constexpr std::string_view kInMemoryPath = ":memory:";
 
-// How Ladybug reports a declaration that is already in the catalog. Matched
-// case-insensitively, as ALREADY_EXISTS_RE in scripts/ladybug_ddl.py is.
+/// How Ladybug reports a declaration that is already in the catalog. Matched
+/// case-insensitively, as ALREADY_EXISTS_RE in scripts/ladybug_ddl.py is.
 constexpr std::string_view kAlreadyExistsMarker = "already exists in catalog";
 
 /// Tests whether one string occurs within another, ignoring ASCII case.
