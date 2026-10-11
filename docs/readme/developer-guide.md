@@ -32,7 +32,15 @@ make hzl-compile             # compile an HzL score to Cypher (hzl-compiler/)
 make run-hzl-score           # ...and render it with the engine
 make test-hzl-compiler       # the compiler's tests
 make lint-hzl-compiler       # the compiler's lint, format and type checks
+make lock                    # re-lock Python dependencies after changing them (needs uv)
+make audit-python            # check the locked Python packages for known vulnerabilities
 ```
+
+Python packages are installed into the root `.venv` from a hash-checked
+lock, `requirements-dev.txt`, which `make lock` generates from
+`requirements-dev.in` and `hzl-compiler/pyproject.toml`. Edit those, run
+`make lock`, and commit the lock with them; never edit the lock by hand. See
+[ADR 0021](docs/adr/0021-lock-python-dependencies-with-hashes.md).
 
 The C++ components are built with CMake behind those targets, and using CMake
 directly works just as well — see [`rendering-engine/README.md`](rendering-engine/README.md).
@@ -84,7 +92,8 @@ brew install cmake ninja ccache llvm ladybug
 
 Homebrew's `llvm` is keg-only and stays off `PATH` deliberately; it supplies
 `clang-tidy`, which Apple's clang does not ship. Python 3.12+ is needed for the
-schema tooling.
+schema tooling. `brew install uv` is needed only to change Python
+dependencies (`make lock`).
 
 ### Ladybug
 

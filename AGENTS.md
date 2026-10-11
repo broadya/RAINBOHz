@@ -465,10 +465,20 @@ Databases (built from the schema DDL, which is the source of truth):
 Python:
 
 - `make venv` — create the root `.venv` from `PYTHON` (3.12 or later) and
-  install `requirements-dev.txt` into it: the compiler, editable, with its
-  tools, and the engine's test harness packages. Every target that runs
+  install the lock, `requirements-dev.txt`, into it with
+  `--require-hashes --only-binary :all:`, then the compiler, editable, with
+  `--no-deps --no-build-isolation`, then `pip check`. Every target that runs
   Python depends on it, so it happens on first use; again whenever
-  `requirements-dev.txt` or `hzl-compiler/pyproject.toml` changes.
+  `requirements-dev.txt` or `hzl-compiler/pyproject.toml` changes. Needs only
+  pip.
+- `make lock` — re-resolve `requirements-dev.in` and
+  `hzl-compiler/pyproject.toml` (with its `dev` extra) into
+  `requirements-dev.txt`, keeping existing pins. `make lock-upgrade` moves
+  every package to its newest allowed version. Both need `uv`, and both
+  ignore releases younger than `LOCK_COOLDOWN` (default `7 days`).
+- `make audit-python` — check every locked package with pip-audit against
+  the published vulnerability databases. Needs the network; not part of
+  `make test`, because its answer changes as advisories are published.
 - `make clean-venv` — remove it.
 
 `hzl-compiler` (Python):
@@ -612,8 +622,18 @@ These apply to `hzl-compiler` and to Python components added later.
   (order-only, `| $(VENV_STAMP)`, for a rule that writes a file), never
   `$(PYTHON)`, which only creates the venv. A package a component needs
   goes in its `pyproject.toml`; one a test harness or script needs goes in
-  `requirements-dev.txt`. Nothing is installed into the system Python.
+  `requirements-dev.in`. Nothing is installed into the system Python.
   `proof-of-concept/` keeps its own venvs and is not part of this.
+- Python dependencies are installed from a hash-checked lock
+  ([ADR 0021](docs/adr/0021-lock-python-dependencies-with-hashes.md)).
+  After changing a dependency in a `pyproject.toml` or `requirements-dev.in`,
+  run `make lock` and commit the regenerated `requirements-dev.txt` with
+  it. Never edit `requirements-dev.txt` by hand, and never install a
+  package into `.venv` outside the lock. A new `pyproject.toml` joins the
+  lock's inputs (`LOCK_INPUTS` in the Makefile) and is installed in
+  `make venv` the way the compiler is. Installs are wheels only: a
+  dependency that publishes no wheel for macOS arm64 and Linux aarch64 is a
+  decision for the author, not a reason to relax the flags.
 - Python 3.12, with type hints on every function, tests included.
   [mypy](https://mypy.readthedocs.io/) checks them in strict mode over
   `src` and `tests`, configured in the component's `pyproject.toml`. A
@@ -764,6 +784,7 @@ Required for the C++ components. On macOS, via Homebrew:
 | `ccache` | compile caching | detected automatically by CMake |
 | `llvm` | `clang-tidy`, current `clang-format`, `lld` | keg-only; not on `PATH` |
 | `doxygen` | API documentation | needed by `make docs`; ≥ 1.9.5 for `WARN_IF_INCOMPLETE_DOC` |
+| `uv` | Python dependency lock | only for `make lock` / `make lock-upgrade`, i.e. to change Python dependencies; `make venv` uses plain pip |
 
 Homebrew's `llvm` is deliberately not linked into `PATH`, so it cannot shadow
 Apple clang. It is used for two things only: `clang-tidy`, which Apple clang

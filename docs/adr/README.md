@@ -53,6 +53,7 @@ Non-obvious design choices are recorded here, per AGENTS.md, using the
 | [0018](0018-play-audio-with-miniaudio.md) | Play audio with miniaudio, on the default output device | Accepted |
 | [0019](0019-phase-targets-are-met-by-linear-compensation-segments.md) | Meet phase targets with linear compensation segments, computed in C++ by precomputation | Accepted |
 | [0020](0020-spatial-gains-are-applied-per-sound-source-after-summing.md) | Apply spatial gains once per SoundSource, after summing its partials in mono | Accepted |
+| [0021](0021-lock-python-dependencies-with-hashes.md) | Install Python dependencies from a hash-checked lock, made with uv | Accepted |
 
 ## A note on the renames
 

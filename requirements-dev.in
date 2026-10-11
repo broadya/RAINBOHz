@@ -1,0 +1,23 @@
+# The Python packages the build needs beyond the HzL compiler's own, as
+# ranges. This is the hand-edited input: `make lock` resolves it, together
+# with hzl-compiler/pyproject.toml and its dev extras, into
+# requirements-dev.txt, which pins every package with its hashes and is what
+# `make venv` installs. Edit this file, run `make lock`, commit both.
+#
+# The compiler itself is not listed: it is installed editable by `make venv`
+# after the lock, without its dependencies, which the lock already holds.
+
+# Installed from the lock so that the venv's pip and the build backend of the
+# editable compiler (built without isolation) are hash-checked too.
+pip
+setuptools>=77
+
+# The engine's test harnesses: the rendering oracle (NumPy) and the
+# OpenAPI checks of the server and its document.
+numpy>=1.26
+pyyaml>=6.0
+jsonschema>=4.18
+openapi-spec-validator>=0.7
+
+# Known-vulnerability check of the venv, `make audit-python`.
+pip-audit

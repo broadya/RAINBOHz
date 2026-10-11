@@ -51,6 +51,10 @@ The target architecture, built from 2026-09-27 onwards.
 - An unterminated `/*` comment in a Cypher script is now an error naming the
   line it opened on, in `rendering-engine` and the schema tools; it used to
   hide the rest of the script without a word.
+- Python dependencies are installed from a hash-checked lock,
+  `requirements-dev.txt`, generated from `requirements-dev.in` by
+  `make lock` (needs uv), wheels only. New targets `make lock`,
+  `make lock-upgrade` and `make audit-python` (ADR 0021).
 
 ## Before this changelog
 

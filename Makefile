@@ -20,12 +20,23 @@
 
 # The interpreter the root virtualenv is created from (3.12 or later). Every
 # Python step runs in that venv, never with $(PYTHON) itself, so that one
-# Python, with the packages requirements-dev.txt names, serves the whole build.
+# Python, with the packages locked in requirements-dev.txt, serves the whole
+# build.
 PYTHON      ?= python3
 VENV        := .venv
 VENV_BIN    := $(CURDIR)/$(VENV)/bin
 VENV_PY     := $(VENV_BIN)/python
 VENV_STAMP  := $(VENV)/.installed
+
+# Resolves requirements-dev.in and the compiler's pyproject.toml into the
+# hash-pinned requirements-dev.txt. Needed only to change dependencies
+# (brew install uv); `make venv` uses plain pip. A release is not considered
+# until it is LOCK_COOLDOWN old, which keeps a hijacked release that is
+# caught and pulled within days out of the lock.
+UV                 ?= uv
+LOCK_COOLDOWN      ?= 7 days
+LOCK_INPUTS        := requirements-dev.in hzl-compiler/pyproject.toml
+LOCK_FILE          := requirements-dev.txt
 
 SCHEMA_TOOL := scripts/ladybug_schema_to_mermaid.py
 
@@ -170,7 +181,8 @@ PC_DOC_SOURCES := $(filter-out $(PC_DIR)/test/%,$(PC_SOURCES)) \
         clean-playback-client \
         hzl-compiler hzl-compile test-hzl-compiler format-hzl-compiler lint-hzl-compiler \
         test-hzl-oracle run-hzl-score \
-        clean-hzl-compiler venv clean-venv build test clean help
+        clean-hzl-compiler venv clean-venv lock lock-upgrade audit-python uv-present \
+        build test clean help
 
 ## all: documentation only (diagrams and API docs) -- compiling a component is an explicit request
 all: docs
@@ -403,27 +415,64 @@ clean-playback-client:
 # ---------------------------------------------------------------------------
 #
 # One virtualenv at the root, .venv, created from $(PYTHON) on first use and
-# reinstalled when requirements-dev.txt or the compiler's pyproject.toml
-# changes. Every target that runs Python depends on it. Gitignored.
+# reinstalled when the lock or the compiler's pyproject.toml changes. Every
+# target that runs Python depends on it. Gitignored.
+#
+# Everything third-party comes from the lock, requirements-dev.txt, with its
+# hash checked, and only as a wheel: an sdist would run its own build code and
+# fetch its build backend unchecked. The compiler goes in last, editable,
+# with no dependencies and no build isolation, so nothing outside the lock is
+# downloaded for it. pip check then fails when the lock is missing something
+# the compiler declares: a dependency added to pyproject.toml without
+# `make lock`.
 
-## venv: create the root virtualenv every Python step uses, from requirements-dev.txt
+## venv: create the root virtualenv every Python step uses, from the lock requirements-dev.txt
 venv: $(VENV_STAMP)
 
-$(VENV_STAMP): requirements-dev.txt hzl-compiler/pyproject.toml
+$(VENV_STAMP): $(LOCK_FILE) hzl-compiler/pyproject.toml
 	$(PYTHON) -m venv $(VENV)
-	$(VENV_PY) -m pip install --quiet --upgrade pip
-	$(VENV_PY) -m pip install --quiet -r requirements-dev.txt
+	$(VENV_PY) -m pip install --quiet --require-hashes --only-binary :all: -r $(LOCK_FILE)
+	$(VENV_PY) -m pip install --quiet --no-deps --no-build-isolation -e ./hzl-compiler
+	$(VENV_PY) -m pip check || { \
+	    echo "The venv does not satisfy hzl-compiler's dependencies. If you changed" \
+	         "hzl-compiler/pyproject.toml, run 'make lock' and commit $(LOCK_FILE)." >&2; \
+	    exit 1; }
 	@touch $@
 
 ## clean-venv: remove the root virtualenv
 clean-venv:
 	rm -rf $(VENV)
 
+# Locking. lock keeps every existing pin and changes only what the inputs
+# require; lock-upgrade moves everything to the newest allowed version. Both
+# write one universal lock, valid on macOS and Linux alike. Review the diff
+# before committing it.
+
+UV_COMPILE = $(UV) pip compile $(LOCK_INPUTS) --extra dev \
+    --universal --python-version 3.12 --generate-hashes \
+    --exclude-newer "$(LOCK_COOLDOWN)" --output-file $(LOCK_FILE)
+
+uv-present:
+	@command -v $(UV) >/dev/null 2>&1 || { \
+	    echo "'$(UV)' not found: locking needs uv (brew install uv)." >&2; exit 1; }
+
+## lock: re-resolve requirements-dev.txt after changing requirements-dev.in or hzl-compiler/pyproject.toml (needs uv)
+lock: uv-present
+	$(UV_COMPILE) --quiet
+
+## lock-upgrade: move every locked Python package to its newest allowed version (needs uv)
+lock-upgrade: uv-present
+	$(UV_COMPILE) --quiet --upgrade
+
+## audit-python: check every locked Python package against the known-vulnerability databases (needs network)
+audit-python: venv
+	$(VENV_BIN)/pip-audit --requirement $(LOCK_FILE) --require-hashes --disable-pip --strict
+
 # ---------------------------------------------------------------------------
 # hzl-compiler (Python)
 # ---------------------------------------------------------------------------
 #
-# The compiler is installed editable into the root venv (requirements-dev.txt),
+# The compiler is installed editable into the root venv (make venv),
 # so that editing the sources needs no reinstall. Its build/ is gitignored.
 
 HZL_DIR   := hzl-compiler
