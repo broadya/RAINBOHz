@@ -1,0 +1,23 @@
+# clangd configuration for all of the repository's C++: rendering-engine,
+# playback-client and the spatial-audio PoC.
+#
+# clangd merges the .clangd files of a source file's ancestor directories, the
+# nearest taking precedence. This file holds everything the components share.
+# Each component's own .clangd names only its compilation database, which is
+# the one setting that has to differ.
+
+Diagnostics:
+  # Ladybug's umbrella headers defeat include-cleaner; its suggestions here are
+  # noise rather than signal.
+  UnusedIncludes: None
+  MissingIncludes: None
+  ClangTidy:
+    # The repository's .clang-tidy is authoritative. Only the checks too slow
+    # for interactive use are dropped here.
+    Remove:
+      - clang-analyzer-*
+
+InlayHints:
+  Enabled: true
+  ParameterNames: true
+  DeducedTypes: true

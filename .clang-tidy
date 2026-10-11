@@ -1,13 +1,18 @@
-# Static analysis for the spatial-audio C++ PoC, copied from rendering-engine.
+# Static analysis for all of the repository's C++: rendering-engine,
+# playback-client and the spatial-audio PoC. clang-tidy searches upward from
+# each file, so this one file serves every component; each test/ directory
+# relaxes a few checks on top of it.
 #
 # README.md commits this project to the C++ Core Guidelines, so the
 # cppcoreguidelines-* set is the backbone here rather than an optional extra.
 #
-# Run clang-tidy -p build/<preset> over src/*.cpp and test/*.cpp. It needs a
-# compile_commands.json, so configure a preset first.
+# Run with `make tidy-rendering-engine` or `make tidy-playback-client` from the
+# repository root. It needs a compile_commands.json, so configure a preset
+# first.
 #
-# Third-party sources (Ladybug, GoogleTest) are excluded via HeaderFilterRegex:
-# they have their own standards and their diagnostics would drown ours.
+# Third-party sources (Ladybug, cpp-httplib, miniaudio, dr_wav, GoogleTest) are
+# excluded via HeaderFilterRegex: they have their own standards and their
+# diagnostics would drown ours.
 
 Checks: >
   bugprone-*,
@@ -55,7 +60,7 @@ Checks: >
 WarningsAsErrors: ''
 
 # Only our own headers.
-HeaderFilterRegex: 'spatial-audio/cpp/(include|src|test)/.*\.(hpp|h)$'
+HeaderFilterRegex: '(rendering-engine|playback-client|spatial-audio/cpp)/(include|src|test)/.*\.(hpp|h)$'
 
 CheckOptions:
   # Types are PascalCase, functions and variables camelCase, members carry a

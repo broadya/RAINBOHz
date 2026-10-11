@@ -24,7 +24,7 @@ add_executable(spatial_poc_tests
     test_spatial_gains.cpp
     test_oracle.cpp
 )
-target_link_libraries(spatial_poc_tests PRIVATE spatial_poc sp_warnings GTest::gtest_main)
+target_link_libraries(spatial_poc_tests PRIVATE spatial_poc rainbohz::project_warnings GTest::gtest_main)
 
 # The golden data written by oracle/export_oracle.py from the Python package.
 # Committed, so the tests need no Python.

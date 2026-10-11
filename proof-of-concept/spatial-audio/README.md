@@ -91,8 +91,10 @@ too.
 Given a channel mode and a position, it returns the signed linear gain of each
 output channel. It has no plotting, WAVs or rendering. It depends on nothing in
 `rendering-engine` and has its own unit types (`Radians`, `Metres`,
-`LinearGain`). It follows the engine's C++ conventions, `.clang-format` and
-`.clang-tidy`.
+`LinearGain`). It follows the engine's C++ conventions and takes the
+repository's shared C++ configuration: the root `.clang-format`,
+`.clang-tidy` and `.clangd`, `cmake/ProjectWarnings.cmake`, and the presets
+in `cmake/RainbohzPresets.json`.
 
 Angles are in radians, as in the rendering model. The module does no
 wrapping: by the time a position reaches it, any wrapping into the standard

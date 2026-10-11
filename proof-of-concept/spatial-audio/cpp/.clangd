@@ -1,18 +1,16 @@
-# clangd configuration for the spatial-audio C++ PoC, copied from
-# rendering-engine. Build trees are per-preset, so the compilation database is
-# named explicitly; configure that preset at least once.
+# clangd configuration for the spatial-audio C++ PoC.
+# Everything else is in the repository's .clangd, which clangd merges with
+# this one.
+#
+# Build trees are per-preset (build/<preset>/), which is not one of the
+# locations clangd searches by default, so the compilation database has to be
+# named explicitly. Configure that preset at least once before expecting the
+# editor to resolve the dependencies' headers:
+#
+#   cmake --preset macos-debug
+#
+# To point the editor at a different configuration, change the path below, or
+# override it in a personal `.clangd` further down the tree.
 
 CompileFlags:
   CompilationDatabase: build/macos-debug
-
-Diagnostics:
-  ClangTidy:
-    # The .clang-tidy file in this directory is authoritative. Only the checks
-    # too slow for interactive use are dropped here.
-    Remove:
-      - clang-analyzer-*
-
-InlayHints:
-  Enabled: true
-  ParameterNames: true
-  DeducedTypes: true

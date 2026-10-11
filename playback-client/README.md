@@ -52,7 +52,7 @@ From the repository root:
 | `make playback-client` | Configure and build, with the same presets as `rendering-engine` |
 | `make test-playback-client` | Build the client and the engine, then run the unit tests and the end-to-end test |
 | `make run-playback-client` | Play `PC_START` to `PC_END`, `PC_LOOPS` times, from `PC_SERVER` |
-| `make format-playback-client` / `make tidy-playback-client` | `.clang-format` in place / `clang-tidy` |
+| `make format-playback-client` / `make tidy-playback-client` | `.clang-format` in place / `clang-tidy`, both the repository's shared configuration |
 | `make api-docs-playback-client` | Doxygen HTML under `build/doxygen` |
 | `make clean-playback-client` | Remove the build tree |
 

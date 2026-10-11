@@ -49,17 +49,16 @@ The system is an end-to-end pipeline with multiple stages. This initial phase im
 ## Tech Stack
 
 - **DSL source format:** YAML
-- **Patterning layer (candidate):** Strudel (JavaScript port of Tidal Cycles)
 - **Build system:** Ninja (with Python generator for .ninja files)
 - **Build step language:** Python
 - **Graph database:** LadybugDB (embedded, linked via Python bindings)
 - **Query language:** OpenCypher
-- **Rendering request handler:** TypeScript (Node.js)
 - **Renderer (future):** C++20 with Google Highway SIMD
 - **DAW integration (future):** CLAP/ARA 3.x thin client
 - **Containerisation:** Docker (multi-arch arm64)
 - **Cloud (future):** AWS Lambda (Graviton), ENA networking
 - **Version control:** Git (GitHub, public FOSS repo)
+- **Rhythm and patterning (future):** the rhythm concepts of Tidal Cycles may at some point be used to generate TempoMaps and rhythm structures. They could be integrated into a higher-level layer of HzL. Nothing is designed yet.
 
 ## LadybugDB Data Model
 
@@ -459,8 +458,9 @@ Databases (built from the schema DDL, which is the source of truth):
   e.g. `PC_ARGS="--debug --keep-buffer"`.
 - `make format-playback-client`, `make tidy-playback-client` (currently
   clean), `make api-docs-playback-client`, `make clean-playback-client` — as
-  for the engine. The component has its own `.clang-format`, `.clang-tidy`
-  and `.clangd`, copied from the engine's.
+  for the engine. It shares the engine's `.clang-format`, `.clang-tidy`,
+  `.clangd`, warnings and presets; see "C++ configuration is shared" under
+  Conventions.
 
 Python:
 
@@ -535,6 +535,7 @@ list.
 - Architecture Decision Records (ADRs) in `docs/adr/` for non-obvious design choices, following the [MADR](https://adr.github.io/madr/) convention. Start from `docs/adr/adr-template.md`; see `docs/adr/README.md` for numbering and status rules. ADRs record the current situation and are edited in place when it changes; git holds the history. A decision replaced outright is marked superseded by its successor.
 - `proof-of-concept/` is for general proof-of-concept work; no PoC is added to any build. Its original sub-directories (`audio-rendering/`, `hzl-language/`, `maths/`) are a historical record: do not modify them.
 - The project is licensed Apache-2.0 (root `LICENSE`). Every first-party source and build file (`.cpp`, `.hpp`, `.py`, `.cmake`, `.sh`, `CMakeLists.txt`, the root `Makefile`) begins with `SPDX-License-Identifier: Apache-2.0` as a comment in the file's own syntax, followed by a blank line; after the `#!` line in a script, and before `#pragma once` in a header. Only the license line, no copyright line. A new file gets it too. Not applied to the frozen PoC directories, generated files, data, Markdown, or the `.cypher` schemas.
+- No trailing whitespace in any tracked text file, the hand-edited schemas and `docs/readme/` included. `make check-whitespace` (part of `make test`) reports any and changes nothing; `scripts/strip_trailing_whitespace.py --apply` removes them. The frozen PoC directories and the generated `README.md` are not checked. A Markdown hard break is a trailing backslash, not two trailing spaces.
 - Tests fail, never skip. A missing package, tool or built binary makes a test fail with a message naming what is missing and how to get it (usually `make venv`); no test exits with a skip code, skips itself, or quietly checks less. A green run means everything ran.
 - No part of this repository is published to PyPI or any other package registry. Every `pyproject.toml` carries `classifiers = ["Private :: Do Not Upload"]`, which PyPI rejects on upload; a new one gets it too. Installing dependencies into a local venv is fine.
 - `CHANGELOG.md` ([Keep a Changelog](https://keepachangelog.com/en/1.1.0/)) is AI-maintained. A change a reader of the project would notice (a feature, behaviour, interface, schema, licence or removal) adds a line under `## [Unreleased]` in the same commit. Internal refactors, test-only and formatting changes do not. On a release, the Unreleased entries move under the new version's heading with its date.
@@ -604,7 +605,8 @@ These apply to `rendering-engine` and to C++ components added later.
     at the times where any partial changes state).
   This is a standing constraint on every rendering change, not only the first
   version. See "Rendering Architecture" above for the SIMD strategy.
-- Formatting is `.clang-format`, kept close to Ladybug's own so that reading between the two codebases is not jarring. Apply with `make format-rendering-engine`.
+- Formatting is `.clang-format`, kept close to Ladybug's own so that reading between the two codebases is not jarring. Apply with `make format-rendering-engine` or `make format-playback-client`.
+- C++ configuration is shared: every C++ component (rendering-engine, playback-client, the spatial-audio PoC) takes the same style, analysis, warnings and presets, and none keeps its own copy. `.clang-format`, `.clang-tidy` and `.clangd` sit at the repository root, where the clang tools find them by searching upward. The warning set is `cmake/ProjectWarnings.cmake`, the presets are `cmake/RainbohzPresets.json` (each component's `CMakePresets.json` only includes it), and the cross toolchains are `cmake/toolchains/`. Each component's CMake options share the names `RAINBOHZ_BUILD_TESTS` and `RAINBOHZ_ENABLE_WERROR`, so one presets file serves them all. Only two things stay per component: a `.clangd` naming its compilation database, and `test/.clang-tidy`, whose copies are identical. A new C++ component joins this set rather than copying it.
 - This is not the Google C++ Style Guide, and its naming, formatting and file-extension rules do not apply. Where the two conflict, the Core Guidelines win: in particular, errors are reported with exceptions (Core Guidelines E.2), not Google-style status returns.
 - `[[nodiscard]]` only where discarding the result is a real hazard: a failure reported by return value (`tryExecute`, `loadCypherFile`), or a resource that would leak. Not on ordinary pure functions or accessors, where it is noise. This follows the standard library's own policy (P0600).
 - Sources are listed explicitly in CMake, never globbed. Globbing hides added files from the configure step.

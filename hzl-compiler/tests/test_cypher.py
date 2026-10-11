@@ -78,6 +78,16 @@ def test_cli_compiles_and_dumps(tmp_path: Path, capsys: pytest.CaptureFixture[st
     assert "compiled scores/tempo_map_score" in capsys.readouterr().out
 
 
+def test_cli_header_names_the_tree_without_its_path(tmp_path: Path) -> None:
+    # The script must be the same whichever machine or directory compiled it.
+    score = EXAMPLES / "tempo-map-score" / "scores" / "tempo_map_score.yaml"
+    out = tmp_path / "o.cypher"
+    assert main(["compile", str(score), "-o", str(out), "-q"]) == 0
+    header = [line for line in out.read_text().splitlines() if line.startswith("//")]
+    assert "// Score scores/tempo_map_score, from source tree tempo-map-score" in header
+    assert not any(str(EXAMPLES) in line for line in header)
+
+
 def test_cli_reports_hzl_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     bad = tmp_path / "scores" / "s.yaml"
     bad.parent.mkdir()

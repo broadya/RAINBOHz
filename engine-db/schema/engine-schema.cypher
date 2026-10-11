@@ -486,8 +486,8 @@ CREATE NODE TABLE TempoMapPoint (
 // ============================================================
 CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
     FROM TempoMap TO TempoMap,  // child to parent
-    sync_point_parent INT64, // position in parent where this map is rooted in the other TempoMap, >= 0 
-    sync_point_child INT64, // offset of where this TempoMap starts, in its local TempoMap i.e. where the alignment point is. 
+    sync_point_parent INT64, // position in parent where this map is rooted in the other TempoMap, >= 0
+    sync_point_child INT64, // offset of where this TempoMap starts, in its local TempoMap i.e. where the alignment point is.
     MANY_MANY
 );
 
@@ -929,7 +929,7 @@ CREATE NODE TABLE PartialStateSet (
 // @canonical
 // ============================================================
 CREATE NODE TABLE PartialState (
-    id              SERIAL,   
+    id              SERIAL,
     frequency       FLOAT,
     phase           FLOAT,
     phase_free_run  BOOLEAN,
@@ -1904,7 +1904,7 @@ CREATE REL TABLE POINT_AT (
     FROM ElevationModulatorMusicalTimelinePoint TO TempoMap,
     FROM DistanceModulatorMusicalTimelinePoint TO TempoMap,
 */
-    sync_point INT64, // position in the TempoMap in units of ticks for that timeline, >= 0 
+    sync_point INT64, // position in the TempoMap in units of ticks for that timeline, >= 0
     offset_seconds FLOAT,  // offset in physical time, may be positive or negative.
     MANY_ONE
 );

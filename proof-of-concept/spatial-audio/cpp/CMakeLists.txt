@@ -26,38 +26,28 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
 endif()
 
-option(SP_BUILD_TESTS "Build spatial-audio PoC tests" ON)
-option(SP_ENABLE_WERROR "Treat warnings as errors" OFF)
+# The same option names in every C++ component, so the shared presets
+# (cmake/RainbohzPresets.json at the repository root) can set them.
+option(RAINBOHZ_BUILD_TESTS "Build spatial-audio PoC tests" ON)
+option(RAINBOHZ_ENABLE_WERROR "Treat warnings as errors" OFF)
 
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
     set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
 endif()
 
-# The rendering-engine warning set (rendering-engine/cmake/ProjectWarnings.cmake),
-# GCC/Clang only: this PoC is not built with MSVC.
-add_library(sp_warnings INTERFACE)
-if(NOT MSVC)
-    target_compile_options(sp_warnings INTERFACE
-        -Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor -Wold-style-cast
-        -Wcast-align -Wunused -Woverloaded-virtual -Wconversion -Wsign-conversion
-        -Wdouble-promotion -Wnull-dereference -Wformat=2 -Wimplicit-fallthrough)
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        target_compile_options(sp_warnings INTERFACE -Wdocumentation)
-    endif()
-    if(SP_ENABLE_WERROR)
-        target_compile_options(sp_warnings INTERFACE -Werror)
-    endif()
-endif()
+# The repository's shared warning set, the same as rendering-engine's.
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake")
+include(ProjectWarnings)
 
 add_library(spatial_poc STATIC
     src/channel_mode.cpp
     src/spatial_gains.cpp
 )
 target_include_directories(spatial_poc PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_link_libraries(spatial_poc PRIVATE sp_warnings)
+target_link_libraries(spatial_poc PRIVATE rainbohz::project_warnings)
 
-if(SP_BUILD_TESTS)
+if(RAINBOHZ_BUILD_TESTS)
     enable_testing()
     add_subdirectory(test)
 endif()

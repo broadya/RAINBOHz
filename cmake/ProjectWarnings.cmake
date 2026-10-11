@@ -1,18 +1,24 @@
 # SPDX-License-Identifier: Apache-2.0
 
-# Warning set for rendering-engine's own code.
+# Warning set for the repository's own C++: rendering-engine, playback-client
+# and the spatial-audio PoC each include this one file, so all of them build
+# with the same warnings.
 #
 # Applied as an INTERFACE target and linked PRIVATE, so it never leaks into
-# dependencies. Ladybug and any other third-party subtree keep their own
-# warning settings; forcing this set on them would be unbuildable noise.
+# dependencies. Ladybug, miniaudio, cpp-httplib and any other third-party code
+# keep their own warning settings; forcing this set on them would be
+# unbuildable noise.
 #
-# Both a GCC/Clang set and an MSVC set are defined, because the component must
+# Both a GCC/Clang set and an MSVC set are defined, because the components must
 # build on Linux/GCC and Windows/MSVC as well as on clang.
+#
+# RAINBOHZ_ENABLE_WERROR, an option in each component's CMakeLists.txt, turns
+# these warnings into errors.
 
 add_library(project_warnings INTERFACE)
 add_library(rainbohz::project_warnings ALIAS project_warnings)
 
-set(RE_CLANG_GCC_WARNINGS
+set(RAINBOHZ_CLANG_GCC_WARNINGS
     -Wall
     -Wextra
     -Wpedantic
@@ -30,7 +36,7 @@ set(RE_CLANG_GCC_WARNINGS
     -Wimplicit-fallthrough
 )
 
-set(RE_GCC_ONLY_WARNINGS
+set(RAINBOHZ_GCC_ONLY_WARNINGS
     -Wduplicated-cond
     -Wduplicated-branches
     -Wlogical-op
@@ -41,11 +47,11 @@ set(RE_GCC_ONLY_WARNINGS
 # @param naming a parameter that does not exist, a @return on a void function.
 # It catches comments gone stale after a rename. It does not report missing
 # comments; Doxygen's own warnings do that (see Doxyfile).
-set(RE_CLANG_ONLY_WARNINGS
+set(RAINBOHZ_CLANG_ONLY_WARNINGS
     -Wdocumentation
 )
 
-set(RE_MSVC_WARNINGS
+set(RAINBOHZ_MSVC_WARNINGS
     /W4
     /permissive-            # standards conformance; MSVC's default is not
     /w14242 /w14254 /w14263 /w14265 /w14287
@@ -55,24 +61,24 @@ set(RE_MSVC_WARNINGS
 )
 
 if(MSVC)
-    target_compile_options(project_warnings INTERFACE ${RE_MSVC_WARNINGS})
-    if(RE_ENABLE_WERROR)
+    target_compile_options(project_warnings INTERFACE ${RAINBOHZ_MSVC_WARNINGS})
+    if(RAINBOHZ_ENABLE_WERROR)
         target_compile_options(project_warnings INTERFACE /WX)
     endif()
 else()
-    target_compile_options(project_warnings INTERFACE ${RE_CLANG_GCC_WARNINGS})
+    target_compile_options(project_warnings INTERFACE ${RAINBOHZ_CLANG_GCC_WARNINGS})
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        target_compile_options(project_warnings INTERFACE ${RE_GCC_ONLY_WARNINGS})
+        target_compile_options(project_warnings INTERFACE ${RAINBOHZ_GCC_ONLY_WARNINGS})
     endif()
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        target_compile_options(project_warnings INTERFACE ${RE_CLANG_ONLY_WARNINGS})
+        target_compile_options(project_warnings INTERFACE ${RAINBOHZ_CLANG_ONLY_WARNINGS})
     endif()
-    if(RE_ENABLE_WERROR)
+    if(RAINBOHZ_ENABLE_WERROR)
         target_compile_options(project_warnings INTERFACE -Werror)
     endif()
 endif()
 
-unset(RE_CLANG_GCC_WARNINGS)
-unset(RE_GCC_ONLY_WARNINGS)
-unset(RE_CLANG_ONLY_WARNINGS)
-unset(RE_MSVC_WARNINGS)
+unset(RAINBOHZ_CLANG_GCC_WARNINGS)
+unset(RAINBOHZ_GCC_ONLY_WARNINGS)
+unset(RAINBOHZ_CLANG_ONLY_WARNINGS)
+unset(RAINBOHZ_MSVC_WARNINGS)

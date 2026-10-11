@@ -82,7 +82,7 @@ def compile_command(args: argparse.Namespace) -> int:
     script = emit_cypher(
         model,
         [
-            f"Score {ref}, from {tree.root}",
+            f"Score {ref}, from source tree {tree.root.name}",
             (
                 f"hzlc {__version__}; sample rate {options.sample_rate} Hz, "
                 f"channel mode {options.channel_mode} ({CHANNEL_MODES[options.channel_mode]})"

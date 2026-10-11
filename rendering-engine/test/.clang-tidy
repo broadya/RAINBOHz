@@ -1,5 +1,6 @@
-# Static analysis for rendering-engine's tests: the component's configuration,
-# less two checks that misfire on GoogleTest idiom.
+# Static analysis for a component's tests: the repository's .clang-tidy, less
+# what misfires on GoogleTest idiom. rendering-engine/test/ and
+# playback-client/test/ hold identical copies of this file; change both.
 #
 #   bugprone-unchecked-optional-access -- a test establishes that an optional
 #     holds a value with ASSERT_TRUE(x.has_value()), which returns from the
@@ -7,8 +8,11 @@
 #     every access that follows. And a test that dereferences an empty
 #     optional fails, which is the point of a test.
 #   cppcoreguidelines-non-private-member-variables-in-classes -- a fixture
-#     shares state with its TEST_F bodies through protected members; that is
-#     how GoogleTest fixtures work.
+#     shares state with its TEST_F bodies through protected members, and
+#     test fakes are scripted through public ones.
+#   readability-function-cognitive-complexity, macros ignored -- every
+#     EXPECT_* expands into branches, so a plain list of expectations scores
+#     as complex as nested logic.
 #
 # Everything else applies to tests exactly as it does to the component.
 
@@ -17,3 +21,7 @@ InheritParentConfig: true
 Checks: >
   -bugprone-unchecked-optional-access,
   -cppcoreguidelines-non-private-member-variables-in-classes
+
+CheckOptions:
+  - key: readability-function-cognitive-complexity.IgnoreMacros
+    value: true

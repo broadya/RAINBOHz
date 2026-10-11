@@ -55,6 +55,15 @@ The target architecture, built from 2026-09-27 onwards.
   `requirements-dev.txt`, generated from `requirements-dev.in` by
   `make lock` (needs uv), wheels only. New targets `make lock`,
   `make lock-upgrade` and `make audit-python` (ADR 0021).
+- Every C++ component shares one configuration: `.clang-format`,
+  `.clang-tidy` and `.clangd` at the repository root, and the warning set,
+  presets and cross toolchains in the root `cmake/`. The CMake options are
+  renamed `RAINBOHZ_BUILD_TESTS`, `RAINBOHZ_ENABLE_WERROR` and
+  `RAINBOHZ_SYSROOT` (were `RE_*`/`PC_*`).
+- `hzlc` names the source tree's directory in the script header, not its
+  absolute path, so the output is the same on every machine.
+- No trailing whitespace in tracked files; `make check-whitespace`, part of
+  `make test`, enforces it.
 
 ## Before this changelog
 

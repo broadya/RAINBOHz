@@ -28,7 +28,11 @@ project(rendering_engine
     LANGUAGES CXX
 )
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+# The component's own modules, then the repository's shared ones
+# (ProjectWarnings.cmake, the cross toolchains).
+list(APPEND CMAKE_MODULE_PATH
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../cmake")
 
 # ---------------------------------------------------------------------------
 # Standard and global settings
@@ -56,8 +60,10 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 # install. Keep the build tree runnable without LD_LIBRARY_PATH fiddling.
 set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
 
-option(RE_BUILD_TESTS "Build rendering-engine tests" ON)
-option(RE_ENABLE_WERROR "Treat warnings as errors in rendering-engine code" OFF)
+# The same option names in every C++ component, so the shared presets
+# (../cmake/RainbohzPresets.json) can set them.
+option(RAINBOHZ_BUILD_TESTS "Build rendering-engine tests" ON)
+option(RAINBOHZ_ENABLE_WERROR "Treat warnings as errors in rendering-engine code" OFF)
 
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
@@ -202,7 +208,7 @@ target_link_libraries(rendering-engine
 # Tests
 # ---------------------------------------------------------------------------
 
-if(RE_BUILD_TESTS)
+if(RAINBOHZ_BUILD_TESTS)
     include(CTest)
     add_subdirectory(test)
 endif()

@@ -1,9 +1,14 @@
 ---
-# Formatting for playback-client: a copy of rendering-engine's, so that the
-# repository's C++ reads the same everywhere. rendering-engine's is
-# deliberately close to Ladybug's own .clang-format.
+# Formatting for all of the repository's C++: rendering-engine,
+# playback-client and the spatial-audio PoC. clang-format searches upward from
+# each file, so this one file serves every component.
 #
-# Apply with `make format-playback-client` from the repository root.
+# Deliberately close to Ladybug's own .clang-format: a lot of time is spent
+# reading Ladybug source alongside our own, and two different formattings of
+# the same language is friction for no benefit.
+#
+# Apply with `make format-rendering-engine` or `make format-playback-client`
+# from the repository root.
 Language: Cpp
 BasedOnStyle: LLVM
 

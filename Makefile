@@ -49,6 +49,10 @@ LBUG          ?= lbug
 # Refills full-line // comments in DDL to 64 columns without touching the DDL.
 WRAP_TOOL := scripts/wrap_cypher_comments.py
 
+# Reports trailing spaces and tabs in tracked text files (frozen PoCs and the
+# generated README.md aside). `--apply` removes them; see the script.
+WHITESPACE_TOOL := scripts/strip_trailing_whitespace.py
+
 # Applies schema DDL to a database. Not a plain `lbug < file.cypher`: that
 # silently skips statements and cannot report failure. See scripts/ladybug_ddl.py.
 LOAD_TOOL := scripts/load_schema.py
@@ -170,6 +174,7 @@ PC_DOC_SOURCES := $(filter-out $(PC_DIR)/test/%,$(PC_SOURCES)) \
 
 .PHONY: all docs readme clean-docs api-docs-rendering-engine api-docs-playback-client \
         validate-schemas validate-engine-schema validate-canonical-schema \
+        check-whitespace \
         init-engine-db init-canonical-db \
         reset-engine-db reset-canonical-db \
         rendering-engine configure-rendering-engine test-rendering-engine \
@@ -281,6 +286,13 @@ format-schema-comments: venv
 ## check-schema-comments: show what format-schema-comments would change
 check-schema-comments: venv
 	$(VENV_PY) $(WRAP_TOOL) --check $(DDL_SCHEMAS)
+
+# Read-only and part of `test`: it reports, and never rewrites. Fixing is
+# `$(WHITESPACE_TOOL) --apply`, run by hand.
+
+## check-whitespace: fail if any tracked text file has trailing whitespace
+check-whitespace: venv
+	$(VENV_PY) $(WHITESPACE_TOOL)
 
 # ---------------------------------------------------------------------------
 # Databases
@@ -547,7 +559,7 @@ build: rendering-engine playback-client hzl-compiler
 # compiler, and a schema that does not load makes the rest moot.
 
 ## test: run every component's tests
-test: validate-schemas lint-hzl-compiler test-hzl-compiler test-rendering-engine test-playback-client test-hzl-oracle
+test: check-whitespace validate-schemas lint-hzl-compiler test-hzl-compiler test-rendering-engine test-playback-client test-hzl-oracle
 
 ## clean: remove all generated artefacts
 clean: clean-docs clean-rendering-engine clean-playback-client clean-hzl-compiler clean-venv

@@ -67,7 +67,7 @@
 // ------------------------------------------------------------
 // azimtuth                         degrees
 // ------------------------------------------------------------
-// valid range [-180,180] 
+// valid range [-180,180]
 // In degrees because the canonical model is intended to be in the
 // user's domain. Most composers, musicians and even sound engineers
 // will typically have a mental model in degrees.
@@ -82,7 +82,7 @@
 // ------------------------------------------------------------
 // elevation                        degrees
 // ------------------------------------------------------------
-// valid range [-90,90] 
+// valid range [-90,90]
 // In degrees because the canonical model is intended to be in the
 // user's domain. Most composers, musicians and even sound engineers
 // will typically have a mental model in degrees.
@@ -180,7 +180,7 @@ CREATE NODE TABLE TempoMapTimelinePoint (
 // TEMPO_MAP_SYNCHRONIZATION_POINT: Defines the relationship in time between
 // tempo maps. It is a relationship from child to parent.
 // Where a child has more than one parent, the tempos between synchronization points
-// are relative not absolute, with any segments either before the first synchronization 
+// are relative not absolute, with any segments either before the first synchronization
 // point being scaled by the same factor as the first relative segment. Equally any segments
 // after the last synchronization point being scaled by the same factor as the last relative
 // segment.
@@ -191,13 +191,13 @@ CREATE NODE TABLE TempoMapTimelinePoint (
 // ============================================================
 CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
     FROM TempoMap TO TempoMap,  // child to parent
-    sync_point_parent INT64, // position in parent where this map is rooted in the other TempoMap, > 0 
-    sync_point_child INT64, // offset of where this TempoMap starts, in its local TempoMap i.e. where the alignment point is. 
+    sync_point_parent INT64, // position in parent where this map is rooted in the other TempoMap, > 0
+    sync_point_child INT64, // offset of where this TempoMap starts, in its local TempoMap i.e. where the alignment point is.
     MANY_ONE
 );
 
 // ============================================================
-// Label: A general purpose tool to allow practitioners to 
+// Label: A general purpose tool to allow practitioners to
 // associate code with concepts in their own mental model.
 // ============================================================
 CREATE NODE TABLE Label (
@@ -232,7 +232,7 @@ CREATE NODE TABLE PartialStateSet (
 //  there is a conflict).
 // ============================================================
 CREATE NODE TABLE PartialState (
-    id           SERIAL,   
+    id           SERIAL,
     frequency    FLOAT,
     phase        FLOAT,
     amplitude    FLOAT,
@@ -297,7 +297,7 @@ CREATE NODE TABLE PartialSet (
 );
 
 // ============================================================
-// MEMBER_OF_SET_MANY_MANY: Defines set membership where a 
+// MEMBER_OF_SET_MANY_MANY: Defines set membership where a
 // particular class may be a member of many sets.
 //
 // Not currently in use
@@ -308,7 +308,7 @@ CREATE NODE TABLE PartialSet (
 //);
 
 // ============================================================
-// MEMBER_OF_SET_MANY_ONE: Defines set membership where a 
+// MEMBER_OF_SET_MANY_ONE: Defines set membership where a
 // partcular class may only be a member of one set.
 // ============================================================
 CREATE REL TABLE MEMBER_OF_SET_MANY_ONE (
@@ -326,7 +326,7 @@ CREATE NODE TABLE SoundEntity (
 );
 
 // ============================================================
-// Score: A singleton. The top-level object representing the entire 
+// Score: A singleton. The top-level object representing the entire
 // piece of music. Its relationship to a single NEXT_POINT into the
 // tempo DAG indicates time = 0.
 // ============================================================
@@ -361,7 +361,7 @@ CREATE NODE TABLE PartialSetTimeline (
 // 0.5 50/50 mix linear/curve
 // 1 curve
 //
-// phase_lock determines whether, when phase adjustment takes place, 
+// phase_lock determines whether, when phase adjustment takes place,
 // the phase at the start of this point will be included in the
 // adjustment.
 // ============================================================
@@ -553,7 +553,7 @@ CREATE REL TABLE NEXT_POINT (
 );
 
 // ============================================================
-// POINT_AT: Defines when a Timeline point occurs within a 
+// POINT_AT: Defines when a Timeline point occurs within a
 // given tempo map.
 //
 // The offset in wall-clock time allows for percussive sounds to have
@@ -569,14 +569,14 @@ CREATE REL TABLE POINT_AT (
     FROM AzimuthModulatorTimelinePoint TO TempoMapTimeline,
     FROM ElevationModulatorTimelinePoint TO TempoMapTimeline,
     FROM DistanceModulatorTimelinePoint TO TempoMapTimeline,
-    sync_point INT64, // position in the TempoMapTimeline in units of ticks for that timeline, > 0 
+    sync_point INT64, // position in the TempoMapTimeline in units of ticks for that timeline, > 0
     offset_seconds FLOAT,  // offset in wall clock time.
     MANY_ONE
 );
 
 // ============================================================
 // HAS_TIMELINE: Defines the hierarchy of timelines within a
-// given SoundEntity, and so also determines which objects 
+// given SoundEntity, and so also determines which objects
 // modulators apply to.
 // ============================================================
 CREATE REL TABLE HAS_TIMELINE (
@@ -761,7 +761,7 @@ CREATE REL TABLE HAS_LABEL (
 );
 
 // ============================================================
-// AGGREGATE_OF_MANY_MANY: General object-oriented design concept of 
+// AGGREGATE_OF_MANY_MANY: General object-oriented design concept of
 // aggregation, with many-to-many.
 // Currently empty
 // ============================================================
@@ -771,8 +771,8 @@ CREATE REL TABLE HAS_LABEL (
 // );
 
 // ============================================================
-// AGGREGATE_OF_MANY_MANY: General object-oriented design concept of 
-// aggregation, with one-to-many 
+// AGGREGATE_OF_MANY_MANY: General object-oriented design concept of
+// aggregation, with one-to-many
 // ============================================================
 CREATE REL TABLE AGGREGATE_OF_ONE_MANY (
     FROM Score TO SoundEntity,

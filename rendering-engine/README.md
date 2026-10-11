@@ -208,14 +208,11 @@ how a score actually reaches `engine-db` is still open (overview.md §10).
 ```
 rendering-engine/
 ├── CMakeLists.txt          component build
-├── CMakePresets.json       per-platform configurations
-├── .clang-format           formatting (close to Ladybug's own)
-├── .clang-tidy             C++ Core Guidelines analysis
+├── CMakePresets.json       includes the repository's shared presets
+├── .clangd                 names the compilation database for clangd
 ├── cmake/
-│   ├── Dependencies.cmake  Ladybug, CLI11, yaml-cpp, dr_wav, cpp-httplib and
-│   │                       nlohmann/json acquisition, pinned
-│   ├── ProjectWarnings.cmake
-│   └── toolchains/         cross-compile configurations
+│   └── Dependencies.cmake  Ladybug, CLI11, yaml-cpp, dr_wav, cpp-httplib and
+│                           nlohmann/json acquisition, pinned
 ├── examples/
 │   ├── minimum-request.yaml  the render request `make run-rendering-engine` passes
 │   ├── two-partial-sets-request.yaml  for engine-db/examples/two-partial-sets.cypher
@@ -331,6 +328,12 @@ cmake --preset macos-debug -DRE_LADYBUG_SOURCE_DIR=/path/to/ladybug
 
 ### Presets
 
+The presets are shared by every C++ component: they live in the repository's
+`cmake/RainbohzPresets.json`, which this directory's `CMakePresets.json`
+includes. So do `.clang-format`, `.clang-tidy`, `.clangd` (bar the compilation
+database path) and `cmake/ProjectWarnings.cmake`, all at the repository root.
+`RAINBOHZ_ENABLE_WERROR=ON` turns the warnings into errors.
+
 | Preset | Purpose |
 | --- | --- |
 | `macos-debug` | Local development. Default on macOS. |
@@ -338,8 +341,8 @@ cmake --preset macos-debug -DRE_LADYBUG_SOURCE_DIR=/path/to/ladybug
 | `macos-asan` | Debug + AddressSanitizer + UBSan. |
 | `linux-debug` / `linux-release` | Native Linux; serves both arm64 and x86_64. |
 | `windows-debug` / `windows-release` | MSVC, from a Developer Command Prompt. |
-| `linux-aarch64-cross` | Cross-compile to Graviton. Needs `-DRE_SYSROOT=...`. |
-| `linux-x86_64-cross` | Cross-compile to Linux x86_64. Needs `-DRE_SYSROOT=...`. |
+| `linux-aarch64-cross` | Cross-compile to Graviton. Needs `-DRAINBOHZ_SYSROOT=...`. |
+| `linux-x86_64-cross` | Cross-compile to Linux x86_64. Needs `-DRAINBOHZ_SYSROOT=...`. |
 
 ## Portability
 

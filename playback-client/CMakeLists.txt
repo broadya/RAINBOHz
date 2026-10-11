@@ -18,7 +18,11 @@ project(playback_client
     LANGUAGES C CXX
 )
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+# The component's own modules, then the repository's shared ones
+# (ProjectWarnings.cmake, the cross toolchains).
+list(APPEND CMAKE_MODULE_PATH
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../cmake")
 
 # ---------------------------------------------------------------------------
 # Standard and global settings
@@ -39,8 +43,10 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
-option(PC_BUILD_TESTS "Build playback-client tests" ON)
-option(PC_ENABLE_WERROR "Treat warnings as errors in playback-client code" OFF)
+# The same option names in every C++ component, so the shared presets
+# (../cmake/RainbohzPresets.json) can set them.
+option(RAINBOHZ_BUILD_TESTS "Build playback-client tests" ON)
+option(RAINBOHZ_ENABLE_WERROR "Treat warnings as errors in playback-client code" OFF)
 
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
@@ -124,7 +130,7 @@ target_link_libraries(playback-client
 # Tests
 # ---------------------------------------------------------------------------
 
-if(PC_BUILD_TESTS)
+if(RAINBOHZ_BUILD_TESTS)
     include(CTest)
     add_subdirectory(test)
 endif()
