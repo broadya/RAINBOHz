@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -244,7 +245,58 @@ public:
         return requireField<std::string>(what, body, "uri");
     }
 
+    void cancel() noexcept override {
+        const std::scoped_lock lock{inFlightMutex_};
+        cancelled_ = true;
+        if (inFlight_ != nullptr) {
+            // httplib's stop() is its thread-safe way to end a request in
+            // flight: it shuts the socket down, and the call fails. While the
+            // call is still connecting it waits, for at most the connect
+            // timeout; before the socket exists it does nothing, which is why
+            // the session cancels again until the call has ended.
+            try {
+                inFlight_->stop();
+            } catch (...) { // NOLINT(bugprone-empty-catch): best effort; the call times out
+            }
+        }
+    }
+
 private:
+    /// Registers a call's client with cancel() for the call's lifetime.
+    class InFlight {
+    public:
+        /// Registers `client`, unless cancel() has been called.
+        ///
+        /// @param api     The API whose cancel() is to reach the client.
+        /// @param client  The call's client.
+        /// @param what    The call, for the diagnostic.
+        /// @throws PlaybackApiError if cancel() has been called.
+        InFlight(HttpPlaybackApi& api, httplib::Client& client, const std::string& what)
+            : api_{&api} {
+            const std::scoped_lock lock{api_->inFlightMutex_};
+            if (api_->cancelled_) {
+                throw PlaybackApiError{what + ": cancelled", 0};
+            }
+            api_->inFlight_ = &client;
+        }
+
+        /// Unregisters the client, so that cancel() never reaches one that is
+        /// gone: cancel() holds the same lock while it uses it.
+        ~InFlight() {
+            const std::scoped_lock lock{api_->inFlightMutex_};
+            api_->inFlight_ = nullptr;
+        }
+
+        InFlight(const InFlight&) = delete;
+        InFlight& operator=(const InFlight&) = delete;
+        InFlight(InFlight&&) = delete;
+        InFlight& operator=(InFlight&&) = delete;
+
+    private:
+        /// The API registered with. Never null.
+        HttpPlaybackApi* api_;
+    };
+
     /// Makes one call, logs it, and returns its parsed answer.
     ///
     /// @param what     The call, for the log and diagnostics.
@@ -261,6 +313,7 @@ private:
         client.set_keep_alive(false);
 
         const auto started = std::chrono::steady_clock::now();
+        const InFlight registered{*this, client, what};
         const httplib::Result result = request(client);
         const auto elapsed =
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started);
@@ -283,6 +336,12 @@ private:
 
     /// The server's origin and the base path every call is under.
     ServerUrl url_;
+    /// Guards inFlight_ and cancelled_, between a call and cancel().
+    std::mutex inFlightMutex_;
+    /// The client of the call in flight, for cancel(); null between calls.
+    httplib::Client* inFlight_ = nullptr;
+    /// Set by cancel(): every later call fails at once.
+    bool cancelled_ = false;
 };
 
 } // namespace

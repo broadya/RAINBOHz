@@ -52,8 +52,10 @@ struct FillTiming {
 /// Runs the network thread's work to completion, or until the session stops.
 ///
 /// Every exception is caught and recorded with LaneBoard::fail(), which
-/// stops the session; nothing propagates out. None of the references is kept
-/// beyond the call.
+/// stops the session; nothing propagates out. An exception once the session
+/// has already stopped is not recorded: it is the consequence of the stop,
+/// usually a call ended by PlaybackApi::cancel(), not its cause. None of the
+/// references is kept beyond the call.
 ///
 /// @param[in,out] board  The shared lane state; lanes are filled and frames
 ///                       published through it.

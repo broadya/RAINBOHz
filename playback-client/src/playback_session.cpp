@@ -34,21 +34,23 @@ constexpr std::chrono::milliseconds kPollInterval{50};
 /// process, so an exception between starting the threads and joining them --
 /// the second thread failing to start, say -- must not get past them. Joining
 /// alone is not enough: the network thread may be waiting for a lane that
-/// only the feeder would free. So the session is stopped and the sink aborted
-/// first, which wakes every wait (lane_board.hpp), and then each thread still
-/// running is joined. On the normal path both are joined already and this
-/// does nothing.
+/// only the feeder would free, or in a REST call. So the session is stopped,
+/// the sink aborted and the API cancelled first, which wakes every wait
+/// (lane_board.hpp) and ends the call, and then each thread still running is
+/// joined. On the normal path both are joined already and this does nothing.
 class SessionThreadsGuard {
 public:
-    /// A guard over `threads`, which it will stop through `board` and `sink`.
+    /// A guard over `threads`, which it will stop through `board`, `sink`
+    /// and `api`.
     ///
     /// @param board    The session's board. Must outlive the guard.
     /// @param sink     The session's output. Must outlive the guard.
+    /// @param api      The session's REST calls. Must outlive the guard.
     /// @param threads  The threads to join; each may be empty or joined.
     ///                 Must outlive the guard.
-    SessionThreadsGuard(
-        LaneBoard& board, AudioSink& sink, std::initializer_list<std::thread*> threads)
-        : board_{&board}, sink_{&sink}, threads_{threads} {}
+    SessionThreadsGuard(LaneBoard& board, AudioSink& sink, PlaybackApi& api,
+        std::initializer_list<std::thread*> threads)
+        : board_{&board}, sink_{&sink}, api_{&api}, threads_{threads} {}
 
     ~SessionThreadsGuard() {
         if (std::ranges::none_of(threads_, [](const std::thread* t) { return t->joinable(); })) {
@@ -56,6 +58,7 @@ public:
         }
         board_->requestStop();
         sink_->abort();
+        api_->cancel();
         for (std::thread* thread : threads_) {
             if (thread->joinable()) {
                 thread->join();
@@ -73,6 +76,9 @@ private:
     LaneBoard* board_;
     /// Aborted first, so the feeder does not wait for room. Never null.
     AudioSink* sink_;
+    /// Cancelled first, so the network thread is not left in a call. Never
+    /// null.
+    PlaybackApi* api_;
     /// The threads, joined in order if still running. None null.
     std::vector<std::thread*> threads_;
 };
@@ -141,14 +147,17 @@ SessionResult playSession(PlaybackApi& api, ObjectFetcher& fetcher, AudioSink& s
     const FeederSettings feederSettings{.loops = loops, .sampleRate = plan.engine.sampleRate};
 
     std::atomic<bool> feederDone{false};
+    std::atomic<bool> networkDone{false};
     FeederReport report;
     // The threads are declared before the guard, so the guard is destroyed
     // first and joins them before their own destructors run.
     std::thread network;
     std::thread feeder;
-    const SessionThreadsGuard guard{board, sink, {&network, &feeder}};
-    network =
-        std::thread{[&] { runNetwork(board, api, fetcher, plan.frames, buffer, networkSettings); }};
+    const SessionThreadsGuard guard{board, sink, api, {&network, &feeder}};
+    network = std::thread{[&] {
+        runNetwork(board, api, fetcher, plan.frames, buffer, networkSettings);
+        networkDone.store(true);
+    }};
     feeder = std::thread{[&] {
         report = runFeeder(board, plan.frames, buffer, sink, feederSettings);
         feederDone.store(true);
@@ -157,14 +166,17 @@ SessionResult playSession(PlaybackApi& api, ObjectFetcher& fetcher, AudioSink& s
     SessionResult result;
     while (!feederDone.load()) {
         if (interrupt.load() && !board.stopped()) {
-            logLine(LogLevel::Info, "interrupted; stopping");
+            logLine(LogLevel::Info, "interrupted; stopping (interrupt again to quit at once)");
             result.interrupted = true;
             board.requestStop();
         }
         if (board.stopped()) {
             // Whatever stopped it, the output must not keep the feeder
-            // waiting for room in the ring.
+            // waiting for room in the ring, nor a REST call keep the network
+            // thread. Cancelling again each time round also ends a call whose
+            // connection was not yet open the last time.
             sink.abort();
+            api.cancel();
         }
         std::this_thread::sleep_for(kPollInterval);
     }
@@ -172,8 +184,14 @@ SessionResult playSession(PlaybackApi& api, ObjectFetcher& fetcher, AudioSink& s
     if (!report.finished) {
         // The feeder stopped early, so no more fills are wanted. The network
         // thread may be waiting for a lane, or in a call; stop wakes the
-        // first, and the second ends at the call's own timeout.
+        // first, and cancelling ends the second. A cancel can miss a call
+        // whose connection is not yet open, so it is repeated until the
+        // thread has ended.
         board.requestStop();
+        while (!networkDone.load()) {
+            api.cancel();
+            std::this_thread::sleep_for(kPollInterval);
+        }
     }
     network.join();
 

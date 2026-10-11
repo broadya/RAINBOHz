@@ -105,6 +105,7 @@ public:
         config.playback.channels = 0; // the device's own channel count
         config.sampleRate = static_cast<ma_uint32>(rate.value());
         config.dataCallback = &DeviceSink::callback;
+        config.notificationCallback = &DeviceSink::notification;
         config.pUserData = this;
         if (ma_device_init(nullptr, &config, &device_.device) != MA_SUCCESS) {
             throw std::runtime_error{"cannot open the default audio output device"};
@@ -143,6 +144,7 @@ public:
             if (aborted_.load()) {
                 return false;
             }
+            throwIfDeviceLost();
             const std::size_t pushed = ring_.push(samples);
             samples = samples.subspan(pushed);
             if (!samples.empty()) {
@@ -155,6 +157,7 @@ public:
     void finish() override {
         finishing_.store(true, std::memory_order_release);
         while (ring_.size() > 0 && !aborted_.load()) {
+            throwIfDeviceLost();
             std::this_thread::sleep_for(kPollInterval);
         }
         // The ring is empty, but the device still holds what it took last:
@@ -178,6 +181,37 @@ public:
     }
 
 private:
+    /// Fails when the device stopped without being asked to.
+    ///
+    /// @throws std::runtime_error if notification() saw the device stop
+    ///         before finish(): the callback no longer drains the ring, so
+    ///         waiting for room or for the ring to empty would never end.
+    void throwIfDeviceLost() const {
+        if (deviceLost_.load(std::memory_order_acquire)) {
+            throw std::runtime_error{"the audio output device stopped (disconnected, or taken "
+                                     "by another application?)"};
+        }
+    }
+
+    /// miniaudio's notification callback: records a device that stopped by
+    /// itself.
+    ///
+    /// The device stops when finish() stops it, when it is closed, and when
+    /// the backend loses it -- unplugged, say. Only the last is a failure:
+    /// the first two happen after finish() or abort(), which set finishing_.
+    /// Runs on a miniaudio thread, so it only sets an atomic.
+    ///
+    /// @param notification  What happened, and to which device.
+    static void notification(const ma_device_notification* notification) {
+        if (notification->type != ma_device_notification_type_stopped) {
+            return;
+        }
+        auto& self = *static_cast<DeviceSink*>(notification->pDevice->pUserData);
+        if (!self.finishing_.load(std::memory_order_acquire)) {
+            self.deviceLost_.store(true, std::memory_order_release);
+        }
+    }
+
     /// miniaudio's data callback: fills the device's buffer from the ring.
     ///
     /// Runs on miniaudio's real-time thread. Real-time safe: it pops from a
@@ -236,6 +270,9 @@ private:
     std::atomic<bool> aborted_{false};
     /// Silent samples the callback played while audio was expected (underrun()).
     std::atomic<std::uint64_t> underrun_{0};
+    /// Set by notification() when the device stopped by itself: write() and
+    /// finish() then fail rather than wait for a callback that will not come.
+    std::atomic<bool> deviceLost_{false};
     /// The miniaudio playback device the callback fills. Declared last, so
     /// that it is destroyed first: closing it stops the callback before
     /// anything the callback touches is destroyed.

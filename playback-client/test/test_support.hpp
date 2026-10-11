@@ -17,6 +17,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -92,6 +93,16 @@ public:
         if (onRender) {
             onRender(call);
         }
+        {
+            // A stalled server: the call returns only when it is cancelled.
+            std::unique_lock lock{cancelMutex_};
+            if (hangAtCall.has_value() && call == *hangAtCall) {
+                cancelled_.wait(lock, [this] { return cancelCount_ > 0; });
+            }
+            if (cancelCount_ > 0) {
+                throw PlaybackApiError{"call " + std::to_string(call) + " cancelled", 0};
+            }
+        }
         if (renderDelay.count() > 0) {
             std::this_thread::sleep_for(renderDelay);
         }
@@ -116,13 +127,27 @@ public:
         return "file://" + file.string();
     }
 
+    void cancel() noexcept override {
+        const std::scoped_lock lock{cancelMutex_};
+        ++cancelCount_;
+        cancelled_.notify_all();
+    }
+
     std::int64_t calls() const { return calls_.load(); }
+
+    /// How many times cancel() was called.
+    std::int64_t cancelCount() {
+        const std::scoped_lock lock{cancelMutex_};
+        return cancelCount_;
+    }
 
     std::string channelMode = "mono";
     std::optional<std::int32_t> ticksPerBeat = 4;
     std::int64_t samplesPerTick = 1;
     std::chrono::milliseconds renderDelay{0};
     std::optional<std::int64_t> failAtCall;
+    /// The call that hangs until cancel(), like a stalled server.
+    std::optional<std::int64_t> hangAtCall;
     std::optional<std::int64_t> shortFrameInFill;
     std::function<void(std::int64_t)> onRender;
     std::int64_t lastTempoMapId = -1;
@@ -133,6 +158,9 @@ private:
     std::int32_t frameSize_;
     std::size_t framesPerLane_;
     std::atomic<std::int64_t> calls_{0};
+    std::mutex cancelMutex_;
+    std::condition_variable cancelled_;
+    std::int64_t cancelCount_ = 0;
 };
 
 /// An AudioSink that keeps everything written, optionally slowly.
@@ -143,6 +171,9 @@ public:
     bool write(std::span<const float> samples) override {
         if (aborted_.load()) {
             return false;
+        }
+        if (beforeWrite) {
+            beforeWrite();
         }
         if (writeDelay.count() > 0) {
             std::this_thread::sleep_for(writeDelay);
@@ -171,6 +202,8 @@ public:
     }
 
     std::chrono::milliseconds writeDelay{0};
+    /// Runs at the start of every write(); may throw, to fail the output.
+    std::function<void()> beforeWrite;
     std::atomic<bool> started{false};
     std::atomic<bool> finished{false};
 

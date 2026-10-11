@@ -125,12 +125,14 @@ condition variable. Every transition is one step under the lock:
 | 4 | The audio callback blocks on a lock or I/O and glitches. | All waiting is in the feeder. The callback only pops from a lock-free ring (§5). |
 | 5 | Playback reaches the end of a lane before the next is Ready (an underrun). | The feeder blocks and the device plays silence, as decided. The gap is measured and logged. |
 | 6 | The network thread renders more fills than will be played. | It makes exactly `--loops` fills, then ends. |
-| 7 | Shutdown while a REST call is in flight. | Stopping is checked between calls. The call in flight finishes, or reaches its timeout, before its thread is joined. Nothing is cancelled mid-write. |
+| 7 | Shutdown while a REST call is in flight. | Stopping is checked between calls, and the call in flight is cancelled (`PlaybackApi::cancel()`, which shuts its socket down), so a stalled server does not hold the shutdown for the read timeout. The main thread cancels again every 50 ms until the network thread ends, because a cancel cannot reach a call whose connection is not yet open. A failure that follows the stop is not reported as the session's error. Nothing is cancelled mid-write: a frame is published only after its `.part` file is renamed. |
 | 8 | An error on one thread leaves the other waiting forever. | `fail()` records the first error and stops everything, which wakes every wait. |
-| 9 | Ctrl-C arrives mid-session. | The SIGINT/SIGTERM handler only sets a lock-free atomic. The main thread polls it every 50 ms and stops the session in order, cleanup included. |
+| 9 | Ctrl-C arrives mid-session. | The SIGINT/SIGTERM handler sets a lock-free atomic and puts back the signal's default action. The main thread polls the atomic every 50 ms and stops the session in order, cleanup included. A second Ctrl-C ends the client at once, without cleanup. |
 | 10 | The server overwrites `frame-NNNNNN.wav` with another render before the client has copied it. | One call at a time: the client copies each frame before its next call. Another client of the same server could still interleave. That risk is accepted for a demonstration client. |
 | 11 | The score is reloaded mid-session, so the tempo-map id and the frame range go stale. | Not detected as such. The next call that fails stops the session. Versioned scores are server-side later work. |
 | 12 | Two clients share a buffer directory, or a run reads an earlier run's files. | Each run makes its own `rainbohz-playback-XXXXXX` directory. Cleanup removes only that. |
+| 13 | The audio device is lost mid-session (unplugged, say), so the callback stops draining the ring and the feeder waits for room for ever. | miniaudio's notification that the device stopped, when the client did not stop it, makes the next `write()` or `finish()` fail, which stops the session with an error. |
+| 14 | Starting the second thread fails, or anything else throws between starting the threads and joining them, and a joinable `std::thread` ends the process. | A guard stops the session, aborts the sink, cancels the API and joins whatever is still running. |
 
 `test_lane_board.cpp` checks each transition on its own. `test_session.cpp`
 runs whole sessions over a fake API whose every sample is *fill × 100 + frame*.
@@ -212,7 +214,8 @@ behind the same interface.
 | `test_units_and_parsing.cpp` | Positions, the frame plan (trims, a boundary end, one frame, empty and reversed ranges), the ring, the command line |
 | `test_files.cpp` | `file://` decoding and fetching, the buffer directory, WAV reading and writing |
 | `test_lane_board.cpp` | Each transition of §4, and that stopping wakes every wait |
-| `test_session.cpp` | Whole sessions over a fake API: one loop, many loops, fast network with slow playback, slow network, streaming of the first loop, errors on either thread, an interrupt mid-call |
+| `test_session.cpp` | Whole sessions over a fake API: one loop, many loops, fast network with slow playback, slow network, streaming of the first loop, errors on either thread, an interrupt mid-call, and a stalled call cancelled on an interrupt and on a playback error |
+| `test_playback_api.cpp` | The HTTP API's `cancel()` against a real, stalling HTTP server: a stalled call ends when cancelled, and a call after a cancel fails at once |
 | `playback.e2e` | The real binary against a real `rendering-engine` server: no score loaded (exit 1 and the hint), a reversed range (exit 2), three loops to `--output-wav` checked sample for sample against the server's frames, the buffer removed, and `--keep-buffer` keeping both lanes |
 
 `make test-playback-client` runs them all. The end-to-end test needs

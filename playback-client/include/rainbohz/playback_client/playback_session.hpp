@@ -80,10 +80,12 @@ struct SessionResult {
 ///
 /// Starts the sink, runs the network thread and the feeder, and waits for
 /// both. Polls `interrupt` about every 50 ms meanwhile: once it is true, the
-/// session stops, the sink is aborted, and any REST call in flight is allowed
-/// to finish before its thread is joined.
+/// session stops, the sink is aborted, and any REST call in flight is ended
+/// with PlaybackApi::cancel() before its thread is joined. The same happens
+/// when either thread fails.
 ///
-/// @param api        The REST calls; used by the network thread only.
+/// @param api        The REST calls; used by the network thread, and
+///                   cancelled from this one when the session stops.
 /// @param fetcher    Fetches the rendered frames.
 /// @param sink       The audio output, not yet started.
 /// @param plan       What to play, from planSession().

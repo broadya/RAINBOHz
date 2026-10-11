@@ -40,10 +40,15 @@ static_assert(std::atomic<bool>::is_always_lock_free, "the signal handler needs 
 
 /// The SIGINT and SIGTERM handler: asks the session to stop.
 ///
-/// @param signal  The signal; unused.
+/// It also puts back the signal's default action, so that a second signal
+/// ends the client at once, without cleaning up, if stopping takes too long.
+/// Calling std::signal() for the signal being handled is one of the few
+/// things a handler may do.
+///
+/// @param signal  The signal.
 extern "C" void onSignal(int signal) {
-    (void)signal;
     gInterrupted.store(true);
+    (void)std::signal(signal, SIG_DFL);
 }
 
 /// The process exit status for a runtime failure or interruption.

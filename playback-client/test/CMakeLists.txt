@@ -28,6 +28,7 @@ include(GoogleTest)
 add_executable(playback_client_tests
     test_files.cpp
     test_lane_board.cpp
+    test_playback_api.cpp
     test_session.cpp
     test_units_and_parsing.cpp
 )
@@ -36,6 +37,8 @@ target_link_libraries(playback_client_tests
     PRIVATE
         rainbohz::playback_client_lib
         rainbohz::project_warnings
+        # test_playback_api.cpp runs a real HTTP server to cancel calls to.
+        rainbohz::httplib
         GTest::gtest_main
 )
 

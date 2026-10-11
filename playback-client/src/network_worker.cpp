@@ -143,9 +143,15 @@ std::vector<FillTiming> runNetwork(LaneBoard& board, PlaybackApi& api, ObjectFet
             timings.push_back(std::move(timing));
         }
     } catch (const std::exception& error) {
-        board.fail(error.what());
+        // A call that failed because the session stopped, and cancelled it,
+        // is not the session's error.
+        if (!board.stopped()) {
+            board.fail(error.what());
+        }
     } catch (...) {
-        board.fail("the network thread failed with an unknown exception");
+        if (!board.stopped()) {
+            board.fail("the network thread failed with an unknown exception");
+        }
     }
     return timings;
 }

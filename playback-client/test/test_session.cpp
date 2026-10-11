@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -176,6 +177,47 @@ TEST_F(SessionTest, AnInterruptStopsPromptlyEvenMidCall) {
     EXPECT_FALSE(result.error.has_value());
     EXPECT_LT(result.loopsPlayed, 10);
     // At most the call in flight is waited for.
+    EXPECT_LT(std::chrono::steady_clock::now() - started, 1500ms);
+}
+
+// A server that never answers: without cancel() the session would wait for
+// the call's read timeout, minutes in the HTTP client. Cancelling ends it,
+// and the cancelled call is not reported as the session's error.
+TEST_F(SessionTest, AnInterruptCancelsAStalledCall) {
+    api_.hangAtCall = 1;
+    std::thread interrupter{[this] {
+        std::this_thread::sleep_for(300ms);
+        interrupt_.store(true);
+    }};
+    const auto started = std::chrono::steady_clock::now();
+    const SessionResult result = play(10);
+    interrupter.join();
+    EXPECT_TRUE(result.interrupted);
+    EXPECT_FALSE(result.error.has_value()) << *result.error;
+    EXPECT_GT(api_.cancelCount(), 0);
+    EXPECT_LT(std::chrono::steady_clock::now() - started, 1500ms);
+}
+
+// When the feeder fails, the network thread's stalled call is cancelled too,
+// and the error reported is the feeder's, the cause, not the cancelled call.
+TEST_F(SessionTest, AFeederErrorCancelsAStalledCall) {
+    constexpr auto kStalledCall = static_cast<std::int64_t>(kFramesPerLane); // fill 1's first call
+    api_.hangAtCall = kStalledCall;
+    // The output fails, but only once the network thread is in the stalled
+    // call, so that there is a call to cancel.
+    sink_.beforeWrite = [this] {
+        const auto deadline = std::chrono::steady_clock::now() + 1s;
+        while (api_.calls() <= kStalledCall && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(1ms);
+        }
+        throw std::runtime_error{"scripted output failure"};
+    };
+    const auto started = std::chrono::steady_clock::now();
+    const SessionResult result = play(3);
+    ASSERT_TRUE(result.error.has_value());
+    EXPECT_NE(result.error->find("scripted output failure"), std::string::npos) << *result.error;
+    EXPECT_EQ(result.error->find("cancelled"), std::string::npos) << *result.error;
+    EXPECT_GT(api_.cancelCount(), 0);
     EXPECT_LT(std::chrono::steady_clock::now() - started, 1500ms);
 }
 

@@ -114,6 +114,17 @@ public:
     ///         machine; in the target, object storage.
     /// @throws PlaybackApiError if the call fails.
     virtual std::string renderFrame(FrameNumber frame) = 0;
+
+    /// Ends any call in flight, and makes every later call fail at once.
+    ///
+    /// The one member that may be called from another thread while a call
+    /// runs: the session calls it from the main thread when it stops, so that
+    /// a stop does not wait for a slow render to finish or time out. The
+    /// interrupted call throws PlaybackApiError. Safe to call any number of
+    /// times; each call also ends any call that has started since the last.
+    /// It may wait while a call is still connecting, for at most the connect
+    /// timeout.
+    virtual void cancel() noexcept = 0;
 };
 
 /// Makes the HTTP implementation of PlaybackApi.
@@ -123,7 +134,8 @@ public:
 ///                   `http` is accepted; a trailing `/` is ignored.
 /// @return The client. It connects per call, and keeps no connection open
 ///         between calls. One call at a time: it is not thread-safe, and the
-///         session uses it from one thread at a time.
+///         session uses it from one thread at a time, except for cancel(),
+///         which may be called from any thread.
 /// @throws PlaybackApiError if `serverUrl` is not an `http://` URL with a
 ///         host.
 std::unique_ptr<PlaybackApi> makeHttpPlaybackApi(const std::string& serverUrl);
