@@ -26,7 +26,10 @@ on its own?
   should be as small as possible, and the user cannot judge a curve's effect
   on a quantity they do not know (schema, `PhasePhysicalTimelinePoint`).
 * "Free-running" must be expressible at any point, not only at the start.
-* The total phase should stay a true count of the cycles that occurred.
+* Phase values should stay local to a segment, so that precision does not
+  depend on how long the piece has run (author, 2026-10-11). This replaces
+  the earlier driver that the total phase stay a true count of the cycles
+  that occurred.
 
 ## Considered Options
 
@@ -50,14 +53,19 @@ Chosen option: linear compensation segments computed in C++ (author,
    segment's `start_phase`.
 2. A phase point with a value θ at t moves a running adjustment D by
    `wrap(θ − (N(t) + D))` into **[−π, π)**: the smallest change, with an exact
-   half cycle taken as −π. The span ending at t ramps linearly from the old D
-   to the new one.
+   half cycle taken as −π. "Exact" is within 1e-9 rad, so that rounding
+   cannot decide the direction of a half cycle (author, 2026-10-11). The span
+   ending at t ramps linearly from the old D to the new one.
 3. A `NULL` point means "free-running up to here". D is unchanged, so the
    span ending there is flat. A `NULL` point is still a boundary, so a later
    target is met over the shorter span.
 4. A `NULL` first point makes φ₀ be worked backwards: running free from the
    start meets the first target exactly, with no ramp.
-5. D is never wrapped.
+5. D is reduced to [−π, π] at the start of every compensation segment, never
+   inside one: `start_phase_delta` is local and `end_phase_delta` keeps the
+   segment's whole rise, so the ramp's slope is exact (author, 2026-10-11,
+   replacing "D is never wrapped"). The integrable segments' `start_phase` is
+   reduced in the same way.
 6. There is always at least one `PartialPhaseCompensationSegment`, covering
    the lifeline. Its boundaries are the phase points and have no relation to
    the integrable segments'.
@@ -114,7 +122,8 @@ Impact on components:
 ### Confirmation
 
 `test_precomputation.cpp` tests the worked examples of precomputation.md §6.8,
-the back-worked initial phase, the half-cycle tie and unwrapped totals.
+the back-worked initial phase, the half-cycle tie and a near tie at it, and
+local start phases and deltas whose rises are kept.
 `test_frame_plan.cpp` and `test_rendering.cpp` check the rendered phase against
 the closed form. The oracle (`oracle.phase-target-score`) recomputes the
 compensation from its definition in Python and compares every sample of every

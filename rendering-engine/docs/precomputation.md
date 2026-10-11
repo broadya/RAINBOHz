@@ -66,7 +66,7 @@ They are unusual for a reason: they make rendering cheap.
 | Time, offset or length | samples, continuous | `SampleDuration` | `double` | `DOUBLE` (as a difference of two times) |
 | Frequency | radians per sample | `AngularFrequency` | `double` | `DOUBLE` |
 | Frequency gradient | radians per sample² | `FrequencyGradient` | `double` | `DOUBLE` |
-| Phase | radians, **unwrapped** | `Phase` | `double` | `DOUBLE` |
+| Phase | radians, **local to a segment** | `Phase` | `double` | `DOUBLE` |
 | Sample rate | samples per second | `SampleRate` | `std::int32_t` | `INT32` |
 | Frame size | samples, discrete | `FrameSize` | `std::int32_t` | `INT32` |
 | Frame number | index, discrete | `FrameNumber` | `std::int32_t` | `INT32` |
@@ -80,9 +80,14 @@ consumed at a varying rate relative to receiver time (schema header, section
 constant frequency *f* simply *f*. It is sample-rate independent once
 converted, which is the transform stage's job (design.md §1, responsibility 3).
 
-**Phase is unwrapped.** `start_phase` is the full accumulated phase, never
-reduced modulo 2π. It can be negative: frequency is unbounded in both
-directions, and a negative-frequency segment accumulates negative phase.
+**Phase is local to a segment** (author, 2026-10-11). `start_phase` is the
+accumulated phase reduced to `[−π, π]` at the segment's start; within the
+segment, phase is that start plus what the segment gains, which is not
+reduced. So the size of any phase value depends on one segment's frequency
+and length, not on how long the piece has run, and so does its precision
+(§8). Unwrapped phase exists only transiently, inside a segment.
+Frequency is unbounded in both directions, so a segment may gain negative
+phase.
 
 ### 3.1 Unit types in C++
 
@@ -245,7 +250,7 @@ flowchart LR
     subgraph output ["Output — written"]
         ST["<b>PartialSegmentPhysicalTimeline</b>"]
         S0["<b>PartialIntegrableSegment</b><br/>start_time = 0.0<br/>end_time = 48000.0<br/>start_phase = 0.0"]
-        S1["<b>PartialIntegrableSegment</b><br/>start_time = 48000.0<br/>end_time = 120000.0<br/>start_phase ≈ 7200.0"]
+        S1["<b>PartialIntegrableSegment</b><br/>start_time = 48000.0<br/>end_time = 120000.0<br/>start_phase ≈ −0.5304<br/>(7200 wrapped)"]
         N0["<b>PartialSegmentNominalFrequency</b><br/>start_nominal_frequency = 0.1<br/>linear_component = true<br/>linear_gradient ≈ 2.0833e-6<br/>curve_component = false"]
         N1["<b>PartialSegmentNominalFrequency</b><br/>start_nominal_frequency = 0.2<br/>linear_component = true<br/>linear_gradient ≈ -2.0833e-6<br/>curve_component = false"]
         F0["<b>Frame</b><br/>frame_number = 0"]
@@ -354,12 +359,12 @@ flowchart TD
     nominal --> moreSeg{"More segments?"}
     moreSeg -- yes --> nominal
 
-    moreSeg -- no --> init["<b>Stage 4 — integrate</b><br/>φ = φ₀ (double, unwrapped; §6.8)<br/>i = 0"]
+    moreSeg -- no --> init["<b>Stage 4 — integrate</b><br/>φ = wrap(φ₀) (double; §6.8)<br/>i = 0"]
     init --> assign["segment i: start_phase = φ"]
     assign --> integ["φ = φ + phaseIncrement(nominal i, Δtᵢ)<br/>using exactly the values that will be stored (§6.5)"]
     integ --> finite{"φ finite?"}
     finite -- no --> err
-    finite -- yes --> next{"More segments?"}
+    finite -- yes --> reduce["φ = wrap(φ) to [−π, π]:<br/>local to the next segment"] --> next{"More segments?"}
     next -- yes --> step["i = i + 1"] --> assign
 
     next -- no --> comp["<b>Stage 5 — compensate</b><br/>PartialPhaseCompensationSegments<br/>from the phase timeline (§6.8)"]
@@ -657,11 +662,14 @@ it is always present, and a flat ramp costs the renderer nothing (author,
 `(b₀, b_last)`, and `b_last`; they have no relation to the integrable
 segments' boundaries.
 
-**The running adjustment.** D starts at 0 at `b₀` and is a running total that
-is **never wrapped**. Wrapping it would make no audible difference, but an
-unwrapped total keeps the accumulated phase a true count of the cycles that
-occurred, which may matter later (author, 2026-10-03). In time order, for
-each point after the anchor:
+**The running adjustment.** D starts at 0 at `b₀`. It is reduced to
+`[−π, π]` at the start of every compensation segment, and never inside one
+(author, 2026-10-11, replacing the 2026-10-03 rule that D is never wrapped):
+each segment's `start_phase_delta` is local, and its `end_phase_delta` is
+that start plus the segment's whole rise, which is not reduced, so the
+ramp's slope is exact. A segment's `start_phase_delta` may therefore differ
+from the previous segment's `end_phase_delta` by a multiple of 2π, which is
+the same phase. In time order, for each point after the anchor:
 
 - a point with phase θᵢ at tᵢ moves D by the smallest change that meets it,
 
@@ -677,7 +685,12 @@ are flat at 0. If the last point is before `b_last`, the span from it to
 `b_last` is flat at the final D.
 
 `wrap_[−π,π)` reduces to the half-open range: a change of exactly half a
-cycle is −π, never +π (author, 2026-10-03). It is `wrapHalfOpen` in
+cycle is −π, never +π (author, 2026-10-03). "Exactly" is taken within
+`kHalfCycleTieTolerance`, 1e-9 rad (author, 2026-10-11). A change that is a
+half cycle in exact arithmetic, such as targets 180 degrees apart a whole
+number of cycles later, comes out a few 1e-13 rad either side of π in
+floating point, and which side depends on the order of the arithmetic; the
+tolerance makes the rule hold whatever the rounding. It is `wrapHalfOpen` in
 `units.hpp`, distinct from the renderer's `wrap`, whose result may be either
 end of `[−π, π]`.
 
@@ -792,12 +805,38 @@ A segment's frequency at its end, `f₀ + g·Δt`, can still differ from the nex
 segment's `start_nominal_frequency` in the last bit, because the gradient is a
 rounded quotient. The step is of the order of 10⁻¹⁷ rad/sample. **Phase
 remains exactly continuous**, because each segment's `start_phase` is by
-construction the integral of the previous segment's stored parameters.
+construction the integral of the previous segment's stored parameters,
+reduced to `[−π, π]`; `std::remainder` is exact, so the reduction adds no
+rounding beyond that of 2π itself.
 
-Unwrapped phase grows without bound, which costs absolute resolution as it
-grows. At the extreme of a partial at the top of the rendering range for an
-hour at 48 kHz, φ is of the order of 10⁸–10⁹ radians, where the spacing of
-`double` values is around 10⁻⁷ radians. That is far below anything audible.
+**Phase is local, so its precision depends on a segment, not a piece**
+(author, 2026-10-11). Every `start_phase` is in `[−π, π]`, and the largest
+phase value anything computes is what one segment gains over its length,
+f·Δt + ½g·Δt². For a segment at 1 kHz lasting an hour at 48 kHz that is about
+2.3 × 10⁷ radians, where the spacing of `double` values is about 4 × 10⁻⁹
+radians; for a day, about 10⁻⁷. Both are far below anything audible. A piece
+of any length is as precise as its longest segment.
+
+**Known limits.** Two cases can still lose precision, and both are accepted:
+
+- *A segment that is very long at a very high frequency.* At the kernel's
+  limit of 1000 cycles per sample (rendering.md §7), a segment lasting a day
+  at 96 kHz gains about 5 × 10¹³ radians, where the spacing of `double` is
+  about 0.008 radians. Such a partial is silenced by the roll-off, so this
+  matters only if it comes back into the audio band within the same segment.
+  The remedy, if it is ever needed, is to insert extra segment boundaries
+  where none is strictly required.
+- *Absolute time.* Times are absolute sample positions in `double`. Whole
+  samples are exact up to 2⁵³, about 2,970 years at 96 kHz, and at a month
+  the spacing of representable times is about 3 × 10⁻⁵ samples. At 639 years
+  (John Cage's *ORGAN²/ASLSP* in its Halberstadt performance) it is 0.25
+  samples, which is where segment boundaries would start to be placed
+  coarsely. This is the next ceiling after phase, far above any realistic
+  piece.
+
+A phase correction that is exactly a half cycle is the one place where
+rounding could change a result rather than just perturb it; §6.8 describes
+the tolerance that removes it.
 
 ## 9. Transactions, rebuild and idempotency
 
@@ -987,8 +1026,8 @@ scope edges.
 a constant segment, rising and falling glides, negative frequency, a segment of
 fractional length, and splitting a segment without changing its phase. Phase
 control is tested on the author's worked examples (§6.8), the back-worked
-initial phase, the exact half cycle, unwrapped running totals, and a target
-at the lifeline's end. The
+initial phase, the exact half cycle and a near tie at it, local start
+phases and deltas whose rises are kept, and a target at the lifeline's end. The
 unit types are tested largely at compile time: each operation that must not
 compile is a `static_assert`. Each pure stage of precomputation has its own
 tests, and whole runs are tested against the real schema in memory: the
@@ -1006,7 +1045,9 @@ design will build on:
   non-empty, and cover exactly `[b₀, b_last)`.
 - Each segment's phase at local time τ is
   `phaseAt(start_phase, nominal, τ)`, computed from the stored values, and
-  agrees with the next segment's `start_phase` at τ = Δt.
+  agrees with the next segment's `start_phase` at τ = Δt, modulo 2π: every
+  `start_phase` is in `[−π, π]`, and so is every compensation segment's
+  `start_phase_delta`.
 - `PARTIAL_IN_FRAME` lists exactly the frames the partial's life
   overlaps. A frame with no such edge from a partial need not consider it.
 - For every such frame there is one `FrameEntry` reachable from the `Frame`
@@ -1060,14 +1101,16 @@ g = \frac{0.05 - 0.2}{72000} \approx -2.0833 \times 10^{-6}
 | Segment | start_time | end_time | start_phase | start_nominal_frequency | linear_gradient |
 | --- | --- | --- | --- | --- | --- |
 | 0 | 0 | 48,000 | 0 | 0.1 | ≈ 2.0833 × 10⁻⁶ |
-| 1 | 48,000 | 120,000 | ≈ 7200 | 0.2 | ≈ −2.0833 × 10⁻⁶ |
+| 1 | 48,000 | 120,000 | ≈ −0.5304 (7200 − 1146·2π) | 0.2 | ≈ −2.0833 × 10⁻⁶ |
 
-The phase at the partial's end, ≈ 16,200, is not stored.
+Segment 1's `start_phase` is the running phase, 7200, reduced to `[−π, π]`
+(§3). The phase at the partial's end, 16,200 or ≈ 1.9483 wrapped, is not
+stored.
 
 Values are shown in exact arithmetic. The stored values can differ in the
 last bits, because 0.1, 0.2, 0.05 and the gradients are not exactly
 representable in binary. Tests compare with a tolerance of a few units in the
-last place, not for exact equality with 7200.
+last place, not for exact equality, and compare phases modulo 2π.
 
 Frame scope: `k_first = ⌊0 / 48000⌋ = 0`, `k_last = ⌈120000 / 48000⌉ − 1 =
 ⌈2.5⌉ − 1 = 2`. Frames 0, 1 and 2.

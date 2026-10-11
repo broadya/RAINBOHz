@@ -16,6 +16,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <numbers>
 #include <vector>
 
@@ -29,6 +30,7 @@ using rainbohz::rendering_engine::BlockState;
 using rainbohz::rendering_engine::DecibelGradient;
 using rainbohz::rendering_engine::Decibels;
 using rainbohz::rendering_engine::FrequencyGradient;
+using rainbohz::rendering_engine::kMaxPhaseStep;
 using rainbohz::rendering_engine::makeRollOff;
 using rainbohz::rendering_engine::NominalAmplitude;
 using rainbohz::rendering_engine::NominalFrequency;
@@ -238,6 +240,65 @@ TEST(RenderKernel, LargeIncrementsStayWrapped) {
     renderChunk(block, active, SampleIndex{0}, SampleIndex{1000}, kEdges, out);
     EXPECT_LE(std::abs(block.phase[0]), std::numbers::pi);
     EXPECT_NEAR(block.phase[0], wrap(Phase{10000.0}).value(), 1e-6);
+    EXPECT_EQ(block.cappedPhaseSteps[0], 0) << "10 rad per sample is far inside the cap";
+}
+
+// A step just inside the cap is taken, and needs about a thousand passes of
+// the wrap loop; nothing is counted.
+TEST(RenderKernel, AStepAtTheCapIsTaken) {
+    const double step = kMaxPhaseStep - 1.0;
+    BlockState block{1};
+    anchorPartial(block, 0, anchor(0.0, step, 0.0, 0.0, 0.0));
+    std::vector<SampleValue> out(3, 0);
+    const std::vector<std::size_t> active{0};
+    renderChunk(block, active, SampleIndex{0}, SampleIndex{3}, kEdges, out);
+    EXPECT_EQ(block.cappedPhaseSteps[0], 0);
+    EXPECT_LE(std::abs(block.phase[0]), std::numbers::pi);
+    EXPECT_NEAR(block.phase[0], wrap(Phase{3.0 * step}).value(), 1e-8);
+}
+
+// Beyond the cap the phase holds and every sample is counted (author,
+// 2026-10-11). The output stays finite and is silenced by the roll-off.
+// Before the cap this frequency made the wrap loop run for ever.
+TEST(RenderKernel, AStepBeyondTheCapHoldsThePhaseAndIsCounted) {
+    BlockState block{1};
+    anchorPartial(block, 0, anchor(0.25, 1.0e20, 0.0, 0.0, 0.0));
+    const double anchored = block.phase[0];
+    std::vector<SampleValue> out(100, 0);
+    const std::vector<std::size_t> active{0};
+    renderChunk(block, active, SampleIndex{0}, SampleIndex{100}, kEdges, out);
+    EXPECT_EQ(block.phase[0], anchored);
+    EXPECT_EQ(block.cappedPhaseSteps[0], 100);
+    for (const SampleValue sample : out) {
+        EXPECT_TRUE(std::isfinite(sample));
+        EXPECT_LT(std::abs(sample), 1e-6);
+    }
+}
+
+// A step that is not a number is held in the same way, so that a NaN never
+// reaches the phase.
+TEST(RenderKernel, AStepThatIsNotANumberIsHeld) {
+    BlockState block{1};
+    anchorPartial(block, 0, anchor(0.25, 0.1, 0.0, 0.0, 0.0));
+    block.phaseStepOffset[0] = std::numeric_limits<double>::quiet_NaN();
+    std::vector<SampleValue> out(10, 0);
+    const std::vector<std::size_t> active{0};
+    renderChunk(block, active, SampleIndex{0}, SampleIndex{10}, kEdges, out);
+    EXPECT_EQ(block.phase[0], 0.25);
+    EXPECT_EQ(block.cappedPhaseSteps[0], 10);
+}
+
+// An anchor whose closed-form phase overflows starts the lane at 0 and is
+// counted, and the count is not reset by the next anchor.
+TEST(RenderKernel, AnAnchorPhaseThatIsNotFiniteStartsAtZero) {
+    BlockState block{1};
+    anchorPartial(block, 0, anchor(0.0, 1.0e300, 0.0, 0.0, 0.0, 1.0e300));
+    EXPECT_EQ(block.phase[0], 0.0);
+    EXPECT_EQ(block.cappedPhaseSteps[0], 1);
+
+    anchorPartial(block, 0, anchor(0.5, 0.1, 0.0, 0.0, 0.0));
+    EXPECT_EQ(block.phase[0], 0.5);
+    EXPECT_EQ(block.cappedPhaseSteps[0], 1);
 }
 
 } // namespace

@@ -32,6 +32,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace rainbohz::rendering_engine {
@@ -220,9 +221,12 @@ PartialSetPlan planPartialSet(std::int64_t partialSetId, std::span<const Partial
 /// @param rollOff  The roll-off's band edges for the run.
 /// @param[in,out] out  The set's buffer, exactly one frame long. The set's
 ///                     samples are added into it; the caller zeroes it first.
+/// @return Each partial whose phase the kernel held at least once
+///         (BlockState::cappedPhaseSteps), as its id and the count, in plan
+///         order. Empty when no partial went beyond kMaxPhaseStep.
 /// @pre `out.size()` equals the frame size the plan was built for, and the
 ///      plan's last cut equals it. Not checked.
-void renderPartialSet(
+std::vector<std::pair<std::int64_t, std::int64_t>> renderPartialSet(
     const PartialSetPlan& plan, const RollOff& rollOff, std::span<SampleValue> out);
 
 // ---------------------------------------------------------------------------

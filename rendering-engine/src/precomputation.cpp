@@ -1190,7 +1190,11 @@ std::vector<Segment> buildSegments(
 }
 
 Phase integrate(std::span<Segment> segments, Phase initialPhase) {
-    Phase accumulator = initialPhase;
+    // The accumulator is wrapped at every segment start, so each segment
+    // holds its own phase in [-π, π] and precision depends on the segment's
+    // length, not on how long the piece has run (author, 2026-10-11).
+    // std::remainder is exact, so a value already in range is unchanged.
+    Phase accumulator = wrap(initialPhase);
     for (std::size_t i = 0; i < segments.size(); ++i) {
         Segment& segment = segments[i];
         segment.startPhase = accumulator;
@@ -1200,6 +1204,7 @@ Phase integrate(std::span<Segment> segments, Phase initialPhase) {
                                              std::to_string(i) + ", which starts at " +
                                              formatNumber(segment.startTime.value())};
         }
+        accumulator = wrap(accumulator);
     }
     return accumulator;
 }
@@ -1245,6 +1250,12 @@ std::vector<CompensationSegment> buildCompensation(
     result.reserve(targets.size());
     Phase delta{0.0};
     for (auto target = std::next(targets.begin()); target != targets.end(); ++target) {
+        // Each segment starts from a wrapped delta and keeps its whole rise,
+        // so the ramp's slope is untouched while no value grows with the
+        // number of targets (author, 2026-10-11). A segment's start may
+        // therefore differ from the previous segment's end by a multiple
+        // of 2π, which is the same phase.
+        delta = wrap(delta);
         const Phase before = delta;
         if (target > anchor && target->phase.has_value()) {
             const Phase actual = naturalPhaseAt(segments, target->time) + delta;
@@ -1256,6 +1267,7 @@ std::vector<CompensationSegment> buildCompensation(
             .endDelta = delta});
     }
     if (targets.back().time < lifelineEnd) {
+        delta = wrap(delta);
         result.push_back(CompensationSegment{.startTime = targets.back().time,
             .endTime = lifelineEnd,
             .startDelta = delta,

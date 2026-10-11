@@ -1323,7 +1323,9 @@ void renderSources(const ValidatedFrame& validated, const Config& config, const 
             const PartialSetPlan plan =
                 planPartialSet(setId, partials, outcome.frame, config.frameSize);
             std::ranges::fill(buffers.set, 0);
-            renderPartialSet(plan, rollOff, buffers.set);
+            for (const auto& capped : renderPartialSet(plan, rollOff, buffers.set)) {
+                outcome.cappedPhases.push_back(capped);
+            }
             if (perSetWav) {
                 const std::filesystem::path setFile = outputDir / setFileName(outcome.frame, setId);
                 writeFloatWav(setFile, config.sampleRate, 1, buffers.set);
@@ -1338,6 +1340,7 @@ void renderSources(const ValidatedFrame& validated, const Config& config, const 
         spatialiseSource(plan, config.channelMode, buffers.source, buffers.frame);
         ++outcome.sourceCount;
     }
+    std::ranges::sort(outcome.cappedPhases);
     outcome.peak = peakOf(buffers.frame);
 
     const std::filesystem::path file = outputDir / frameFileName(outcome.frame);
@@ -1368,7 +1371,8 @@ FrameOutcome renderOneFrame(EngineDb& db, const Config& config, const RollOff& r
         .partialCount = 0,
         .peak = 0,
         .file = {},
-        .setFiles = {}};
+        .setFiles = {},
+        .cappedPhases = {}};
 
     // Gather and validate (§6.3, §9). A database failure fails the frame.
     GatheredFrame gathered;

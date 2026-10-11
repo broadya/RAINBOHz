@@ -36,10 +36,25 @@
 #include "rainbohz/rendering_engine/units.hpp"
 
 #include <cstddef>
+#include <cstdint>
+#include <numbers>
 #include <span>
 #include <vector>
 
 namespace rainbohz::rendering_engine {
+
+/// The largest one-sample phase step the kernel takes: 1000 periods,
+/// radians per sample (author, 2026-10-11).
+///
+/// Frequencies have no limit in the model, and modulation can carry a partial
+/// far beyond the audio band, where the roll-off silences it but the maths
+/// still runs. This is where that stops: a larger step, or one that is not a
+/// number, leaves the phase where it was for that sample. The limit is the
+/// kernel's own, in its own units, because what it bounds is the work of
+/// wrapping the phase. At 20 kHz sampling it is 20 MHz; at 96 kHz, 96 MHz.
+/// The phase that is held can make a discontinuity before the next anchor,
+/// which the roll-off makes inaudible in all but pathological cases.
+inline constexpr double kMaxPhaseStep = 1000.0 * 2.0 * std::numbers::pi;
 
 /// The per-partial state of a block, one array per quantity, all double.
 ///
@@ -69,6 +84,13 @@ struct BlockState {
     /// The render segment's amplitude gradient, dB per sample.
     std::vector<double> ampGradient;
 
+    /// How many times the lane's phase was held rather than advanced: once
+    /// per sample whose step exceeded kMaxPhaseStep or was not a number, and
+    /// once per anchor whose phase was not finite. Zero for any partial whose
+    /// frequency stays within the limit. Never reset by anchorPartial(); it
+    /// counts over the block's whole life.
+    std::vector<std::int64_t> cappedPhaseSteps;
+
     /// A block of `partials` lanes, all zero.
     ///
     /// @param partials  Number of lanes. The one allocation the kernel's
@@ -85,7 +107,8 @@ struct BlockState {
 /// The closed-form state from which one partial's lane is set at the start of
 /// a chunk (docs/rendering.md section 7.2).
 struct Anchor {
-    /// The render segment's start phase φ_s, unwrapped.
+    /// The render segment's start phase φ_s. Precomputation stores it
+    /// wrapped to [-π, π]; any finite value gives the same result.
     Phase startPhase;
 
     /// The render segment's frequency path, re-based to its start.
@@ -108,7 +131,9 @@ struct Anchor {
 /// τ)), freq = frequencyAt(nominal, τ), amp = amplitudeAt(amplitude, τ); the
 /// gradients are the segment's, and the phase step offset is g / 2 plus the
 /// compensation's slope. This is the boundary where unit types are unwrapped
-/// into the arrays.
+/// into the arrays. A phase that is not finite, from a frequency so large
+/// that the closed form overflows, is set to 0 and counted in
+/// cappedPhaseSteps, so that no NaN reaches the loop.
 ///
 /// @param[in,out] block  The block. Lane `lane` of every array is overwritten.
 /// @param lane           Which lane. Less than `block.size()`; not checked.
@@ -121,7 +146,9 @@ void anchorPartial(BlockState& block, std::size_t lane, const Anchor& anchor) no
 /// `sin(phase) · toLinear(amp + rollOff(freq))`, added into `out[n]` once
 /// per sample; then each active lane's phase advances by the exact
 /// one-sample increment `freq + phaseStepOffset` and is wrapped, its freq by
-/// `gradient`, and its amp by `ampGradient`. Everything is computed in
+/// `gradient`, and its amp by `ampGradient`. An increment beyond
+/// kMaxPhaseStep, or one that is not a number, is not taken: the phase holds
+/// and the lane's cappedPhaseSteps goes up by one. Everything is computed in
 /// double and narrowed to SampleValue once, at the add.
 ///
 /// Serial and scalar in this version; docs/rendering.md section 7.5 says

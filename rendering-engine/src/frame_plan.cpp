@@ -271,7 +271,7 @@ PartialSetPlan planPartialSet(std::int64_t partialSetId, std::span<const Partial
     return plan;
 }
 
-void renderPartialSet(
+std::vector<std::pair<std::int64_t, std::int64_t>> renderPartialSet(
     const PartialSetPlan& plan, const RollOff& rollOff, std::span<SampleValue> out) {
     BlockState block{plan.partials.size()};
     std::vector<std::size_t> cursor(plan.partials.size(), 0);
@@ -307,6 +307,14 @@ void renderPartialSet(
 
         renderChunk(block, active, first, last, edges, out);
     }
+
+    std::vector<std::pair<std::int64_t, std::int64_t>> capped;
+    for (std::size_t i = 0; i < plan.partials.size(); ++i) {
+        if (block.cappedPhaseSteps[i] > 0) {
+            capped.emplace_back(plan.partials[i].partialId, block.cappedPhaseSteps[i]);
+        }
+    }
+    return capped;
 }
 
 std::vector<SpatialSegment> buildSpatialSegments(

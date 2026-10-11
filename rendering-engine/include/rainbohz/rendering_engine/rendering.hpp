@@ -101,6 +101,12 @@ struct FrameOutcome {
     /// With --per-set-wav, each contributing set's id and file, in set order.
     std::vector<std::pair<std::int64_t, std::filesystem::path>> setFiles;
 
+    /// Each partial whose phase the kernel held at least once in this frame,
+    /// because a one-sample step exceeded kMaxPhaseStep or was not finite
+    /// (render_kernel.hpp), with how many times. Partial id order. Empty for
+    /// any frame whose frequencies stay within the limit, which is the norm.
+    std::vector<std::pair<std::int64_t, std::int64_t>> cappedPhases;
+
     /// True when the frame was rendered and its file written.
     ///
     /// @return Whether `error` is unset.

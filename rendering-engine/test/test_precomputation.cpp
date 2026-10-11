@@ -445,8 +445,32 @@ TEST(Integrate, WorkedExample) {
     const Phase end = integrate(segments);
 
     EXPECT_EQ(segments[0].startPhase.value(), 0.0);
-    EXPECT_NEAR(segments[1].startPhase.value(), 7200.0, 1e-9);
-    EXPECT_NEAR(end.value(), 16200.0, 1e-9);
+    // The running phase, 7200 rad at the boundary and 16200 rad at the end,
+    // is held wrapped: the same angles, in [-π, π].
+    EXPECT_LE(std::abs(segments[1].startPhase.value()), std::numbers::pi);
+    EXPECT_NEAR(wrapHalfOpen(segments[1].startPhase - Phase{7200.0}).value(), 0.0, 1e-9);
+    EXPECT_LE(std::abs(end.value()), std::numbers::pi);
+    EXPECT_NEAR(wrapHalfOpen(end - Phase{16200.0}).value(), 0.0, 1e-9);
+}
+
+// Phase is local to a segment (author, 2026-10-11): however long the partial
+// runs, no stored start phase grows beyond π.
+TEST(Integrate, EveryStartPhaseIsWrapped) {
+    std::vector<FrequencyPointRecord> records;
+    for (int i = 0; i <= 100; ++i) {
+        records.push_back(record(1.0e9 * i, i % 2 == 0 ? 0.5 : 2.5));
+    }
+    const std::vector<FrequencyPoint> envelope = validateFrequencyEnvelope(records);
+    std::vector<Segment> segments = buildSegments(gatherBoundaries(envelope), envelope);
+
+    const Phase end = integrate(segments, Phase{1.0 + (2.0 * std::numbers::pi)});
+
+    ASSERT_EQ(segments.size(), 100U);
+    for (const Segment& segment : segments) {
+        EXPECT_LE(std::abs(segment.startPhase.value()), std::numbers::pi);
+    }
+    EXPECT_NEAR(segments[0].startPhase.value(), 1.0, 1e-12) << "the initial phase is wrapped too";
+    EXPECT_LE(std::abs(end.value()), std::numbers::pi);
 }
 
 TEST(Integrate, RefusesAPhaseThatIsNotFinite) {
@@ -781,7 +805,9 @@ TEST(NaturalPhaseAt, IsPhaseAtOnTheCoveringSegment) {
     EXPECT_EQ(naturalPhaseAt(segments, SampleTime{0.0}).value(), 0.0);
     EXPECT_EQ(naturalPhaseAt(segments, SampleTime{48000.0}), segments[1].startPhase)
         << "a boundary is evaluated on the segment it starts";
-    EXPECT_NEAR(naturalPhaseAt(segments, SampleTime{120000.0}).value(), 16200.0, 1e-6)
+    EXPECT_NEAR(
+        wrapHalfOpen(naturalPhaseAt(segments, SampleTime{120000.0}) - Phase{16200.0}).value(), 0.0,
+        1e-9)
         << "the lifeline's end is the last segment evaluated at its length";
     EXPECT_THROW(naturalPhaseAt(segments, SampleTime{120001.0}), std::invalid_argument);
 }
@@ -891,7 +917,18 @@ TEST(BuildCompensation, AnExactHalfCycleGoesNegative) {
     EXPECT_EQ(compensation[0].endDelta.value(), -kPi);
 }
 
-TEST(BuildCompensation, DeltasAreRunningTotalsThatDoNotWrap) {
+// A half cycle that rounding has left a hair below π still goes negative;
+// one clearly below π does not (author, 2026-10-11).
+TEST(WrapHalfOpen, ANearTieAtAHalfCycleGoesNegative) {
+    EXPECT_NEAR(wrapHalfOpen(Phase{kPi - 8e-13}).value(), -kPi - 8e-13, 1e-15);
+    EXPECT_NEAR(wrapHalfOpen(Phase{-kPi + 3e-13}).value(), -kPi + 3e-13, 1e-15);
+    EXPECT_NEAR(wrapHalfOpen(Phase{(3.0 * kPi) - 8e-13}).value(), -kPi, 1e-12)
+        << "the same, a whole cycle on";
+    EXPECT_NEAR(wrapHalfOpen(Phase{kPi - 1e-6}).value(), kPi - 1e-6, 1e-15)
+        << "outside the tolerance, a correction keeps its sign";
+}
+
+TEST(BuildCompensation, EachStartIsWrappedAndEachRiseKept) {
     const std::vector<PhaseTarget> targets = targetsOf({{0.0, 0.0}, {100.0, 2.0}, {200.0, -2.0}});
     const std::vector<Segment> segments = integratedConstant(0.0, 300.0, 0.0, targets);
 
@@ -899,10 +936,36 @@ TEST(BuildCompensation, DeltasAreRunningTotalsThatDoNotWrap) {
 
     ASSERT_EQ(compensation.size(), 3U);
     EXPECT_EQ(compensation[0].endDelta.value(), 2.0);
-    // From 2 to -2 is -4, which is nearer as +(2π − 4): a total of 2π − 2,
-    // beyond π and kept that way.
+    // From 2 to -2 is -4, which is nearer as +(2π − 4): the ramp starts at
+    // 2 and rises the whole 2π − 4, ending at 2π − 2, beyond π. The end of a
+    // ramp is never wrapped, or its slope would change.
+    EXPECT_EQ(compensation[1].startDelta.value(), 2.0);
     EXPECT_NEAR(compensation[1].endDelta.value(), (2.0 * kPi) - 2.0, 1e-12);
     EXPECT_GT(compensation[1].endDelta.value(), kPi);
+    // The next segment starts from that total wrapped: -2, the same angle.
+    EXPECT_NEAR(compensation[2].startDelta.value(), -2.0, 1e-12);
+    EXPECT_EQ(compensation[2].endDelta, compensation[2].startDelta);
+}
+
+// Many targets, each moving the delta the same way: the running total would
+// grow without limit, but every stored start stays in [-π, π] and every rise
+// is the adjustment its target asked for.
+TEST(BuildCompensation, DeltasStayLocalOverManyTargets) {
+    std::vector<PhasePoint> points;
+    for (int i = 0; i <= 50; ++i) {
+        points.emplace_back(100.0 * i, std::remainder(3.0 * i, 2.0 * kPi));
+    }
+    const std::vector<PhaseTarget> targets = targetsOf(points);
+    const std::vector<Segment> segments = integratedConstant(0.0, 5000.0, 0.0, targets);
+
+    const std::vector<CompensationSegment> compensation = buildCompensation(segments, targets);
+
+    ASSERT_EQ(compensation.size(), 50U);
+    for (const CompensationSegment& c : compensation) {
+        EXPECT_LE(std::abs(c.startDelta.value()), kPi);
+        EXPECT_NEAR((c.endDelta - c.startDelta).value(), 3.0, 1e-9)
+            << "each target is 3 rad on from the last, so each ramp rises 3";
+    }
 }
 
 TEST(BuildCompensation, ATargetAtTheLifelinesEndNeedsNoTrailingSegment) {
@@ -984,7 +1047,8 @@ TEST_F(PrecomputationDb, WritesTheWorkedExample) {
     const std::vector<double> phases = startPhases(db, "P");
     ASSERT_EQ(phases.size(), 2U);
     EXPECT_EQ(phases[0], 0.0);
-    EXPECT_NEAR(phases[1], 7200.0, 1e-9);
+    EXPECT_LE(std::abs(phases[1]), kPi) << "start_phase is stored wrapped";
+    EXPECT_NEAR(wrapHalfOpen(Phase{phases[1]} - Phase{7200.0}).value(), 0.0, 1e-9);
 
     EXPECT_EQ(count(db, "MATCH (:Partial)-[r:PARTIAL_IN_FRAME]->(:Frame) RETURN count(r);"), 3);
     EXPECT_EQ(report.partials[0].entryCount, 3U);

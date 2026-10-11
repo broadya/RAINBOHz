@@ -190,7 +190,8 @@ struct PhaseTarget {
 ///
 /// Covers `[startTime, endTime)`. Over it, the compensation added to the
 /// phase from the frequency envelope ramps linearly from `startDelta` to
-/// `endDelta`. The deltas are running totals and are never wrapped.
+/// `endDelta`. `startDelta` is in [-π, π]; `endDelta` is `startDelta` plus
+/// the ramp's whole rise, which is not wrapped, so it may lie outside.
 struct CompensationSegment {
     /// PartialPhaseCompensationSegment.start_time.
     SampleTime startTime;
@@ -408,19 +409,24 @@ std::vector<Segment> buildSegments(
 /// The accumulator starts at `initialPhase` at the first segment's start:
 /// 0 for the natural phase N₀ from which initialPhaseOf() works, φ₀ from it
 /// for the segments that are written. Each segment's
-/// startPhase is the accumulator's value at its start; the phase it gains is
-/// phaseIncrement() over its length, from its own stored parameters.
+/// startPhase is the accumulator's value at its start, wrapped to [-π, π];
+/// the phase it gains is phaseIncrement() over its length, from its own
+/// stored parameters. Wrapping at every start keeps phase local to the
+/// segment: precision depends on a segment's frequency and length, not on
+/// how long the piece has run (author, 2026-10-11).
 ///
 /// @param[in,out] segments  Contiguous segments in time order. Each one's
 ///                          startPhase is overwritten.
 /// @param initialPhase      The phase at the first segment's start.
-/// @return The unwrapped phase at the end of the last segment, which is not
-///         stored anywhere; `initialPhase` when `segments` is empty.
+/// @return The phase at the end of the last segment, wrapped to [-π, π],
+///         which is not stored anywhere; `initialPhase` wrapped when
+///         `segments` is empty.
 /// @throws PartialPrecomputationError  If the phase stops being finite. The
 ///         segments before the one that overflowed have been updated.
 Phase integrate(std::span<Segment> segments, Phase initialPhase = Phase{0.0});
 
-/// The unwrapped phase the frequency envelope gives at `at` (§6.8).
+/// The phase the frequency envelope gives at `at` (§6.8), not wrapped:
+/// the covering segment's wrapped start phase plus what it gains up to `at`.
 ///
 /// `phaseAt()` on the integrable segment covering `at`, from its stored
 /// values: the same computation rendering makes there, so the two agree to
@@ -448,13 +454,17 @@ Phase initialPhaseOf(std::span<const Segment> fromZero, std::span<const PhaseTar
 /// Stage 5: the phase compensation segments (§6.8).
 ///
 /// The boundaries are `b₀`, every target time inside `(b₀, b_last)`, and
-/// `b_last`. A running delta D starts at 0 and is never wrapped. The target
+/// `b_last`. A running delta D starts at 0 and is wrapped to [-π, π] at the
+/// start of every segment, never inside one. The target
 /// that set φ₀ -- the first that is not NULL -- and every point before it
 /// are met already, so their segments are flat at 0. After that, in time
 /// order, a target θᵢ at tᵢ moves D by `wrapHalfOpen(θᵢ − (N(tᵢ) + D))`
 /// and the segment ending at tᵢ ramps from the old D to the new one; a NULL
 /// point leaves D alone, so the segment ending there is flat. The segment
-/// after the last point, if it ends before `b_last`, is flat.
+/// after the last point, if it ends before `b_last`, is flat. Wrapping only
+/// at a start keeps each ramp's rise, and so its slope, exact, while keeping
+/// every value local (author, 2026-10-11); a segment's startDelta may differ
+/// from the previous segment's endDelta by a multiple of 2π.
 ///
 /// @param segments  The segments, integrated from φ₀: N. Not empty.
 /// @param targets   The validated phase timeline, the first at `b₀`.

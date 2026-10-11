@@ -419,6 +419,12 @@ inline Phase wrap(Phase phase) noexcept {
     return Phase{std::remainder(phase.value(), 2.0 * std::numbers::pi)};
 }
 
+/// How close below π a reduced phase difference must be to count as a half
+/// cycle in wrapHalfOpen(), radians (author, 2026-10-11). Phase is local to
+/// a segment, so for segments of ordinary length its rounding is far below
+/// this, and the tolerance is far below any adjustment anyone could hear.
+inline constexpr double kHalfCycleTieTolerance = 1e-9;
+
 /// Reduces a phase difference to the half-open range [-π, π): the smallest
 /// adjustment that reaches the same angle, with an exact half cycle taken as
 /// −π (author, 2026-10-03).
@@ -428,11 +434,20 @@ inline Phase wrap(Phase phase) noexcept {
 /// exact half cycle goes must not depend on rounding (docs/precomputation.md
 /// section 6.8).
 ///
+/// "Exact" is taken within kHalfCycleTieTolerance (author, 2026-10-11). A
+/// difference that is a half cycle in exact arithmetic, such as two targets
+/// 180 degrees apart a whole number of cycles later, comes out a few
+/// 1e-13 rad either side of π in floating point, and which side depends on
+/// the order of the arithmetic. Anything within the tolerance below π goes
+/// negative, so the rule holds whatever the rounding. The angle is not
+/// changed, only which way it is reached.
+///
 /// @param phase  Any phase; a non-finite value gives NaN.
-/// @return The same angle, in [-π, π).
+/// @return The same angle, in [-π − kHalfCycleTieTolerance,
+///         π − kHalfCycleTieTolerance).
 inline Phase wrapHalfOpen(Phase phase) noexcept {
     double reduced = std::remainder(phase.value(), 2.0 * std::numbers::pi);
-    if (reduced >= std::numbers::pi) {
+    if (reduced >= std::numbers::pi - kHalfCycleTieTolerance) {
         reduced -= 2.0 * std::numbers::pi;
     }
     return Phase{reduced};

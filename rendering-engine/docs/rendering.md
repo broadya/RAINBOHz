@@ -472,7 +472,7 @@ RenderSegment
     start, end        SampleTime, source time, [start, end)
     present           bool
     -- when present:
-    startPhase        Phase             φ_s, unwrapped
+    startPhase        Phase             φ_s, not wrapped (local to the segment)
     nominal           NominalFrequency  { f_s, g }         (segment_maths)
     amplitude         NominalAmplitude  { a_s, g_a }       (amplitude_maths, §8)
     compensation      NominalCompensation { D_s, c }       (segment_maths)
@@ -633,6 +633,32 @@ for wrapped phase, by subtracting or adding 2π after each increment. A
 wrapped accumulator keeps full precision for the sine indefinitely; an
 unwrapped one would lose it as the value grew. Negative frequency wraps the
 other way and needs no special case. The raw sample is `sin(phase)`.
+
+**The step limit** (author, 2026-10-11). Frequency has no limit in the
+model, and modulation can carry a partial far beyond the audio band, where
+the roll-off silences it but the maths still runs. The kernel takes a
+one-sample step only if its size is at most `kMaxPhaseStep`, 1000 periods
+(2000π radians) per sample; a larger step, or one that is not a number,
+leaves the phase where it was for that sample. The check comes before the
+add, so it costs one comparison, and it bounds the wrap to about a thousand
+passes; without it a large enough frequency made the wrap loop run for ever
+and hung the engine. The limit is in the kernel's own units because what it
+bounds is the work of wrapping: at 20 kHz sampling it is 20 MHz, at 96 kHz
+96 MHz, around a thousand times the top of the audio band, which is room
+to pitch-shift a note's harmonics up from the bottom of the band and back.
+The same applies at an anchor: a closed-form phase that is not finite starts
+the lane at 0. Each lane counts how often its phase was held
+(`BlockState::cappedPhaseSteps`); a frame reports each partial with a
+non-zero count in `FrameOutcome::cappedPhases`, printed with `--verbose`.
+
+A held phase can make a discontinuity, which lasts until the next anchor
+re-sets the phase from the closed form (§7.2). The roll-off makes it
+inaudible in all but pathological cases: the partial would have to come back
+into the audio band within the same render segment. Two remedies have been
+considered and set aside as costing more than they gain: stopping
+computation for the partial, which needs bookkeeping; and rendering each
+segment from both ends towards the middle, so that its ends always join up.
+The second may come back (author, 2026-10-11).
 
 ### 7.4 The amplitude
 
@@ -955,13 +981,17 @@ Two rules from the schema are **not** checks here:
   data error, and `--validate-db` reports it as one; the renderer's job is
   to be safe against it, not to refuse the frame.
 - Frequency is unbounded; the roll-off handles values outside the rendering
-  range.
+  range, and the kernel's step limit (§7.3) values beyond about 1000 cycles
+  per sample, without failing the partial.
 
 ## 10. Numerical precision
 
 **Phase.** A render segment's start phase comes from `phaseAt` on the
 stored values, exactly as precomputation computes boundaries, so it is
-bit-identical to what precomputation would have stored. Inside a chunk the
+bit-identical to what precomputation would have stored before reducing it to
+`[−π, π]`. Stored start phases are local to their segment (precomputation.md
+§3, §8), so the largest phase value the renderer computes is what one
+segment gains, however long the piece. Inside a chunk the
 accumulator adds the exact one-sample increment, in `double`, wrapped; the
 error after *m* samples is of the order of *m*·ε relative to a value of
 order 1, and *m* is at most the frame length. Anchoring resets it at every

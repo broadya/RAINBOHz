@@ -317,10 +317,18 @@ def to_linear(decibels: np.ndarray) -> np.ndarray:
     return linear
 
 
+# A reduced angle within this of pi is taken as a half cycle, and goes to
+# -pi, so rounding cannot decide a tie (units.hpp, kHalfCycleTieTolerance).
+HALF_CYCLE_TIE_TOLERANCE = 1e-9
+
+
 def wrap_half_open(phase: float) -> float:
-    """The same angle in [-pi, pi): an exact half cycle is -pi."""
+    """The same angle in [-pi, pi): an exact half cycle, or one within
+    HALF_CYCLE_TIE_TOLERANCE of it, goes to -pi."""
     reduced = math.remainder(phase, 2.0 * math.pi)
-    return reduced - 2.0 * math.pi if reduced >= math.pi else reduced
+    if reduced >= math.pi - HALF_CYCLE_TIE_TOLERANCE:
+        return reduced - 2.0 * math.pi
+    return reduced
 
 
 def natural_phase(partial: Partial, t: np.ndarray) -> np.ndarray:

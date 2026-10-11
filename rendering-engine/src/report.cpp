@@ -283,6 +283,10 @@ void reportRendering(std::ostream& out, const RenderingReport& report, bool verb
         for (const auto& [setId, file] : frame.setFiles) {
             out << "    ok         set " << setId << ": wrote " << file.filename().string() << '\n';
         }
+        for (const auto& [partialId, count] : frame.cappedPhases) {
+            out << "    capped     partial " << partialId << ": phase held " << count
+                << " time(s); its frequency went beyond the kernel's limit\n";
+        }
     }
     out << "  rendered " << report.frames.size() - report.failureCount() << " of "
         << report.frames.size() << " frame(s)";
