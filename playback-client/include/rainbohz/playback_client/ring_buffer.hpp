@@ -12,6 +12,7 @@
 // consumer can see it and read before the producer can overwrite it.
 
 #include <atomic>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -24,8 +25,10 @@ class SampleRing {
 public:
     /// A ring that holds up to `capacity` samples.
     ///
-    /// @param capacity  The most samples it holds; positive.
-    explicit SampleRing(std::size_t capacity) : buffer_(capacity) {}
+    /// @param capacity  The most samples it holds; positive. A ring of 0
+    ///                  would accept nothing, and a producer waiting for
+    ///                  room would wait for ever.
+    explicit SampleRing(std::size_t capacity) : buffer_(capacity) { assert(capacity > 0); }
 
     /// The most samples the ring holds.
     ///
@@ -70,11 +73,26 @@ public:
 
     /// How many samples the ring holds.
     ///
-    /// @return The count. Exact from either side's own point of view; from a
-    ///         third thread, a snapshot.
+    /// @return The count. Exact from either side's own point of view. From a
+    ///         third thread, the count the ring really held at one instant
+    ///         during the call, so never more than capacity(); it may be
+    ///         stale by the time it is used.
     std::size_t size() const noexcept {
-        return static_cast<std::size_t>(
-            write_.load(std::memory_order_acquire) - read_.load(std::memory_order_acquire));
+        // write_ is loaded between two loads of read_, and kept only if
+        // read_ did not move, so the pair is the ring's state at one instant.
+        // Loaded after a read_ it can never be behind, write_ cannot make the
+        // difference wrap; and the producer only fills up to a read_ that the
+        // second load is at least, so it cannot exceed the capacity. Either
+        // single pair of loads can fail one or the other when both sides
+        // move in between. read_ moves at most once per audio callback, so a
+        // retry is rare.
+        while (true) {
+            const std::uint64_t read = read_.load(std::memory_order_acquire);
+            const std::uint64_t write = write_.load(std::memory_order_acquire);
+            if (read_.load(std::memory_order_acquire) == read) {
+                return static_cast<std::size_t>(write - read);
+            }
+        }
     }
 
 private:

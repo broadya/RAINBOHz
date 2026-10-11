@@ -7,7 +7,12 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
+#include <atomic>
+#include <chrono>
+#include <cstddef>
+#include <thread>
 #include <vector>
 
 namespace rainbohz::playback_client {
@@ -135,6 +140,38 @@ TEST(SampleRing, WrapsManyTimes) {
         ASSERT_EQ(out[1], expected + 1);
         expected += 2;
     }
+}
+
+// size() from a third thread, while both sides run flat out, is a count the
+// ring really held, so never more than its capacity. A single pair of loads
+// fails this either way round when both sides move between them: write_
+// before read_ wrapped to about 2^64, and read_ before write_ gave counts in
+// the thousands.
+TEST(SampleRing, SizeFromAThirdThreadNeverExceedsTheCapacity) {
+    constexpr std::size_t kCapacity = 8;
+    SampleRing ring{kCapacity};
+    std::atomic<bool> stop{false};
+    std::thread producer{[&] {
+        const std::array<float, kCapacity> chunk{};
+        while (!stop.load()) {
+            (void)ring.push(chunk);
+        }
+    }};
+    std::thread consumer{[&] {
+        std::array<float, kCapacity> out{};
+        while (!stop.load()) {
+            (void)ring.pop(out);
+        }
+    }};
+    std::size_t largest = 0;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{300};
+    while (std::chrono::steady_clock::now() < deadline) {
+        largest = std::max(largest, ring.size());
+    }
+    stop.store(true);
+    producer.join();
+    consumer.join();
+    EXPECT_LE(largest, kCapacity);
 }
 
 // --- Command line ------------------------------------------------------------
