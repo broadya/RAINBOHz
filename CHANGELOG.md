@@ -73,11 +73,11 @@ The target architecture, built from 2026-09-27 onwards.
   right, on the device's first two channels, mixed down on a one-channel
   device, and in a two-channel `--output-wav`. The score sets the mode;
   `--channel-mode` makes the client fail unless the score has the one named.
-- `rendering-engine` writes precomputation's output in batches: each table's
-  rows go to `engine-db` as one statement, 64 partials per transaction, through
-  a new `WriteBatch` layer (ADR 0022). Loading the 800-partial playground
-  piece `convergence` went from 62 s to 24 s on `macos-max`, with
-  byte-identical audio.
+- `rendering-engine` writes precomputation's and the transform's output in
+  batches: each table's rows go to `engine-db` as one statement, 64 partials
+  (or sources) per transaction, through a new `WriteBatch` layer (ADR 0022).
+  Loading the 800-partial playground piece `convergence` went from 62 s to
+  22 s on `macos-max`, with byte-identical audio.
 
 ## Before this changelog
 

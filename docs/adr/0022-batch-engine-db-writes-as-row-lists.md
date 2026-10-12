@@ -9,9 +9,11 @@ date: 2026-10-12
 
 Loading the playground's `convergence` score (800 partials, 20 frames) took
 about 53 s in server mode and 62 s end to end in batch mode, on the fully
-optimised `macos-max` build. Almost all of that was precomputation writing
-its output (`rendering-engine/docs/precomputation.md` §10): about 30,000
-statements, of which 16,000 created one `FrameEntry` each.
+optimised `macos-max` build. Most of that was precomputation writing its
+output (`rendering-engine/docs/precomputation.md` §10): about 30,000
+statements, of which 16,000 created one `FrameEntry` each. The transform
+(`rendering-engine/docs/transform.md` §7) wrote its timelines the same way,
+one point per statement.
 
 Each partial was already written in one transaction, so the cost was not the
 commits. It was executing the statements. A prepared statement keeps its
@@ -92,8 +94,8 @@ time. Option 2 is therefore refused for relationships.
 * Rows are grouped in **units**. If the batched transaction fails, it is
   rolled back and every unit is retried in a transaction of its own. Each
   unit is then written whole or not at all, and one bad unit costs only
-  itself. Precomputation uses one unit per partial and flushes every 64
-  partials.
+  itself. Precomputation uses one unit per partial, and the transform one
+  per partial and one per source; both flush every 64 units.
 
 **Why two phases of writes are always enough.** Node properties never hold
 another node's id. Every reference between rows is a relationship, which in
@@ -105,11 +107,14 @@ layer depends on it: **no node property may hold another node's id.**
 ### Consequences
 
 * Good, because loading and rendering `convergence` in batch mode fell from
-  62.3 s to 24.2 s on `macos-max`, and precomputation within it from about
-  40 s to 2.4 s. Every example score's audio is byte-identical, and so is
-  every table's row count. What remains is loading the score's Cypher
-  (about 5.5 s), the transform, which still writes one row per statement
-  (about 3.7 s), and synthesis (about 5.9 s for 20 frames).
+  62.3 s to 21.6 s on `macos-max`. Within it, precomputation fell from about
+  40 s to 2.4 s, and the transform from about 3.7 s to 0.4 s. Every example
+  score's audio is byte-identical, and so is every table's row count. What
+  remains, sampled on the whole run, is loading the score's Cypher (about
+  7.1 s, of which 6 s is Ladybug binding the compiler's single `CREATE`
+  statement; see More Information), precomputation's flushes (2.4 s, mostly
+  128,000 `FrameEntry` relationships at about 15 µs each), and synthesis
+  (about 8.8 s for 20 frames).
 * Good, because the statement count per flush depends on the number of
   tables and pairs (28 operations for precomputation), not on the number of
   rows.
@@ -138,9 +143,11 @@ Impact on components:
 
 * `rendering-engine` — `EngineDb` binds a `DbRecordList` parameter as
   `LIST(STRUCT)`. The new `WriteBatch` stages and flushes rows.
-  Precomputation stages each partial as one unit. The transform's writes and
-  rendering's per-frame statements are not yet changed, and are the next
-  candidates.
+  Precomputation stages each partial as one unit; the transform stages each
+  partial and each source as one unit, its write statements built from one
+  table of timeline kinds. Rendering only reads, so nothing else in the
+  engine writes row by row. The score's own load is one statement, and is
+  not affected.
 * `engine-db` — no schema change. The rule above, no node property holding
   another node's id, now matters to the engine as well as to the model.
 
@@ -156,7 +163,10 @@ Impact on components:
 * The precomputation whole-run tests pass unchanged: the worked example,
   idempotent rebuild, replaced compensation segments, a failing partial
   among good ones, a failed rebuild keeping the earlier output, and lists
-  over 30 points. So do the rendering oracle and `make test-hzl-oracle`.
+  over 30 points. So do the transform's: idempotent reruns, replaced
+  frequency, amplitude, phase and spatial timelines, and set-, partial- and
+  source-level failures confined to their owner. So do the rendering oracle
+  and `make test-hzl-oracle`.
 * Nothing checks the schema rule automatically. A node property that held
   an id would still load, and would only break if a batch had to resolve it.
 
@@ -200,13 +210,22 @@ Impact on components:
 
 * Code: `rendering-engine/include/rainbohz/rendering_engine/write_batch.hpp`,
   `rendering-engine/src/write_batch.cpp`, `EngineDb::query` (`DbRecordList`),
-  and `stagePartial` in `rendering-engine/src/precomputation.cpp`.
-* Design: `rendering-engine/docs/precomputation.md` §6.1, §6.2, §9 and §10.
+  `stagePartial` in `rendering-engine/src/precomputation.cpp`, and
+  `stagePartial` and `stageSource` in `rendering-engine/src/transform/transform.cpp`.
+* Design: `rendering-engine/docs/precomputation.md` §6.1, §6.2, §9 and §10;
+  `rendering-engine/docs/transform.md` §7.
 * Ladybug sources consulted: `binder/bind/copy/bind_copy_from.cpp` (COPY
   binding; `SERIAL` skipped for nodes, read as `INT64` for relationship
   ends), `binder/bind/bind_file_scan.cpp` (query scan sources),
   `binder/bind/bind_ddl.cpp` (`SERIAL` as `nextval`), and
   `main/client_context.cpp` (`executeWithParams` reusing the cached plan).
+* The score load is the remaining database cost, and it is not a
+  batching problem. `hzlc` emits the whole score as one `CREATE` pattern of
+  about 9,000 lines. Ladybug's binder merges each element into the query
+  graph built so far (`QueryGraphCollection::addAndMergeQueryGraphIfConnected`,
+  `QueryGraph::merge`), so binding grows with the square of the pattern:
+  6 s of the 7.1 s load for `convergence`. The remedy is in the compiler's
+  output (per-table row lists or `COPY`), or a patch to the binder.
 * Revisit if Ladybug's planner learns to use index lookups for
   `UNWIND … MATCH` on keys. Option 2 would then serve relationships
   carrying properties, which `COPY` can also carry but which none of the

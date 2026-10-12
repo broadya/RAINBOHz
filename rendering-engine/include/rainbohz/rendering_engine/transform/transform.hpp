@@ -517,9 +517,11 @@ struct TransformReport {
 /// Reads the EngineConfig, every Score's TempoMap, every musical set's
 /// timeline, points, POINT_AT edges and states, and every spatial musical
 /// timeline with the same; then transforms the sets one at a time in
-/// PartialSet.id order, and within a set the partials in Partial.id order,
-/// each partial in its own transaction; then the sources in SoundSource.id
-/// order, each in its own transaction. Any FrequencyPhysicalTimeline,
+/// PartialSet.id order, and within a set the partials in Partial.id order;
+/// then the sources in SoundSource.id order. Each partial's and each source's
+/// output is staged as one unit of a WriteBatch, which writes 64 units per
+/// transaction, each table's rows as one statement (§7; @see ADR 0022). Any
+/// FrequencyPhysicalTimeline,
 /// AmplitudePhysicalTimeline or PhasePhysicalTimeline a transformed partial
 /// already has, and any AzimuthPhysicalTimeline, ElevationPhysicalTimeline or
 /// DistancePhysicalTimeline a transformed source already has, is deleted and
@@ -527,8 +529,10 @@ struct TransformReport {
 /// exactly as they are.
 ///
 /// A set, partial or source that fails is recorded in the report and the run
-/// carries on. A failed partial's or source's transaction is rolled back, so
-/// any timelines from an earlier run are left as they were.
+/// carries on. Nothing of a failed partial or source is written, so any
+/// timelines from an earlier run are left as they were. A failure while the
+/// batch writes is confined to the unit that caused it: the batch then
+/// writes each unit in a transaction of its own.
 ///
 /// @param[in,out] db  Database holding the score. Modified: every partial
 ///                    that succeeds has its three physical timelines
@@ -539,8 +543,8 @@ struct TransformReport {
 ///         TEMPO_MAP_SYNCHRONIZATION_POINT edge exists, which this version
 ///         does not support. Nothing has been written.
 /// @throws EngineDbError  If reading the inputs fails. Nothing has been
-///         written. A database failure while writing one partial is recorded
-///         against that partial instead.
+///         written. A database failure while writing one partial or source
+///         is recorded against it instead.
 TransformReport transformAll(EngineDb& db);
 
 } // namespace rainbohz::rendering_engine::transform

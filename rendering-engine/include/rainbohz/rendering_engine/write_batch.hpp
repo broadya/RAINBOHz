@@ -97,6 +97,16 @@ public:
     WriteOperation addStatement(WritePhase phase, std::string cypher,
         std::vector<std::pair<std::string, DbColumnType>> columns, bool distinct = false);
 
+    /// Registers a delete, by id, of nodes of one table.
+    ///
+    /// Rows have one Int64 column, `id`; each node is found by primary key,
+    /// and DETACH DELETE removes its relationships too. Runs in the delete
+    /// phase.
+    ///
+    /// @param table  Node table with a SERIAL `id` key.
+    /// @return The operation, for stageRow().
+    WriteOperation addDeleteById(std::string_view table);
+
     /// Registers an insert of nodes into one table.
     ///
     /// The batch runs `UNWIND $rows AS r <createClause> RETURN r.k, n.id`,

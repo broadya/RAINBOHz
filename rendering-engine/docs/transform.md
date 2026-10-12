@@ -572,14 +572,26 @@ precomputation rebuilds its entries in any case. Dirty flags will replace this
 points with the same values. Only the `SERIAL` ids differ, so nothing may hold
 such an id across a run. This keeps the invariant of design.md §2.
 
-**One transaction per partial.** A partial's three timelines are either all
+**One unit per partial.** A partial's three timelines are either all
 replaced or all as they were. A set-level failure writes nothing for any of
 its partials, since it is detected before any partial is attempted.
 
-**One transaction per source.** A source's three spatial timelines are
-likewise all replaced or all as they were. A source that fails keeps any
-physical timelines it had, including ones written by hand; the run fails
-in any case, so they are never rendered.
+**One unit per source.** A source's three spatial timelines are likewise all
+replaced or all as they were. A source that fails keeps any physical
+timelines it had, including ones written by hand; the run fails in any case,
+so they are never rendered.
+
+**Batched writes.** Output goes through a `WriteBatch` (@see ADR 0022), as
+precomputation's does (precomputation.md §10), not one statement per point.
+Each partial and each source is one unit of the batch, staged once its
+output has been computed and checked; the batch writes 64 units per
+transaction, each table's rows as one statement: deletes of the earlier
+run's points and timelines by id, then the new timelines and points by
+`UNWIND … CREATE`, then `HAS_PHYSICAL_TIMELINE` and the `NEXT_POINT` chains
+by `COPY`. If a batched transaction fails, each unit is written again in a
+transaction of its own, so the failure is confined to the partial or source
+that caused it and is reported against it with Ladybug's error text.
+Partials are flushed before any source is staged.
 
 ## 8. Validation
 
@@ -828,7 +840,9 @@ score is written, not here.
   a table of table and column names, as `integrity.cpp` does with
   `kListTypes`, would remove most of the repetition, at the cost of the
   fixed `constexpr` strings that are easy to grep and are prepared once.
-  Worth deciding together with the split above.
+  Worth deciding together with the split above. The writes already work
+  this way: since the batched writes (ADR 0022) they are built from
+  `kTimelineTables`; only the reads still repeat per kind.
 
 ## 14. Open questions
 

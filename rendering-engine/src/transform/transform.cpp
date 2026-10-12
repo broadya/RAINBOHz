@@ -5,15 +5,18 @@
 #include "rainbohz/rendering_engine/transform/musical_units.hpp"
 #include "rainbohz/rendering_engine/transform/squash.hpp"
 #include "rainbohz/rendering_engine/transform/tempo_map.hpp"
+#include "rainbohz/rendering_engine/write_batch.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <map>
 #include <optional>
+#include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -153,103 +156,6 @@ constexpr std::string_view kReadPhaseLinks =
     "MATCH (a:PhasePhysicalTimelinePoint)-[:NEXT_POINT]->(b:PhasePhysicalTimelinePoint) "
     "RETURN a.id, b.id;";
 
-// Deleting a point removes its edges, including any FRAME_ENTRY_PHYSICAL_TIMELINE
-// edge from an earlier precomputation; precomputation rebuilds its entries.
-/// Deletes a set of FrequencyPhysicalTimelinePoints by id.
-constexpr std::string_view kDeleteFrequencyPoints =
-    "UNWIND $ids AS id MATCH (f:FrequencyPhysicalTimelinePoint {id: id}) DETACH DELETE f;";
-
-/// Deletes a FrequencyPhysicalTimeline by id.
-constexpr std::string_view kDeleteFrequencyTimeline =
-    "MATCH (t:FrequencyPhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;";
-
-/// Deletes a set of AmplitudePhysicalTimelinePoints by id.
-constexpr std::string_view kDeleteAmplitudePoints =
-    "UNWIND $ids AS id MATCH (a:AmplitudePhysicalTimelinePoint {id: id}) DETACH DELETE a;";
-
-/// Deletes an AmplitudePhysicalTimeline by id.
-constexpr std::string_view kDeleteAmplitudeTimeline =
-    "MATCH (t:AmplitudePhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;";
-
-/// Deletes a set of PhasePhysicalTimelinePoints by id.
-constexpr std::string_view kDeletePhasePoints =
-    "UNWIND $ids AS id MATCH (f:PhasePhysicalTimelinePoint {id: id}) DETACH DELETE f;";
-
-/// Deletes a PhasePhysicalTimeline by id.
-constexpr std::string_view kDeletePhaseTimeline =
-    "MATCH (t:PhasePhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;";
-
-/// Creates a FrequencyPhysicalTimeline for $owner and returns its id.
-constexpr std::string_view kCreateFrequencyTimeline =
-    "MATCH (p:Partial) WHERE p.id = $owner "
-    "CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:FrequencyPhysicalTimeline) RETURN t.id;";
-
-/// Creates an AmplitudePhysicalTimeline for $owner and returns its id.
-constexpr std::string_view kCreateAmplitudeTimeline =
-    "MATCH (p:Partial) WHERE p.id = $owner "
-    "CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:AmplitudePhysicalTimeline) RETURN t.id;";
-
-/// Creates a PhasePhysicalTimeline for $owner and returns its id.
-constexpr std::string_view kCreatePhaseTimeline =
-    "MATCH (p:Partial) WHERE p.id = $owner "
-    "CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:PhasePhysicalTimeline) RETURN t.id;";
-
-/// One point, linked from the node before it: the timeline for the first
-/// point, the previous point after that. Two fixed variants per property, so
-/// that EngineDb prepares each once. The column types differ between the two
-/// point tables (frequency DOUBLE, amplitude FLOAT), and the curve columns
-/// are INT8 and FLOAT, so the bound values are cast explicitly.
-constexpr std::string_view kCreateFirstFrequencyPoint =
-    "MATCH (prev:FrequencyPhysicalTimeline) WHERE prev.id = $previous "
-    "CREATE (prev)-[:NEXT_POINT]->(f:FrequencyPhysicalTimelinePoint {time: $time, "
-    "frequency: $value, frequency_curve_type: CAST($curveType AS INT8), "
-    "frequency_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN f.id;";
-
-/// As kCreateFirstFrequencyPoint, but linked from the previous point.
-constexpr std::string_view kCreateNextFrequencyPoint =
-    "MATCH (prev:FrequencyPhysicalTimelinePoint) WHERE prev.id = $previous "
-    "CREATE (prev)-[:NEXT_POINT]->(f:FrequencyPhysicalTimelinePoint {time: $time, "
-    "frequency: $value, frequency_curve_type: CAST($curveType AS INT8), "
-    "frequency_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN f.id;";
-
-/// As kCreateFirstFrequencyPoint, but for an AmplitudePhysicalTimeline point.
-constexpr std::string_view kCreateFirstAmplitudePoint =
-    "MATCH (prev:AmplitudePhysicalTimeline) WHERE prev.id = $previous "
-    "CREATE (prev)-[:NEXT_POINT]->(a:AmplitudePhysicalTimelinePoint {time: $time, "
-    "amplitude: CAST($value AS FLOAT), amplitude_curve_type: CAST($curveType AS INT8), "
-    "amplitude_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN a.id;";
-
-/// As kCreateFirstAmplitudePoint, but linked from the previous point.
-constexpr std::string_view kCreateNextAmplitudePoint =
-    "MATCH (prev:AmplitudePhysicalTimelinePoint) WHERE prev.id = $previous "
-    "CREATE (prev)-[:NEXT_POINT]->(a:AmplitudePhysicalTimelinePoint {time: $time, "
-    "amplitude: CAST($value AS FLOAT), amplitude_curve_type: CAST($curveType AS INT8), "
-    "amplitude_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN a.id;";
-
-/// Phase points have no curve, and their phase may be NULL. A parameter cannot
-/// be NULL, so a NULL point has its own statements, which leave the property
-/// unset.
-constexpr std::string_view kCreateFirstPhasePoint =
-    "MATCH (prev:PhasePhysicalTimeline) WHERE prev.id = $previous "
-    "CREATE (prev)-[:NEXT_POINT]->(f:PhasePhysicalTimelinePoint {time: $time, phase: $phase}) "
-    "RETURN f.id;";
-
-/// As kCreateFirstPhasePoint, but linked from the previous point.
-constexpr std::string_view kCreateNextPhasePoint =
-    "MATCH (prev:PhasePhysicalTimelinePoint) WHERE prev.id = $previous "
-    "CREATE (prev)-[:NEXT_POINT]->(f:PhasePhysicalTimelinePoint {time: $time, phase: $phase}) "
-    "RETURN f.id;";
-
-/// As kCreateFirstPhasePoint, but for a NULL (free-running) phase point.
-constexpr std::string_view kCreateFirstFreePhasePoint =
-    "MATCH (prev:PhasePhysicalTimeline) WHERE prev.id = $previous "
-    "CREATE (prev)-[:NEXT_POINT]->(f:PhasePhysicalTimelinePoint {time: $time}) RETURN f.id;";
-
-/// As kCreateFirstFreePhasePoint, but linked from the previous point.
-constexpr std::string_view kCreateNextFreePhasePoint =
-    "MATCH (prev:PhasePhysicalTimelinePoint) WHERE prev.id = $previous "
-    "CREATE (prev)-[:NEXT_POINT]->(f:PhasePhysicalTimelinePoint {time: $time}) RETURN f.id;";
-
 /// Every SoundSource with a spatial musical timeline, with the head of the
 /// timeline's point list, or NULL when it has no points (§6.8).
 constexpr std::string_view kReadSpatialSources =
@@ -305,65 +211,177 @@ constexpr std::array<std::string_view, 3> kReadSpatialPhysicalLinks{
     "RETURN a.id, b.id;",
 };
 
-/// Deletes a set of physical spatial timeline points by id, one statement
-/// per kind, in kSpatialKinds order.
-constexpr std::array<std::string_view, 3> kDeleteSpatialPoints{
-    "UNWIND $ids AS id MATCH (p:AzimuthPhysicalTimelinePoint {id: id}) DETACH DELETE p;",
-    "UNWIND $ids AS id MATCH (p:ElevationPhysicalTimelinePoint {id: id}) DETACH DELETE p;",
-    "UNWIND $ids AS id MATCH (p:DistancePhysicalTimelinePoint {id: id}) DETACH DELETE p;",
+/// How many owners' output (partials, or sources) is written per flush, and
+/// so per transaction (§7). As in precomputation; @see ADR 0022.
+constexpr std::size_t kOwnersPerFlush = 64;
+
+/// The node tables of one kind of physical timeline, and what owns it.
+struct TimelineTables {
+    std::string_view owner;    ///< Node table of the owner: Partial or SoundSource.
+    std::string_view timeline; ///< The timeline's node table.
+    std::string_view point;    ///< Its points' node table.
+    std::string_view value;    ///< The point's value column, which names its curve columns.
+    bool floatValue = false;   ///< Whether the value column is FLOAT rather than DOUBLE.
 };
 
-/// Deletes a physical spatial timeline by id, one statement per kind, in
-/// kSpatialKinds order.
-constexpr std::array<std::string_view, 3> kDeleteSpatialTimeline{
-    "MATCH (t:AzimuthPhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;",
-    "MATCH (t:ElevationPhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;",
-    "MATCH (t:DistancePhysicalTimeline) WHERE t.id = $timeline DETACH DELETE t;",
+/// The six kinds of physical timeline the transform writes: frequency,
+/// amplitude and phase for a partial, then azimuth, elevation and distance
+/// for a source, in kSpatialKinds order.
+constexpr std::array<TimelineTables, 6> kTimelineTables{{
+    {.owner = "Partial",
+        .timeline = "FrequencyPhysicalTimeline",
+        .point = "FrequencyPhysicalTimelinePoint",
+        .value = "frequency",
+        .floatValue = false},
+    {.owner = "Partial",
+        .timeline = "AmplitudePhysicalTimeline",
+        .point = "AmplitudePhysicalTimelinePoint",
+        .value = "amplitude",
+        .floatValue = true},
+    {.owner = "Partial",
+        .timeline = "PhasePhysicalTimeline",
+        .point = "PhasePhysicalTimelinePoint",
+        .value = "phase",
+        .floatValue = false},
+    {.owner = "SoundSource",
+        .timeline = "AzimuthPhysicalTimeline",
+        .point = "AzimuthPhysicalTimelinePoint",
+        .value = "azimuth",
+        .floatValue = false},
+    {.owner = "SoundSource",
+        .timeline = "ElevationPhysicalTimeline",
+        .point = "ElevationPhysicalTimelinePoint",
+        .value = "elevation",
+        .floatValue = false},
+    {.owner = "SoundSource",
+        .timeline = "DistancePhysicalTimeline",
+        .point = "DistancePhysicalTimelinePoint",
+        .value = "distance",
+        .floatValue = true},
+}};
+
+/// Index into kTimelineTables of the frequency timeline.
+constexpr std::size_t kFrequencyTimeline = 0;
+/// Index of the amplitude timeline.
+constexpr std::size_t kAmplitudeTimeline = 1;
+/// Index of the phase timeline.
+constexpr std::size_t kPhaseTimeline = 2;
+/// Index of the first spatial timeline; the three follow in kSpatialKinds order.
+constexpr std::size_t kFirstSpatialTimeline = 3;
+
+/// The batch operations of one kind of physical timeline.
+struct TimelineWrites {
+    WriteOperation deletePoints;   ///< Points of an earlier run, by id.
+    WriteOperation deleteTimeline; ///< The timeline of an earlier run, by id.
+    WriteOperation timeline;       ///< A new timeline node.
+    WriteOperation point;          ///< A new point. For phase: one with a phase.
+    WriteOperation owns;           ///< Owner → timeline, HAS_PHYSICAL_TIMELINE.
+    WriteOperation first;          ///< Timeline → first point, NEXT_POINT.
+    WriteOperation next;           ///< Point → point, NEXT_POINT.
 };
 
-/// Creates a physical spatial timeline for $owner and returns its id, one
-/// statement per kind, in kSpatialKinds order.
-constexpr std::array<std::string_view, 3> kCreateSpatialTimeline{
-    "MATCH (ss:SoundSource) WHERE ss.id = $owner "
-    "CREATE (ss)-[:HAS_PHYSICAL_TIMELINE]->(t:AzimuthPhysicalTimeline) RETURN t.id;",
-    "MATCH (ss:SoundSource) WHERE ss.id = $owner "
-    "CREATE (ss)-[:HAS_PHYSICAL_TIMELINE]->(t:ElevationPhysicalTimeline) RETURN t.id;",
-    "MATCH (ss:SoundSource) WHERE ss.id = $owner "
-    "CREATE (ss)-[:HAS_PHYSICAL_TIMELINE]->(t:DistancePhysicalTimeline) RETURN t.id;",
+/// The batch operations the transform writes through, registered once per
+/// run.
+struct Writes {
+    /// Per kind of timeline, in kTimelineTables order.
+    std::array<TimelineWrites, 6> timelines;
+
+    /// A phase point whose phase is NULL: free-running up to here. A row
+    /// cannot hold a NULL, so it has its own insert, which leaves the
+    /// property unset.
+    WriteOperation freePhasePoint;
 };
 
-/// As for frequency and amplitude, two fixed variants per kind. Azimuth and
-/// elevation are DOUBLE columns, distance FLOAT.
-constexpr std::array<std::string_view, 3> kCreateFirstSpatialPoint{
-    "MATCH (prev:AzimuthPhysicalTimeline) WHERE prev.id = $previous "
-    "CREATE (prev)-[:NEXT_POINT]->(p:AzimuthPhysicalTimelinePoint {time: $time, "
-    "azimuth: $value, azimuth_curve_type: CAST($curveType AS INT8), "
-    "azimuth_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN p.id;",
-    "MATCH (prev:ElevationPhysicalTimeline) WHERE prev.id = $previous "
-    "CREATE (prev)-[:NEXT_POINT]->(p:ElevationPhysicalTimelinePoint {time: $time, "
-    "elevation: $value, elevation_curve_type: CAST($curveType AS INT8), "
-    "elevation_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN p.id;",
-    "MATCH (prev:DistancePhysicalTimeline) WHERE prev.id = $previous "
-    "CREATE (prev)-[:NEXT_POINT]->(p:DistancePhysicalTimelinePoint {time: $time, "
-    "distance: CAST($value AS FLOAT), distance_curve_type: CAST($curveType AS INT8), "
-    "distance_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN p.id;",
-};
+/// Registers every operation the transform writes through.
+///
+/// The value columns differ between point tables (frequency, azimuth and
+/// elevation DOUBLE; amplitude and distance FLOAT), and the curve columns are
+/// INT8 and FLOAT, so the row values are cast to them explicitly. Phase
+/// points have no curve, and their phase may be NULL.
+///
+/// @param[in,out] batch  The batch to register them with.
+/// @return The operations.
+Writes registerWrites(WriteBatch& batch) {
+    using enum DbColumnType;
+    Writes writes{};
+    for (std::size_t k = 0; k < kTimelineTables.size(); ++k) {
+        const TimelineTables& tables = kTimelineTables.at(k);
+        TimelineWrites& kind = writes.timelines.at(k);
+        const std::string point{tables.point};
+        const std::string column{tables.value};
+        kind.deletePoints = batch.addDeleteById(tables.point);
+        kind.deleteTimeline = batch.addDeleteById(tables.timeline);
+        kind.timeline = batch.addNodeInsert("CREATE (n:" + std::string{tables.timeline} + ")", {});
+        if (k == kPhaseTimeline) {
+            kind.point =
+                batch.addNodeInsert("CREATE (n:" + point + " {time: r.time, phase: r.value})",
+                    {{"time", Double}, {"value", Double}});
+        } else {
+            std::string create = "CREATE (n:" + point + " {time: r.time, ";
+            create += column;
+            create += tables.floatValue ? ": CAST(r.value AS FLOAT), " : ": r.value, ";
+            create += column;
+            create += "_curve_type: CAST(r.curveType AS INT8), ";
+            create += column;
+            create += "_curve_amount: CAST(r.curveAmount AS FLOAT)})";
+            kind.point =
+                batch.addNodeInsert(create, {{"time", Double}, {"value", Double},
+                                                {"curveType", Int64}, {"curveAmount", Double}});
+        }
+        kind.owns = batch.addEdgeInsert("HAS_PHYSICAL_TIMELINE", tables.owner, tables.timeline);
+        kind.first = batch.addEdgeInsert("NEXT_POINT", tables.timeline, tables.point);
+        kind.next = batch.addEdgeInsert("NEXT_POINT", tables.point, tables.point);
+    }
+    writes.freePhasePoint = batch.addNodeInsert(
+        "CREATE (n:PhasePhysicalTimelinePoint {time: r.time})", {{"time", Double}});
+    return writes;
+}
 
-/// As kCreateFirstSpatialPoint, but linked from the previous point.
-constexpr std::array<std::string_view, 3> kCreateNextSpatialPoint{
-    "MATCH (prev:AzimuthPhysicalTimelinePoint) WHERE prev.id = $previous "
-    "CREATE (prev)-[:NEXT_POINT]->(p:AzimuthPhysicalTimelinePoint {time: $time, "
-    "azimuth: $value, azimuth_curve_type: CAST($curveType AS INT8), "
-    "azimuth_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN p.id;",
-    "MATCH (prev:ElevationPhysicalTimelinePoint) WHERE prev.id = $previous "
-    "CREATE (prev)-[:NEXT_POINT]->(p:ElevationPhysicalTimelinePoint {time: $time, "
-    "elevation: $value, elevation_curve_type: CAST($curveType AS INT8), "
-    "elevation_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN p.id;",
-    "MATCH (prev:DistancePhysicalTimelinePoint) WHERE prev.id = $previous "
-    "CREATE (prev)-[:NEXT_POINT]->(p:DistancePhysicalTimelinePoint {time: $time, "
-    "distance: CAST($value AS FLOAT), distance_curve_type: CAST($curveType AS INT8), "
-    "distance_curve_amount: CAST($curveAmount AS FLOAT)}) RETURN p.id;",
-};
+/// Stages the deletion of an owner's existing timelines of one kind.
+///
+/// @param[in,out] batch  Batch to stage into, in the owner's unit.
+/// @param kind           The kind's operations.
+/// @param stale          The timelines, each with its point ids.
+void stageDeletes(WriteBatch& batch, const TimelineWrites& kind,
+    const std::vector<std::pair<std::int64_t, std::vector<std::int64_t>>>& stale) {
+    for (const auto& [timelineId, pointIds] : stale) {
+        for (const std::int64_t pointId : pointIds) {
+            batch.stageRow(kind.deletePoints, {pointId});
+        }
+        batch.stageRow(kind.deleteTimeline, {timelineId});
+    }
+}
+
+/// Stages a new timeline for `ownerId`.
+///
+/// @param[in,out] batch  Batch to stage into, in the owner's unit.
+/// @param kind           The kind's operations.
+/// @param ownerId        The partial or source the timeline belongs to.
+/// @return The timeline's handle, from which the first point is linked.
+NodeHandle stageTimeline(WriteBatch& batch, const TimelineWrites& kind, std::int64_t ownerId) {
+    const NodeHandle timeline = batch.stageNode(kind.timeline, {});
+    batch.stageEdge(kind.owns, ownerId, timeline);
+    return timeline;
+}
+
+/// Stages a new timeline and its chain of points, linked in order.
+///
+/// @param[in,out] batch  Batch to stage into, in the owner's unit.
+/// @param kind           The kind's operations.
+/// @param ownerId        The partial or source the timeline belongs to.
+/// @param points         The points, in order, in physical units.
+void stageChain(WriteBatch& batch, const TimelineWrites& kind, std::int64_t ownerId,
+    std::span<const PhysicalPoint> points) {
+    NodeHandle previous = stageTimeline(batch, kind, ownerId);
+    bool first = true;
+    for (const PhysicalPoint& point : points) {
+        const NodeHandle node = batch.stageNode(
+            kind.point, {point.time.value(), point.value, point.curveType, point.curveAmount});
+        batch.stageEdge(first ? kind.first : kind.next, previous, node);
+        previous = node;
+        first = false;
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Limits from the schema (engine-schema.cypher, "Units for specification of
@@ -1041,120 +1059,34 @@ struct PartialOutput {
     std::vector<PhasePoint> phase;        ///< As frequency, phase.
 };
 
-/// Writes one chain of points, linked from a freshly created timeline.
+/// Stages the replacement of a partial's three physical timelines as one
+/// unit of `batch` (§7).
 ///
-/// @tparam Error  The exception of the owner's scope: PartialTransformError
-///                or SoundSourceTransformError.
-/// @param[in,out] db     Database to write, inside the caller's transaction.
-/// @param createTimeline  Statement creating the timeline for $owner and
-///                        returning its id.
-/// @param createFirst     Statement creating a point linked from the timeline.
-/// @param createNext      Statement creating a point linked from a point.
-/// @param ownerId         The partial or source the timeline belongs to.
-/// @param owner           What the owner is, for the error message.
-/// @param points          The points, in order.
-/// @throws EngineDbError  If a statement fails.
-/// @throws Error  If the owner is no longer in the database.
-template <typename Error>
-void writeChain(EngineDb& db, std::string_view createTimeline, std::string_view createFirst,
-    std::string_view createNext, std::int64_t ownerId, std::string_view owner,
-    std::span<const PhysicalPoint> points) {
-    const std::vector<DbRow> created = db.query(createTimeline, {{"owner", ownerId}});
-    if (created.size() != 1) {
-        throw Error{"the " + std::string{owner} + " disappeared while it was being transformed"};
-    }
-    std::int64_t previous = requireInt64(created.front().at(0));
+/// @param[in,out] batch  Batch to stage into. Gains one unit, written whole
+///                       or not at all when the batch flushes.
+/// @param writes         The batch's registered operations.
+/// @param output         What to write.
+void stagePartial(WriteBatch& batch, const Writes& writes, const PartialOutput& output) {
+    batch.beginUnit();
+    const TimelineWrites& phase = writes.timelines.at(kPhaseTimeline);
+    stageDeletes(batch, writes.timelines.at(kFrequencyTimeline), output.staleFrequency);
+    stageDeletes(batch, writes.timelines.at(kAmplitudeTimeline), output.staleAmplitude);
+    stageDeletes(batch, phase, output.stalePhase);
+
+    stageChain(batch, writes.timelines.at(kFrequencyTimeline), output.partialId, output.frequency);
+    stageChain(batch, writes.timelines.at(kAmplitudeTimeline), output.partialId, output.amplitude);
+
+    NodeHandle previous = stageTimeline(batch, phase, output.partialId);
     bool first = true;
-    for (const PhysicalPoint& point : points) {
-        const std::vector<DbRow> rows =
-            db.query(first ? createFirst : createNext, {
-                                                           {"previous", previous},
-                                                           {"time", point.time.value()},
-                                                           {"value", point.value},
-                                                           {"curveType", point.curveType},
-                                                           {"curveAmount", point.curveAmount},
-                                                       });
-        if (rows.size() != 1) {
-            throw EngineDbError{"creating a timeline point returned " +
-                                std::to_string(rows.size()) + " rows, not 1"};
-        }
-        previous = requireInt64(rows.front().at(0));
+    for (const PhasePoint& point : output.phase) {
+        const NodeHandle node =
+            point.phase.has_value()
+                ? batch.stageNode(phase.point, {point.time.value(), point.phase->value()})
+                : batch.stageNode(writes.freePhasePoint, {point.time.value()});
+        batch.stageEdge(first ? phase.first : phase.next, previous, node);
+        previous = node;
         first = false;
     }
-}
-
-/// Writes a partial's phase points, linked from a fresh PhasePhysicalTimeline.
-///
-/// @param[in,out] db  Database to write, inside the caller's transaction.
-/// @param partialId   The partial.
-/// @param points      The points, in order; NULL ones are written with
-///                    `phase` unset.
-/// @throws EngineDbError  If a statement fails.
-/// @throws PartialTransformError  If the partial is no longer in the
-///         database.
-void writePhaseChain(EngineDb& db, std::int64_t partialId, std::span<const PhasePoint> points) {
-    const std::vector<DbRow> created = db.query(kCreatePhaseTimeline, {{"owner", partialId}});
-    if (created.size() != 1) {
-        throw PartialTransformError{"the partial disappeared while it was being transformed"};
-    }
-    std::int64_t previous = requireInt64(created.front().at(0));
-    bool first = true;
-    for (const PhasePoint& point : points) {
-        DbParameters parameters{{"previous", previous}, {"time", point.time.value()}};
-        std::string_view statement;
-        if (point.phase.has_value()) {
-            parameters.emplace_back("phase", point.phase->value());
-            statement = first ? kCreateFirstPhasePoint : kCreateNextPhasePoint;
-        } else {
-            statement = first ? kCreateFirstFreePhasePoint : kCreateNextFreePhasePoint;
-        }
-        const std::vector<DbRow> rows = db.query(statement, parameters);
-        if (rows.size() != 1) {
-            throw EngineDbError{
-                "creating a phase point returned " + std::to_string(rows.size()) + " rows, not 1"};
-        }
-        previous = requireInt64(rows.front().at(0));
-        first = false;
-    }
-}
-
-/// Replaces a partial's three physical timelines in one transaction (§7).
-///
-/// @param[in,out] db  Database to write. Modified only if every statement
-///                    succeeds; otherwise the transaction is rolled back.
-/// @param output      What to write.
-/// @throws EngineDbError  If any statement fails. Nothing has been written.
-/// @throws PartialTransformError  If the partial is no longer in the
-///         database. Nothing has been written.
-void writePartial(EngineDb& db, const PartialOutput& output) {
-    Transaction transaction{db};
-
-    for (const auto& [timelineId, pointIds] : output.staleFrequency) {
-        if (!pointIds.empty()) {
-            db.query(kDeleteFrequencyPoints, {{"ids", pointIds}});
-        }
-        db.query(kDeleteFrequencyTimeline, {{"timeline", timelineId}});
-    }
-    for (const auto& [timelineId, pointIds] : output.staleAmplitude) {
-        if (!pointIds.empty()) {
-            db.query(kDeleteAmplitudePoints, {{"ids", pointIds}});
-        }
-        db.query(kDeleteAmplitudeTimeline, {{"timeline", timelineId}});
-    }
-    for (const auto& [timelineId, pointIds] : output.stalePhase) {
-        if (!pointIds.empty()) {
-            db.query(kDeletePhasePoints, {{"ids", pointIds}});
-        }
-        db.query(kDeletePhaseTimeline, {{"timeline", timelineId}});
-    }
-
-    writeChain<PartialTransformError>(db, kCreateFrequencyTimeline, kCreateFirstFrequencyPoint,
-        kCreateNextFrequencyPoint, output.partialId, "partial", output.frequency);
-    writeChain<PartialTransformError>(db, kCreateAmplitudeTimeline, kCreateFirstAmplitudePoint,
-        kCreateNextAmplitudePoint, output.partialId, "partial", output.amplitude);
-    writePhaseChain(db, output.partialId, output.phase);
-
-    transaction.commit();
 }
 
 /// Checks the envelope nodes' values, naming the offending point.
@@ -1183,20 +1115,22 @@ void requireValues(
     }
 }
 
-/// Transforms and writes one partial (§6.2 to §6.6, §7).
+/// Transforms one partial and stages its output (§6.2 to §6.6, §7).
 ///
-/// @param[in,out] db    Database to write.
+/// @param[in,out] batch  Batch the partial's output is staged into, as one
+///                      unit; it is written when the batch flushes.
+/// @param writes        The batch's registered operations.
 /// @param inputs        Everything read for the run.
 /// @param envelopes     The set's point times and envelope nodes.
 /// @param partialId     The partial.
 /// @param rate          Sample rate, for the frequency conversion.
-/// @param[out] outcome  On success, its point counts are set.
-/// @throws PartialTransformError  If the partial's envelope nodes are invalid, its
-///         lifeline collapses, or it disappears while being written. Nothing
-///         has been written.
-/// @throws EngineDbError  If writing fails. Nothing has been written.
-void transformPartial(EngineDb& db, const Inputs& inputs, const SetEnvelopes& envelopes,
-    std::int64_t partialId, SampleRate rate, PartialTransformOutcome& outcome) {
+/// @param[out] outcome  On success, its point counts are set. They stand
+///                      unless the batch then fails to write the unit.
+/// @throws PartialTransformError  If the partial's envelope nodes are invalid,
+///         or its lifeline collapses. Nothing has been staged.
+void transformPartial(WriteBatch& batch, const Writes& writes, const Inputs& inputs,
+    const SetEnvelopes& envelopes, std::int64_t partialId, SampleRate rate,
+    PartialTransformOutcome& outcome) {
     static const std::pair<std::vector<EnvelopeNode>, std::vector<EnvelopeNode>> kNoNodes;
     static const std::vector<StatePhase> kNoStates;
     const auto found = envelopes.nodes.find(partialId);
@@ -1248,7 +1182,7 @@ void transformPartial(EngineDb& db, const Inputs& inputs, const SetEnvelopes& en
     output.stalePhase =
         stale(inputs.existingPhase, inputs.phaseNext, "its existing PhasePhysicalTimeline");
 
-    writePartial(db, output);
+    stagePartial(batch, writes, output);
 
     outcome.frequencyPoints = output.frequency.size();
     outcome.amplitudePoints = output.amplitude.size();
@@ -1257,16 +1191,20 @@ void transformPartial(EngineDb& db, const Inputs& inputs, const SetEnvelopes& en
 
 /// Transforms one set: validates it, then its partials one by one.
 ///
-/// @param[in,out] db      Database to write.
+/// @param[in,out] batch   Batch each partial's output is staged into.
+/// @param writes          The batch's registered operations.
 /// @param inputs          Everything read for the run.
 /// @param set             The set.
 /// @param maps            Every Score's TempoMap, by Score.id.
 /// @param rate            Sample rate.
 /// @param[out] outcome    Receives the set's error, or its partials'
 ///                        outcomes.
-void transformSet(EngineDb& db, const Inputs& inputs, const MusicalSetRecord& set,
-    const std::map<std::int64_t, ScoreTempoMap>& maps, SampleRate rate,
-    PartialSetTransformOutcome& outcome) {
+/// @param staged          Called with the index in `outcome.partials` of each
+///                        partial staged, after its outcome is recorded; it
+///                        may flush the batch.
+void transformSet(WriteBatch& batch, const Writes& writes, const Inputs& inputs,
+    const MusicalSetRecord& set, const std::map<std::int64_t, ScoreTempoMap>& maps, SampleRate rate,
+    PartialSetTransformOutcome& outcome, const std::function<void(std::size_t)>& staged) {
     SetEnvelopes envelopes;
     try {
         const auto score = inputs.scoreOfSet.find(set.setId);
@@ -1296,14 +1234,17 @@ void transformSet(EngineDb& db, const Inputs& inputs, const MusicalSetRecord& se
             .frequencyPoints = 0,
             .amplitudePoints = 0,
             .phasePoints = 0};
+        bool isStaged = false;
         try {
-            transformPartial(db, inputs, envelopes, partialId, rate, partial);
+            transformPartial(batch, writes, inputs, envelopes, partialId, rate, partial);
+            isStaged = true;
         } catch (const PartialTransformError& e) {
             partial.error = e.what();
-        } catch (const EngineDbError& e) {
-            partial.error = std::string{"engine-db: "} + e.what();
         }
         outcome.partials.push_back(std::move(partial));
+        if (isStaged) {
+            staged(outcome.partials.size() - 1);
+        }
     }
 }
 
@@ -1395,49 +1336,44 @@ SourceEnvelopes gatherSource(const Inputs& inputs, const SpatialSourceRecord& so
     return result;
 }
 
-/// Replaces a source's three spatial physical timelines in one transaction
-/// (§7).
+/// Stages the replacement of a source's three spatial physical timelines as
+/// one unit of `batch` (§7).
 ///
-/// @param[in,out] db  Database to write. Modified only if every statement
-///                    succeeds; otherwise the transaction is rolled back.
-/// @param sourceId    The source.
-/// @param stale       Per kind, the existing timelines to delete, each with
-///                    its point ids.
-/// @param points      Per kind, the points to write, in physical units.
-/// @throws EngineDbError  If any statement fails. Nothing has been written.
-/// @throws SoundSourceTransformError  If the source is no longer in the
-///         database. Nothing has been written.
-void writeSource(EngineDb& db, std::int64_t sourceId,
+/// @param[in,out] batch  Batch to stage into. Gains one unit, written whole
+///                       or not at all when the batch flushes.
+/// @param writes         The batch's registered operations.
+/// @param sourceId       The source.
+/// @param stale          Per kind, the existing timelines to delete, each with
+///                       its point ids.
+/// @param points         Per kind, the points to write, in physical units.
+void stageSource(WriteBatch& batch, const Writes& writes, std::int64_t sourceId,
     const std::array<std::vector<std::pair<std::int64_t, std::vector<std::int64_t>>>, 3>& stale,
     const SpatialTriple<PhysicalPoint>& points) {
-    Transaction transaction{db};
+    batch.beginUnit();
     for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
-        for (const auto& [timelineId, pointIds] : stale.at(k)) {
-            if (!pointIds.empty()) {
-                db.query(kDeleteSpatialPoints.at(k), {{"ids", pointIds}});
-            }
-            db.query(kDeleteSpatialTimeline.at(k), {{"timeline", timelineId}});
-        }
+        stageDeletes(batch, writes.timelines.at(kFirstSpatialTimeline + k), stale.at(k));
     }
     for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
-        writeChain<SoundSourceTransformError>(db, kCreateSpatialTimeline.at(k),
-            kCreateFirstSpatialPoint.at(k), kCreateNextSpatialPoint.at(k), sourceId, "source",
-            points.at(k));
+        stageChain(batch, writes.timelines.at(kFirstSpatialTimeline + k), sourceId, points.at(k));
     }
-    transaction.commit();
 }
 
-/// Transforms and writes one source's spatial position (§6.8, §7).
+/// Transforms one source's spatial position and stages it (§6.8, §7).
 ///
-/// @param[in,out] db      Database to write.
+/// @param[in,out] batch   Batch the source's output is staged into, as one
+///                        unit; it is written when the batch flushes.
+/// @param writes          The batch's registered operations.
 /// @param inputs          Everything read for the run.
 /// @param source          The source.
 /// @param maps            Every Score's TempoMap, by Score.id.
 /// @param rate            Sample rate.
-/// @param[out] outcome    Receives the source's error, or its point counts.
-void transformSource(EngineDb& db, const Inputs& inputs, const SpatialSourceRecord& source,
-    const std::map<std::int64_t, ScoreTempoMap>& maps, SampleRate rate,
-    SoundSourceTransformOutcome& outcome) {
+/// @param[out] outcome    Receives the source's error, or its point counts,
+///                        which stand unless the batch then fails to write
+///                        the unit.
+/// @return True when the source's output was staged.
+bool transformSource(WriteBatch& batch, const Writes& writes, const Inputs& inputs,
+    const SpatialSourceRecord& source, const std::map<std::int64_t, ScoreTempoMap>& maps,
+    SampleRate rate, SoundSourceTransformOutcome& outcome) {
     try {
         const auto score = inputs.scoreOfSource.find(source.sourceId);
         if (score == inputs.scoreOfSource.end()) {
@@ -1467,14 +1403,14 @@ void transformSource(EngineDb& db, const Inputs& inputs, const SpatialSourceReco
                 }
             }
         }
-        writeSource(db, source.sourceId, stale, points);
+        stageSource(batch, writes, source.sourceId, stale, points);
         for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
             outcome.points.at(k) = points.at(k).size();
         }
+        return true;
     } catch (const SoundSourceTransformError& e) {
         outcome.error = e.what();
-    } catch (const EngineDbError& e) {
-        outcome.error = std::string{"engine-db: "} + e.what();
+        return false;
     }
 }
 
@@ -1763,23 +1699,68 @@ TransformReport transformAll(EngineDb& db) {
 
     const Inputs inputs = readInputs(db);
     const std::map<std::int64_t, ScoreTempoMap> maps = buildTempoMaps(inputs, report);
+    WriteBatch batch{db};
+    const Writes writes = registerWrites(batch);
+
+    // Each staged partial's place in the report, as (set, partial) indexes,
+    // and each staged source's index, in the order of their units. A unit the
+    // batch fails to write takes back the counts staging recorded.
+    std::vector<std::pair<std::size_t, std::size_t>> stagedPartials;
+    std::vector<std::size_t> stagedSources;
+    const auto flush = [&] {
+        const std::vector<std::optional<std::string>> results = batch.flush();
+        for (std::size_t unit = 0; unit < results.size(); ++unit) {
+            if (!results[unit].has_value()) {
+                continue;
+            }
+            const std::string error = "engine-db: " + *results[unit];
+            if (unit < stagedPartials.size()) {
+                const auto [set, index] = stagedPartials[unit];
+                PartialTransformOutcome& partial = report.sets.at(set).partials.at(index);
+                partial.error = error;
+                partial.frequencyPoints = 0;
+                partial.amplitudePoints = 0;
+                partial.phasePoints = 0;
+            } else {
+                SoundSourceTransformOutcome& source =
+                    report.sources.at(stagedSources.at(unit - stagedPartials.size()));
+                source.error = error;
+                source.points = {};
+            }
+        }
+        stagedPartials.clear();
+        stagedSources.clear();
+    };
 
     // Sets are independent; id order only makes the report deterministic.
     for (const MusicalSetRecord& set : inputs.sets) {
-        PartialSetTransformOutcome outcome{
-            .setId = set.setId, .setName = set.name, .error = std::nullopt, .partials = {}};
-        transformSet(db, inputs, set, maps, report.sampleRate, outcome);
-        report.sets.push_back(std::move(outcome));
+        report.sets.push_back(PartialSetTransformOutcome{
+            .setId = set.setId, .setName = set.name, .error = std::nullopt, .partials = {}});
+        const std::size_t setIndex = report.sets.size() - 1;
+        transformSet(batch, writes, inputs, set, maps, report.sampleRate, report.sets.back(),
+            [&](std::size_t partialIndex) {
+                stagedPartials.emplace_back(setIndex, partialIndex);
+                if (stagedPartials.size() == kOwnersPerFlush) {
+                    flush();
+                }
+            });
     }
+    flush();
     // Sources are independent of sets and of each other (§6.8).
     for (const SpatialSourceRecord& source : inputs.sources) {
-        SoundSourceTransformOutcome outcome{.sourceId = source.sourceId,
+        report.sources.push_back(SoundSourceTransformOutcome{.sourceId = source.sourceId,
             .sourceName = source.name,
             .error = std::nullopt,
-            .points = {}};
-        transformSource(db, inputs, source, maps, report.sampleRate, outcome);
-        report.sources.push_back(std::move(outcome));
+            .points = {}});
+        if (transformSource(
+                batch, writes, inputs, source, maps, report.sampleRate, report.sources.back())) {
+            stagedSources.push_back(report.sources.size() - 1);
+            if (stagedSources.size() == kOwnersPerFlush) {
+                flush();
+            }
+        }
     }
+    flush();
     return report;
 }
 

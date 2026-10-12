@@ -196,15 +196,6 @@ constexpr std::string_view kReadExistingNominals =
 constexpr std::string_view kReadExistingFrameScope =
     "MATCH (p:Partial)-[:PARTIAL_IN_FRAME]->(:Frame) RETURN DISTINCT p.id;";
 
-/// A statement that deletes the nodes of `table` whose ids are staged.
-///
-/// @param table  Node table with a SERIAL `id` key.
-/// @return The statement, over rows with one Int64 column `id`. Each row is
-///         found by primary key, and DETACH DELETE removes its edges too.
-std::string deleteById(std::string_view table) {
-    return "UNWIND $rows AS r MATCH (n:" + std::string{table} + " {id: r.id}) DETACH DELETE n;";
-}
-
 /// The batch operations precomputation writes through, one per table or
 /// relationship pair (§10). Registered once per run.
 struct Writes {
@@ -258,9 +249,7 @@ Writes registerWrites(WriteBatch& batch) {
     constexpr std::string_view kSegment = "PartialIntegrableSegment";
     constexpr std::string_view kCompensation = "PartialPhaseCompensationSegment";
     constexpr std::string_view kEntryList = "FRAME_ENTRY_PHYSICAL_TIMELINE";
-    const auto byId = [&](std::string_view table) {
-        return batch.addStatement(WritePhase::Delete, deleteById(table), {{"id", Int64}});
-    };
+    const auto byId = [&](std::string_view table) { return batch.addDeleteById(table); };
     const auto edge = [&](std::string_view rel, std::string_view from, std::string_view to) {
         return batch.addEdgeInsert(rel, from, to);
     };

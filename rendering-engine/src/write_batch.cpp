@@ -48,6 +48,12 @@ WriteOperation WriteBatch::addStatement(WritePhase phase, std::string cypher,
     return WriteOperation{operations_.size() - 1};
 }
 
+WriteOperation WriteBatch::addDeleteById(std::string_view table) {
+    return addStatement(WritePhase::Delete,
+        "UNWIND $rows AS r MATCH (n:" + std::string{table} + " {id: r.id}) DETACH DELETE n;",
+        {{"id", DbColumnType::Int64}});
+}
+
 WriteOperation WriteBatch::addNodeInsert(
     std::string_view createClause, std::vector<std::pair<std::string, DbColumnType>> columns) {
     Operation operation;
