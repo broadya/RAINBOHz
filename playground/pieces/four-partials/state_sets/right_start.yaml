@@ -1,0 +1,10 @@
+# Two random start frequencies (seed 20261013, uniform 20 Hz to 20 kHz).
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: right_start
+  namespace: state_sets
+  layer: "0: base"
+  partial_states:
+    - partial_state: {identifier: right_a, frequency: 13645.992, amplitude: -12.0}
+    - partial_state: {identifier: right_b, frequency: 2209.425, amplitude: -12.0}

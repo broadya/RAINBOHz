@@ -1,0 +1,17 @@
+sound_entity:
+  hzl_version: "0.1.0"
+  hzl_type: sound_entity
+  name: field
+  namespace: entities
+  layer: "0: base"
+  sound_sources:
+    - sound_source: {namespace: sources, name: s0}
+    - sound_source: {namespace: sources, name: s1}
+    - sound_source: {namespace: sources, name: s2}
+    - sound_source: {namespace: sources, name: s3}
+    - sound_source: {namespace: sources, name: s4}
+    - sound_source: {namespace: sources, name: s5}
+    - sound_source: {namespace: sources, name: s6}
+    - sound_source: {namespace: sources, name: s7}
+    - sound_source: {namespace: sources, name: s8}
+    - sound_source: {namespace: sources, name: s9}

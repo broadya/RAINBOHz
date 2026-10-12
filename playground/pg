@@ -1,0 +1,8 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+
+# Runs the playground's commands with the repository's .venv Python.
+here=$(cd "$(dirname "$0")" && pwd)
+py="$here/../.venv/bin/python"
+[ -x "$py" ] || { echo "pg: $py missing; run 'make venv' in the repository root" >&2; exit 1; }
+exec "$py" "$here/scripts/pg.py" "$@"

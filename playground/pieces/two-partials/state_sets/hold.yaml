@@ -1,0 +1,10 @@
+# As arrive, without the phase target: both run free from there.
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: hold
+  namespace: state_sets
+  layer: "0: base"
+  partial_states:
+    - partial_state: {identifier: a, frequency: 100.0, amplitude: -12.0}
+    - partial_state: {identifier: b, frequency: 100.0, amplitude: -12.0}

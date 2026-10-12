@@ -304,6 +304,18 @@ for design context, and are not to be modified. Current PoCs:
   `spatial_gains`; rendering-engine/docs/rendering.md §8.5), where the golden
   CSV is copied as `test/oracle/spatial_gains.csv`; the PoC stays the oracle.
 
+`playground/` is the author's area for musical experiments: `pg` (start,
+reload, stop, status, new) glues `hzlc`, `rendering-engine`'s server mode and
+`playback-client` into a loop that plays an HzL piece and picks up edits on
+`pg reload`, and `pieces/` holds the pieces. **It carries no stability
+guarantee of any kind.** It is not a component, not part of any build, test
+or lint target, and nothing else may depend on it. Its scripts, layout and
+pieces may change or disappear at any time, and the pieces are experiments,
+not examples or test data: do not cite them as the language's reference or
+use them as an oracle. The repository's file conventions (SPDX lines,
+documentation comments, no trailing whitespace) still apply to its tracked
+files. `playground/.run/` is runtime state and is gitignored.
+
 ## Graph Schema (Canonical Object Model)
 
 The graph schema defines the canonical object model for macro-scale additive synthesis. Schema DDL is defined in `.cypher` files which serve as the source of truth.

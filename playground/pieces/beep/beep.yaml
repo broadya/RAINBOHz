@@ -1,0 +1,6 @@
+# The playground's settings for this piece (read by pg, not by hzlc).
+# score: the HzL score file, relative to this directory.
+# loop_start / loop_end: the looped range, [start, end), as beats:ticks.
+score: scores/beep.yaml
+loop_start: "0:0"
+loop_end: "4:0"

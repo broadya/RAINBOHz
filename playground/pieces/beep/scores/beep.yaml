@@ -1,0 +1,14 @@
+# A short sawtooth beep on every beat of one 4/4 bar at 120 BPM.
+# HzL has no bars or time signatures: "4/4" is the 4-beat loop that
+# piece.yaml asks pg to play.
+score:
+  hzl_version: "0.1.0"
+  hzl_type: score
+  name: beep
+  namespace: scores
+  layer: "0: base"
+  labels: []
+  tempo_map: {namespace: tempo_maps, name: main}
+  sound_entities:
+    - sound_entity: {namespace: entities, name: beep}
+      position: "0:0"

@@ -1,0 +1,8 @@
+# Where convergence's fundamental source on the left stands: 6.6667 degrees, 1 m.
+trajectory:
+  hzl_version: "0.1.0"
+  hzl_type: trajectory
+  name: left
+  namespace: trajectories
+  layer: "0: base"
+  initial_position: {azimuth: 6.6667, elevation: 0.0, distance: 1.0}

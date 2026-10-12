@@ -1,0 +1,88 @@
+# Generated. Source s2's start: each harmonic's pair at +-10%, all at -40.0 dB.
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: s2_start
+  namespace: state_sets
+  layer: "0: base"
+  partial_states:
+    - partial_state: {identifier: s2p00, frequency: 8820.900000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p01, frequency: 7217.100000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p02, frequency: 8929.800000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p03, frequency: 7306.200000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p04, frequency: 9038.700000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p05, frequency: 7395.300000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p06, frequency: 9147.600000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p07, frequency: 7484.400000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p08, frequency: 9256.500000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p09, frequency: 7573.500000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p10, frequency: 9365.400000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p11, frequency: 7662.600000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p12, frequency: 9474.300000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p13, frequency: 7751.700000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p14, frequency: 9583.200000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p15, frequency: 7840.800000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p16, frequency: 9692.100000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p17, frequency: 7929.900000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p18, frequency: 9801.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p19, frequency: 8019.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p20, frequency: 9909.900000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p21, frequency: 8108.100000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p22, frequency: 10018.800000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p23, frequency: 8197.200000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p24, frequency: 10127.700000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p25, frequency: 8286.300000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p26, frequency: 10236.600000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p27, frequency: 8375.400000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p28, frequency: 10345.500000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p29, frequency: 8464.500000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p30, frequency: 10454.400000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p31, frequency: 8553.600000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p32, frequency: 10563.300000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p33, frequency: 8642.700000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p34, frequency: 10672.200000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p35, frequency: 8731.800000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p36, frequency: 10781.100000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p37, frequency: 8820.900000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p38, frequency: 10890.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p39, frequency: 8910.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p40, frequency: 10998.900000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p41, frequency: 8999.100000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p42, frequency: 11107.800000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p43, frequency: 9088.200000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p44, frequency: 11216.700000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p45, frequency: 9177.300000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p46, frequency: 11325.600000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p47, frequency: 9266.400000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p48, frequency: 11434.500000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p49, frequency: 9355.500000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p50, frequency: 11543.400000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p51, frequency: 9444.600000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p52, frequency: 11652.300000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p53, frequency: 9533.700000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p54, frequency: 11761.200000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p55, frequency: 9622.800000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p56, frequency: 11870.100000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p57, frequency: 9711.900000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p58, frequency: 11979.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p59, frequency: 9801.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p60, frequency: 12087.900000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p61, frequency: 9890.100000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p62, frequency: 12196.800000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p63, frequency: 9979.200000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p64, frequency: 12305.700000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p65, frequency: 10068.300000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p66, frequency: 12414.600000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p67, frequency: 10157.400000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p68, frequency: 12523.500000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p69, frequency: 10246.500000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p70, frequency: 12632.400000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p71, frequency: 10335.600000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p72, frequency: 12741.300000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p73, frequency: 10424.700000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p74, frequency: 12850.200000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p75, frequency: 10513.800000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p76, frequency: 12959.100000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p77, frequency: 10602.900000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p78, frequency: 13068.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s2p79, frequency: 10692.000000, amplitude: -40.0000}

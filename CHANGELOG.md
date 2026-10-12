@@ -26,6 +26,10 @@ The target architecture, built from 2026-09-27 onwards.
   OpenAPI 3.1.1 document, with tempo-map queries and a Postman collection.
 - `playback-client` (C++): loops a range of a score through the default
   audio device, using the server's REST API.
+- `playground/`: a place for musical experiments. `pg` compiles an HzL
+  piece, loops it through `rendering-engine` and `playback-client`, and
+  swaps in edits on `pg reload`. Example piece `beep`. No stability
+  guarantee.
 - Phase control: precomputed and rendered phase, `phase_free_run` with three
   meanings, and `phase: free` and `phase: null` (the default) in HzL.
 - Spatial position per sound source, rendered to all eight channel modes and

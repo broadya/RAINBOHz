@@ -1,0 +1,9 @@
+sound_source:
+  hzl_version: "0.1.0"
+  hzl_type: sound_source
+  name: right
+  namespace: sources
+  layer: "0: base"
+  trajectory: {namespace: trajectories, name: right}
+  envelopes:
+    - envelope: {namespace: envelopes, name: right}

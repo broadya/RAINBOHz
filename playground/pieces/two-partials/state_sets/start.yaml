@@ -1,0 +1,9 @@
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: start
+  namespace: state_sets
+  layer: "0: base"
+  partial_states:
+    - partial_state: {identifier: a, frequency: 7196.527, amplitude: -12.0}
+    - partial_state: {identifier: b, frequency: 4718.911, amplitude: -12.0}

@@ -1,0 +1,8 @@
+# Source s5: +6.67 degrees (left), 1 m, still.
+trajectory:
+  hzl_version: "0.1.0"
+  hzl_type: trajectory
+  name: t5
+  namespace: trajectories
+  layer: "0: base"
+  initial_position: {azimuth: 6.6667, elevation: 0.0, distance: 1.0}

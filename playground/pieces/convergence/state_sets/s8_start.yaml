@@ -1,0 +1,88 @@
+# Generated. Source s8's start: each harmonic's pair at +-10%, all at -40.0 dB.
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: s8_start
+  namespace: state_sets
+  layer: "0: base"
+  partial_states:
+    - partial_state: {identifier: s8p00, frequency: 13310.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p01, frequency: 10890.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p02, frequency: 13420.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p03, frequency: 10980.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p04, frequency: 13530.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p05, frequency: 11070.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p06, frequency: 13640.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p07, frequency: 11160.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p08, frequency: 13750.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p09, frequency: 11250.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p10, frequency: 13860.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p11, frequency: 11340.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p12, frequency: 13970.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p13, frequency: 11430.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p14, frequency: 14080.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p15, frequency: 11520.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p16, frequency: 14190.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p17, frequency: 11610.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p18, frequency: 14300.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p19, frequency: 11700.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p20, frequency: 14410.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p21, frequency: 11790.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p22, frequency: 14520.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p23, frequency: 11880.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p24, frequency: 14630.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p25, frequency: 11970.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p26, frequency: 14740.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p27, frequency: 12060.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p28, frequency: 14850.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p29, frequency: 12150.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p30, frequency: 14960.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p31, frequency: 12240.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p32, frequency: 15070.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p33, frequency: 12330.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p34, frequency: 15180.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p35, frequency: 12420.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p36, frequency: 15290.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p37, frequency: 12510.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p38, frequency: 15400.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p39, frequency: 12600.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p40, frequency: 15510.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p41, frequency: 12690.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p42, frequency: 15620.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p43, frequency: 12780.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p44, frequency: 15730.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p45, frequency: 12870.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p46, frequency: 15840.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p47, frequency: 12960.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p48, frequency: 15950.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p49, frequency: 13050.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p50, frequency: 16060.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p51, frequency: 13140.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p52, frequency: 16170.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p53, frequency: 13230.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p54, frequency: 16280.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p55, frequency: 13320.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p56, frequency: 16390.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p57, frequency: 13410.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p58, frequency: 16500.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p59, frequency: 13500.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p60, frequency: 16610.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p61, frequency: 13590.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p62, frequency: 16720.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p63, frequency: 13680.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p64, frequency: 16830.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p65, frequency: 13770.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p66, frequency: 16940.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p67, frequency: 13860.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p68, frequency: 17050.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p69, frequency: 13950.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p70, frequency: 17160.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p71, frequency: 14040.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p72, frequency: 17270.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p73, frequency: 14130.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p74, frequency: 17380.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p75, frequency: 14220.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p76, frequency: 17490.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p77, frequency: 14310.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p78, frequency: 17600.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s8p79, frequency: 14400.000000, amplitude: -40.0000}

@@ -12,6 +12,7 @@
 | `scripts/` | Schema loading, validation, diagrams and comment wrapping, and the shared DDL machinery |
 | `tools/` | Developer tooling kept outside the repository (the Ladybug Cypher VS Code extension); gitignored |
 | `proof-of-concept/` | Archived earlier phase. Historical reference; not built. |
+| `playground/` | Musical experiments: `pg` loops an HzL piece through the engine and reloads it on request. **No stability guarantee**; may change or vanish at any time |
 
 ## Developer Guide
 The developer guide is currently only in place for macOS, but it should be possible to follow similar steps on other operating systems.

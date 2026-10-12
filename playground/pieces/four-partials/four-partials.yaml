@@ -1,0 +1,6 @@
+# The playground's settings for this piece (read by pg, not by hzlc).
+# channel_mode: hzlc's --channel-mode; 1 is stereo from M/S.
+score: scores/four-partials.yaml
+loop_start: "0:0"
+loop_end: "20:0"
+channel_mode: 1

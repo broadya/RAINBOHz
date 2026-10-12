@@ -1,0 +1,12 @@
+# The same 16 harmonics, silent. Same identifiers as saw, so an Update
+# from either one reaches every partial.
+harmonic_series:
+  hzl_version: "0.1.0"
+  hzl_type: harmonic_series
+  name: saw_silent
+  namespace: harmonic_series
+  layer: "0: base"
+  base_frequency: 440.0
+  number_of_harmonics: 16
+  frequency_expression: "harmonic_index"
+  amplitude: -144.0

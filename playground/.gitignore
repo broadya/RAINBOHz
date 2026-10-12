@@ -1,0 +1,2 @@
+# Runtime state of pg: compiled scores, rendered frames, buffers, logs.
+.run/

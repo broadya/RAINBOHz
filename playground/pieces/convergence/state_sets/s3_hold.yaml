@@ -1,0 +1,88 @@
+# Generated. Source s3's end: as s3_saw, without the phase target.
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: s3_hold
+  namespace: state_sets
+  layer: "0: base"
+  partial_states:
+    - partial_state: {identifier: s3p00, frequency: 4059.000000, amplitude: -47.2267}
+    - partial_state: {identifier: s3p01, frequency: 4059.000000, amplitude: -47.2267}
+    - partial_state: {identifier: s3p02, frequency: 4158.000000, amplitude: -47.4360}
+    - partial_state: {identifier: s3p03, frequency: 4158.000000, amplitude: -47.4360}
+    - partial_state: {identifier: s3p04, frequency: 4257.000000, amplitude: -47.6404}
+    - partial_state: {identifier: s3p05, frequency: 4257.000000, amplitude: -47.6404}
+    - partial_state: {identifier: s3p06, frequency: 4356.000000, amplitude: -47.8401}
+    - partial_state: {identifier: s3p07, frequency: 4356.000000, amplitude: -47.8401}
+    - partial_state: {identifier: s3p08, frequency: 4455.000000, amplitude: -48.0353}
+    - partial_state: {identifier: s3p09, frequency: 4455.000000, amplitude: -48.0353}
+    - partial_state: {identifier: s3p10, frequency: 4554.000000, amplitude: -48.2262}
+    - partial_state: {identifier: s3p11, frequency: 4554.000000, amplitude: -48.2262}
+    - partial_state: {identifier: s3p12, frequency: 4653.000000, amplitude: -48.4130}
+    - partial_state: {identifier: s3p13, frequency: 4653.000000, amplitude: -48.4130}
+    - partial_state: {identifier: s3p14, frequency: 4752.000000, amplitude: -48.5959}
+    - partial_state: {identifier: s3p15, frequency: 4752.000000, amplitude: -48.5959}
+    - partial_state: {identifier: s3p16, frequency: 4851.000000, amplitude: -48.7750}
+    - partial_state: {identifier: s3p17, frequency: 4851.000000, amplitude: -48.7750}
+    - partial_state: {identifier: s3p18, frequency: 4950.000000, amplitude: -48.9504}
+    - partial_state: {identifier: s3p19, frequency: 4950.000000, amplitude: -48.9504}
+    - partial_state: {identifier: s3p20, frequency: 5049.000000, amplitude: -49.1224}
+    - partial_state: {identifier: s3p21, frequency: 5049.000000, amplitude: -49.1224}
+    - partial_state: {identifier: s3p22, frequency: 5148.000000, amplitude: -49.2911}
+    - partial_state: {identifier: s3p23, frequency: 5148.000000, amplitude: -49.2911}
+    - partial_state: {identifier: s3p24, frequency: 5247.000000, amplitude: -49.4566}
+    - partial_state: {identifier: s3p25, frequency: 5247.000000, amplitude: -49.4566}
+    - partial_state: {identifier: s3p26, frequency: 5346.000000, amplitude: -49.6189}
+    - partial_state: {identifier: s3p27, frequency: 5346.000000, amplitude: -49.6189}
+    - partial_state: {identifier: s3p28, frequency: 5445.000000, amplitude: -49.7783}
+    - partial_state: {identifier: s3p29, frequency: 5445.000000, amplitude: -49.7783}
+    - partial_state: {identifier: s3p30, frequency: 5544.000000, amplitude: -49.9348}
+    - partial_state: {identifier: s3p31, frequency: 5544.000000, amplitude: -49.9348}
+    - partial_state: {identifier: s3p32, frequency: 5643.000000, amplitude: -50.0885}
+    - partial_state: {identifier: s3p33, frequency: 5643.000000, amplitude: -50.0885}
+    - partial_state: {identifier: s3p34, frequency: 5742.000000, amplitude: -50.2396}
+    - partial_state: {identifier: s3p35, frequency: 5742.000000, amplitude: -50.2396}
+    - partial_state: {identifier: s3p36, frequency: 5841.000000, amplitude: -50.3881}
+    - partial_state: {identifier: s3p37, frequency: 5841.000000, amplitude: -50.3881}
+    - partial_state: {identifier: s3p38, frequency: 5940.000000, amplitude: -50.5341}
+    - partial_state: {identifier: s3p39, frequency: 5940.000000, amplitude: -50.5341}
+    - partial_state: {identifier: s3p40, frequency: 6039.000000, amplitude: -50.6776}
+    - partial_state: {identifier: s3p41, frequency: 6039.000000, amplitude: -50.6776}
+    - partial_state: {identifier: s3p42, frequency: 6138.000000, amplitude: -50.8189}
+    - partial_state: {identifier: s3p43, frequency: 6138.000000, amplitude: -50.8189}
+    - partial_state: {identifier: s3p44, frequency: 6237.000000, amplitude: -50.9578}
+    - partial_state: {identifier: s3p45, frequency: 6237.000000, amplitude: -50.9578}
+    - partial_state: {identifier: s3p46, frequency: 6336.000000, amplitude: -51.0946}
+    - partial_state: {identifier: s3p47, frequency: 6336.000000, amplitude: -51.0946}
+    - partial_state: {identifier: s3p48, frequency: 6435.000000, amplitude: -51.2293}
+    - partial_state: {identifier: s3p49, frequency: 6435.000000, amplitude: -51.2293}
+    - partial_state: {identifier: s3p50, frequency: 6534.000000, amplitude: -51.3619}
+    - partial_state: {identifier: s3p51, frequency: 6534.000000, amplitude: -51.3619}
+    - partial_state: {identifier: s3p52, frequency: 6633.000000, amplitude: -51.4925}
+    - partial_state: {identifier: s3p53, frequency: 6633.000000, amplitude: -51.4925}
+    - partial_state: {identifier: s3p54, frequency: 6732.000000, amplitude: -51.6212}
+    - partial_state: {identifier: s3p55, frequency: 6732.000000, amplitude: -51.6212}
+    - partial_state: {identifier: s3p56, frequency: 6831.000000, amplitude: -51.7480}
+    - partial_state: {identifier: s3p57, frequency: 6831.000000, amplitude: -51.7480}
+    - partial_state: {identifier: s3p58, frequency: 6930.000000, amplitude: -51.8730}
+    - partial_state: {identifier: s3p59, frequency: 6930.000000, amplitude: -51.8730}
+    - partial_state: {identifier: s3p60, frequency: 7029.000000, amplitude: -51.9962}
+    - partial_state: {identifier: s3p61, frequency: 7029.000000, amplitude: -51.9962}
+    - partial_state: {identifier: s3p62, frequency: 7128.000000, amplitude: -52.1177}
+    - partial_state: {identifier: s3p63, frequency: 7128.000000, amplitude: -52.1177}
+    - partial_state: {identifier: s3p64, frequency: 7227.000000, amplitude: -52.2375}
+    - partial_state: {identifier: s3p65, frequency: 7227.000000, amplitude: -52.2375}
+    - partial_state: {identifier: s3p66, frequency: 7326.000000, amplitude: -52.3557}
+    - partial_state: {identifier: s3p67, frequency: 7326.000000, amplitude: -52.3557}
+    - partial_state: {identifier: s3p68, frequency: 7425.000000, amplitude: -52.4723}
+    - partial_state: {identifier: s3p69, frequency: 7425.000000, amplitude: -52.4723}
+    - partial_state: {identifier: s3p70, frequency: 7524.000000, amplitude: -52.5873}
+    - partial_state: {identifier: s3p71, frequency: 7524.000000, amplitude: -52.5873}
+    - partial_state: {identifier: s3p72, frequency: 7623.000000, amplitude: -52.7009}
+    - partial_state: {identifier: s3p73, frequency: 7623.000000, amplitude: -52.7009}
+    - partial_state: {identifier: s3p74, frequency: 7722.000000, amplitude: -52.8129}
+    - partial_state: {identifier: s3p75, frequency: 7722.000000, amplitude: -52.8129}
+    - partial_state: {identifier: s3p76, frequency: 7821.000000, amplitude: -52.9236}
+    - partial_state: {identifier: s3p77, frequency: 7821.000000, amplitude: -52.9236}
+    - partial_state: {identifier: s3p78, frequency: 7920.000000, amplitude: -53.0328}
+    - partial_state: {identifier: s3p79, frequency: 7920.000000, amplitude: -53.0328}

@@ -1,0 +1,16 @@
+# The simplest convergence: two partials, mono, one source straight ahead
+# at 1 m (no trajectory, so gain 1). They glide linearly over 10 s from
+# 7196.527 Hz and 4718.911 Hz (four-partials' left pair) to 100 Hz, and
+# meet there at phase 0. Then 10 s held. Both stay at -12 dB throughout:
+# apart they sum to RMS 0.251, in phase to 0.355 (+3 dB).
+score:
+  hzl_version: "0.1.0"
+  hzl_type: score
+  name: two-partials
+  namespace: scores
+  layer: "0: base"
+  labels: []
+  tempo_map: {namespace: tempo_maps, name: main}
+  sound_entities:
+    - sound_entity: {namespace: entities, name: pair}
+      position: "0:0"

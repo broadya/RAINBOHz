@@ -1,0 +1,88 @@
+# Generated. Source s9 arrives: harmonics 161-200 of 100 Hz, two partials each, phase 0.
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: s9_saw
+  namespace: state_sets
+  layer: "0: base"
+  partial_states:
+    - partial_state: {identifier: s9p00, frequency: 16100.000000, amplitude: -59.1076, phase: 0}
+    - partial_state: {identifier: s9p01, frequency: 16100.000000, amplitude: -59.1076, phase: 0}
+    - partial_state: {identifier: s9p02, frequency: 16200.000000, amplitude: -59.1613, phase: 0}
+    - partial_state: {identifier: s9p03, frequency: 16200.000000, amplitude: -59.1613, phase: 0}
+    - partial_state: {identifier: s9p04, frequency: 16300.000000, amplitude: -59.2148, phase: 0}
+    - partial_state: {identifier: s9p05, frequency: 16300.000000, amplitude: -59.2148, phase: 0}
+    - partial_state: {identifier: s9p06, frequency: 16400.000000, amplitude: -59.2679, phase: 0}
+    - partial_state: {identifier: s9p07, frequency: 16400.000000, amplitude: -59.2679, phase: 0}
+    - partial_state: {identifier: s9p08, frequency: 16500.000000, amplitude: -59.3207, phase: 0}
+    - partial_state: {identifier: s9p09, frequency: 16500.000000, amplitude: -59.3207, phase: 0}
+    - partial_state: {identifier: s9p10, frequency: 16600.000000, amplitude: -59.3732, phase: 0}
+    - partial_state: {identifier: s9p11, frequency: 16600.000000, amplitude: -59.3732, phase: 0}
+    - partial_state: {identifier: s9p12, frequency: 16700.000000, amplitude: -59.4254, phase: 0}
+    - partial_state: {identifier: s9p13, frequency: 16700.000000, amplitude: -59.4254, phase: 0}
+    - partial_state: {identifier: s9p14, frequency: 16800.000000, amplitude: -59.4772, phase: 0}
+    - partial_state: {identifier: s9p15, frequency: 16800.000000, amplitude: -59.4772, phase: 0}
+    - partial_state: {identifier: s9p16, frequency: 16900.000000, amplitude: -59.5288, phase: 0}
+    - partial_state: {identifier: s9p17, frequency: 16900.000000, amplitude: -59.5288, phase: 0}
+    - partial_state: {identifier: s9p18, frequency: 17000.000000, amplitude: -59.5800, phase: 0}
+    - partial_state: {identifier: s9p19, frequency: 17000.000000, amplitude: -59.5800, phase: 0}
+    - partial_state: {identifier: s9p20, frequency: 17100.000000, amplitude: -59.6310, phase: 0}
+    - partial_state: {identifier: s9p21, frequency: 17100.000000, amplitude: -59.6310, phase: 0}
+    - partial_state: {identifier: s9p22, frequency: 17200.000000, amplitude: -59.6816, phase: 0}
+    - partial_state: {identifier: s9p23, frequency: 17200.000000, amplitude: -59.6816, phase: 0}
+    - partial_state: {identifier: s9p24, frequency: 17300.000000, amplitude: -59.7320, phase: 0}
+    - partial_state: {identifier: s9p25, frequency: 17300.000000, amplitude: -59.7320, phase: 0}
+    - partial_state: {identifier: s9p26, frequency: 17400.000000, amplitude: -59.7820, phase: 0}
+    - partial_state: {identifier: s9p27, frequency: 17400.000000, amplitude: -59.7820, phase: 0}
+    - partial_state: {identifier: s9p28, frequency: 17500.000000, amplitude: -59.8318, phase: 0}
+    - partial_state: {identifier: s9p29, frequency: 17500.000000, amplitude: -59.8318, phase: 0}
+    - partial_state: {identifier: s9p30, frequency: 17600.000000, amplitude: -59.8813, phase: 0}
+    - partial_state: {identifier: s9p31, frequency: 17600.000000, amplitude: -59.8813, phase: 0}
+    - partial_state: {identifier: s9p32, frequency: 17700.000000, amplitude: -59.9305, phase: 0}
+    - partial_state: {identifier: s9p33, frequency: 17700.000000, amplitude: -59.9305, phase: 0}
+    - partial_state: {identifier: s9p34, frequency: 17800.000000, amplitude: -59.9794, phase: 0}
+    - partial_state: {identifier: s9p35, frequency: 17800.000000, amplitude: -59.9794, phase: 0}
+    - partial_state: {identifier: s9p36, frequency: 17900.000000, amplitude: -60.0281, phase: 0}
+    - partial_state: {identifier: s9p37, frequency: 17900.000000, amplitude: -60.0281, phase: 0}
+    - partial_state: {identifier: s9p38, frequency: 18000.000000, amplitude: -60.0765, phase: 0}
+    - partial_state: {identifier: s9p39, frequency: 18000.000000, amplitude: -60.0765, phase: 0}
+    - partial_state: {identifier: s9p40, frequency: 18100.000000, amplitude: -60.1246, phase: 0}
+    - partial_state: {identifier: s9p41, frequency: 18100.000000, amplitude: -60.1246, phase: 0}
+    - partial_state: {identifier: s9p42, frequency: 18200.000000, amplitude: -60.1725, phase: 0}
+    - partial_state: {identifier: s9p43, frequency: 18200.000000, amplitude: -60.1725, phase: 0}
+    - partial_state: {identifier: s9p44, frequency: 18300.000000, amplitude: -60.2201, phase: 0}
+    - partial_state: {identifier: s9p45, frequency: 18300.000000, amplitude: -60.2201, phase: 0}
+    - partial_state: {identifier: s9p46, frequency: 18400.000000, amplitude: -60.2674, phase: 0}
+    - partial_state: {identifier: s9p47, frequency: 18400.000000, amplitude: -60.2674, phase: 0}
+    - partial_state: {identifier: s9p48, frequency: 18500.000000, amplitude: -60.3145, phase: 0}
+    - partial_state: {identifier: s9p49, frequency: 18500.000000, amplitude: -60.3145, phase: 0}
+    - partial_state: {identifier: s9p50, frequency: 18600.000000, amplitude: -60.3613, phase: 0}
+    - partial_state: {identifier: s9p51, frequency: 18600.000000, amplitude: -60.3613, phase: 0}
+    - partial_state: {identifier: s9p52, frequency: 18700.000000, amplitude: -60.4079, phase: 0}
+    - partial_state: {identifier: s9p53, frequency: 18700.000000, amplitude: -60.4079, phase: 0}
+    - partial_state: {identifier: s9p54, frequency: 18800.000000, amplitude: -60.4542, phase: 0}
+    - partial_state: {identifier: s9p55, frequency: 18800.000000, amplitude: -60.4542, phase: 0}
+    - partial_state: {identifier: s9p56, frequency: 18900.000000, amplitude: -60.5003, phase: 0}
+    - partial_state: {identifier: s9p57, frequency: 18900.000000, amplitude: -60.5003, phase: 0}
+    - partial_state: {identifier: s9p58, frequency: 19000.000000, amplitude: -60.5461, phase: 0}
+    - partial_state: {identifier: s9p59, frequency: 19000.000000, amplitude: -60.5461, phase: 0}
+    - partial_state: {identifier: s9p60, frequency: 19100.000000, amplitude: -60.5917, phase: 0}
+    - partial_state: {identifier: s9p61, frequency: 19100.000000, amplitude: -60.5917, phase: 0}
+    - partial_state: {identifier: s9p62, frequency: 19200.000000, amplitude: -60.6371, phase: 0}
+    - partial_state: {identifier: s9p63, frequency: 19200.000000, amplitude: -60.6371, phase: 0}
+    - partial_state: {identifier: s9p64, frequency: 19300.000000, amplitude: -60.6822, phase: 0}
+    - partial_state: {identifier: s9p65, frequency: 19300.000000, amplitude: -60.6822, phase: 0}
+    - partial_state: {identifier: s9p66, frequency: 19400.000000, amplitude: -60.7271, phase: 0}
+    - partial_state: {identifier: s9p67, frequency: 19400.000000, amplitude: -60.7271, phase: 0}
+    - partial_state: {identifier: s9p68, frequency: 19500.000000, amplitude: -60.7717, phase: 0}
+    - partial_state: {identifier: s9p69, frequency: 19500.000000, amplitude: -60.7717, phase: 0}
+    - partial_state: {identifier: s9p70, frequency: 19600.000000, amplitude: -60.8162, phase: 0}
+    - partial_state: {identifier: s9p71, frequency: 19600.000000, amplitude: -60.8162, phase: 0}
+    - partial_state: {identifier: s9p72, frequency: 19700.000000, amplitude: -60.8604, phase: 0}
+    - partial_state: {identifier: s9p73, frequency: 19700.000000, amplitude: -60.8604, phase: 0}
+    - partial_state: {identifier: s9p74, frequency: 19800.000000, amplitude: -60.9043, phase: 0}
+    - partial_state: {identifier: s9p75, frequency: 19800.000000, amplitude: -60.9043, phase: 0}
+    - partial_state: {identifier: s9p76, frequency: 19900.000000, amplitude: -60.9481, phase: 0}
+    - partial_state: {identifier: s9p77, frequency: 19900.000000, amplitude: -60.9481, phase: 0}
+    - partial_state: {identifier: s9p78, frequency: 20000.000000, amplitude: -60.9916, phase: 0}
+    - partial_state: {identifier: s9p79, frequency: 20000.000000, amplitude: -60.9916, phase: 0}

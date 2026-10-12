@@ -1,0 +1,21 @@
+# Start to arrival over 10 beats, then held for 10.
+envelope:
+  hzl_version: "0.1.0"
+  hzl_type: envelope
+  name: right
+  namespace: envelopes
+  layer: "0: base"
+  initial_partial_state_set: {namespace: state_sets, name: right_start}
+  envelope_stages:
+    - envelope_stage:
+        duration: "10:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: state_sets, name: right_arrive}
+    - envelope_stage:
+        duration: "10:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: state_sets, name: right_hold}

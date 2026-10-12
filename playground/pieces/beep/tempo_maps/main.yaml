@@ -1,0 +1,13 @@
+# 120 BPM throughout: a beat is 0.5 s, a 4-beat bar 2 s.
+tempo_map:
+  hzl_version: "0.1.0"
+  hzl_type: tempo_map
+  name: main
+  namespace: tempo_maps
+  layer: "0: base"
+  ticks_per_beat: 960
+  points:
+    - tempo_map_point:
+        position: "0:0"
+        tempo: 120.0
+        hold: true

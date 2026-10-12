@@ -1,0 +1,88 @@
+# Generated. Source s7's start: each harmonic's pair at +-10%, all at -40.0 dB.
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: s7_start
+  namespace: state_sets
+  layer: "0: base"
+  partial_states:
+    - partial_state: {identifier: s7p00, frequency: 8910.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p01, frequency: 7290.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p02, frequency: 9020.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p03, frequency: 7380.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p04, frequency: 9130.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p05, frequency: 7470.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p06, frequency: 9240.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p07, frequency: 7560.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p08, frequency: 9350.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p09, frequency: 7650.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p10, frequency: 9460.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p11, frequency: 7740.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p12, frequency: 9570.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p13, frequency: 7830.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p14, frequency: 9680.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p15, frequency: 7920.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p16, frequency: 9790.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p17, frequency: 8010.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p18, frequency: 9900.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p19, frequency: 8100.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p20, frequency: 10010.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p21, frequency: 8190.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p22, frequency: 10120.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p23, frequency: 8280.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p24, frequency: 10230.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p25, frequency: 8370.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p26, frequency: 10340.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p27, frequency: 8460.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p28, frequency: 10450.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p29, frequency: 8550.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p30, frequency: 10560.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p31, frequency: 8640.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p32, frequency: 10670.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p33, frequency: 8730.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p34, frequency: 10780.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p35, frequency: 8820.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p36, frequency: 10890.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p37, frequency: 8910.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p38, frequency: 11000.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p39, frequency: 9000.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p40, frequency: 11110.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p41, frequency: 9090.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p42, frequency: 11220.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p43, frequency: 9180.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p44, frequency: 11330.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p45, frequency: 9270.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p46, frequency: 11440.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p47, frequency: 9360.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p48, frequency: 11550.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p49, frequency: 9450.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p50, frequency: 11660.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p51, frequency: 9540.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p52, frequency: 11770.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p53, frequency: 9630.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p54, frequency: 11880.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p55, frequency: 9720.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p56, frequency: 11990.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p57, frequency: 9810.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p58, frequency: 12100.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p59, frequency: 9900.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p60, frequency: 12210.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p61, frequency: 9990.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p62, frequency: 12320.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p63, frequency: 10080.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p64, frequency: 12430.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p65, frequency: 10170.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p66, frequency: 12540.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p67, frequency: 10260.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p68, frequency: 12650.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p69, frequency: 10350.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p70, frequency: 12760.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p71, frequency: 10440.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p72, frequency: 12870.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p73, frequency: 10530.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p74, frequency: 12980.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p75, frequency: 10620.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p76, frequency: 13090.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p77, frequency: 10710.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p78, frequency: 13200.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s7p79, frequency: 10800.000000, amplitude: -40.0000}

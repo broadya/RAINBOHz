@@ -1,0 +1,8 @@
+# Source s1: -46.67 degrees (right), 1 m, still.
+trajectory:
+  hzl_version: "0.1.0"
+  hzl_type: trajectory
+  name: t1
+  namespace: trajectories
+  layer: "0: base"
+  initial_position: {azimuth: -46.6667, elevation: 0.0, distance: 1.0}

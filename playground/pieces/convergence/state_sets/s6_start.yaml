@@ -1,0 +1,88 @@
+# Generated. Source s6's start: each harmonic's pair at +-10%, all at -40.0 dB.
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: s6_start
+  namespace: state_sets
+  layer: "0: base"
+  partial_states:
+    - partial_state: {identifier: s6p00, frequency: 4510.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p01, frequency: 3690.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p02, frequency: 4620.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p03, frequency: 3780.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p04, frequency: 4730.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p05, frequency: 3870.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p06, frequency: 4840.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p07, frequency: 3960.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p08, frequency: 4950.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p09, frequency: 4050.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p10, frequency: 5060.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p11, frequency: 4140.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p12, frequency: 5170.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p13, frequency: 4230.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p14, frequency: 5280.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p15, frequency: 4320.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p16, frequency: 5390.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p17, frequency: 4410.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p18, frequency: 5500.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p19, frequency: 4500.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p20, frequency: 5610.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p21, frequency: 4590.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p22, frequency: 5720.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p23, frequency: 4680.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p24, frequency: 5830.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p25, frequency: 4770.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p26, frequency: 5940.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p27, frequency: 4860.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p28, frequency: 6050.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p29, frequency: 4950.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p30, frequency: 6160.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p31, frequency: 5040.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p32, frequency: 6270.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p33, frequency: 5130.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p34, frequency: 6380.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p35, frequency: 5220.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p36, frequency: 6490.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p37, frequency: 5310.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p38, frequency: 6600.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p39, frequency: 5400.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p40, frequency: 6710.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p41, frequency: 5490.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p42, frequency: 6820.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p43, frequency: 5580.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p44, frequency: 6930.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p45, frequency: 5670.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p46, frequency: 7040.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p47, frequency: 5760.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p48, frequency: 7150.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p49, frequency: 5850.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p50, frequency: 7260.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p51, frequency: 5940.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p52, frequency: 7370.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p53, frequency: 6030.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p54, frequency: 7480.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p55, frequency: 6120.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p56, frequency: 7590.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p57, frequency: 6210.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p58, frequency: 7700.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p59, frequency: 6300.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p60, frequency: 7810.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p61, frequency: 6390.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p62, frequency: 7920.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p63, frequency: 6480.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p64, frequency: 8030.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p65, frequency: 6570.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p66, frequency: 8140.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p67, frequency: 6660.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p68, frequency: 8250.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p69, frequency: 6750.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p70, frequency: 8360.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p71, frequency: 6840.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p72, frequency: 8470.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p73, frequency: 6930.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p74, frequency: 8580.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p75, frequency: 7020.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p76, frequency: 8690.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p77, frequency: 7110.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p78, frequency: 8800.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s6p79, frequency: 7200.000000, amplitude: -40.0000}

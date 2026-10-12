@@ -1,0 +1,130 @@
+# Four beeps, one on each beat. HzL has no repeat yet, and an envelope can
+# be placed only once, so every beep is written out as stages here.
+#
+# Each beep is four stages. The first three last no musical time and are
+# placed by offset_seconds, which counts from the beat itself, so the beep
+# is the same length at any tempo:
+#   +7.8 ms  attack to full level   (offsets are exact float32 values:
+#   +93.8 ms still at full level      1/128, 12/128 and 13/128 s)
+#   +101.6 ms release to silence
+# The fourth stage moves on one beat, silent, to the next beat.
+envelope:
+  hzl_version: "0.1.0"
+  hzl_type: envelope
+  name: beep
+  namespace: envelopes
+  layer: "0: base"
+  initial_partial_state_set: {namespace: harmonic_series, name: saw_silent}
+  envelope_stages:
+    # beat 1
+    - envelope_stage:
+        duration: "0:0"
+        offset_seconds: 0.0078125
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: harmonic_series, name: saw}
+    - envelope_stage:
+        duration: "0:0"
+        offset_seconds: 0.09375
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: harmonic_series, name: saw}
+    - envelope_stage:
+        duration: "0:0"
+        offset_seconds: 0.1015625
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: harmonic_series, name: saw_silent}
+    - envelope_stage:
+        duration: "1:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: harmonic_series, name: saw_silent}
+    # beat 2
+    - envelope_stage:
+        duration: "0:0"
+        offset_seconds: 0.0078125
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: harmonic_series, name: saw}
+    - envelope_stage:
+        duration: "0:0"
+        offset_seconds: 0.09375
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: harmonic_series, name: saw}
+    - envelope_stage:
+        duration: "0:0"
+        offset_seconds: 0.1015625
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: harmonic_series, name: saw_silent}
+    - envelope_stage:
+        duration: "1:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: harmonic_series, name: saw_silent}
+    # beat 3
+    - envelope_stage:
+        duration: "0:0"
+        offset_seconds: 0.0078125
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: harmonic_series, name: saw}
+    - envelope_stage:
+        duration: "0:0"
+        offset_seconds: 0.09375
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: harmonic_series, name: saw}
+    - envelope_stage:
+        duration: "0:0"
+        offset_seconds: 0.1015625
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: harmonic_series, name: saw_silent}
+    - envelope_stage:
+        duration: "1:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: harmonic_series, name: saw_silent}
+    # beat 4
+    - envelope_stage:
+        duration: "0:0"
+        offset_seconds: 0.0078125
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: harmonic_series, name: saw}
+    - envelope_stage:
+        duration: "0:0"
+        offset_seconds: 0.09375
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: harmonic_series, name: saw}
+    - envelope_stage:
+        duration: "0:0"
+        offset_seconds: 0.1015625
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: harmonic_series, name: saw_silent}
+    - envelope_stage:
+        duration: "1:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: harmonic_series, name: saw_silent}

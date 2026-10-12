@@ -1,0 +1,8 @@
+sound_entity:
+  hzl_version: "0.1.0"
+  hzl_type: sound_entity
+  name: pair
+  namespace: entities
+  layer: "0: base"
+  sound_sources:
+    - sound_source: {namespace: sources, name: pair}

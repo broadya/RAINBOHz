@@ -1,0 +1,88 @@
+# Generated. Source s1's start: each harmonic's pair at +-10%, all at -40.0 dB.
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: s1_start
+  namespace: state_sets
+  layer: "0: base"
+  partial_states:
+    - partial_state: {identifier: s1p00, frequency: 13176.900000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p01, frequency: 10781.100000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p02, frequency: 13285.800000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p03, frequency: 10870.200000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p04, frequency: 13394.700000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p05, frequency: 10959.300000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p06, frequency: 13503.600000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p07, frequency: 11048.400000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p08, frequency: 13612.500000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p09, frequency: 11137.500000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p10, frequency: 13721.400000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p11, frequency: 11226.600000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p12, frequency: 13830.300000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p13, frequency: 11315.700000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p14, frequency: 13939.200000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p15, frequency: 11404.800000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p16, frequency: 14048.100000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p17, frequency: 11493.900000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p18, frequency: 14157.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p19, frequency: 11583.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p20, frequency: 14265.900000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p21, frequency: 11672.100000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p22, frequency: 14374.800000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p23, frequency: 11761.200000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p24, frequency: 14483.700000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p25, frequency: 11850.300000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p26, frequency: 14592.600000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p27, frequency: 11939.400000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p28, frequency: 14701.500000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p29, frequency: 12028.500000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p30, frequency: 14810.400000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p31, frequency: 12117.600000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p32, frequency: 14919.300000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p33, frequency: 12206.700000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p34, frequency: 15028.200000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p35, frequency: 12295.800000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p36, frequency: 15137.100000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p37, frequency: 12384.900000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p38, frequency: 15246.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p39, frequency: 12474.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p40, frequency: 15354.900000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p41, frequency: 12563.100000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p42, frequency: 15463.800000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p43, frequency: 12652.200000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p44, frequency: 15572.700000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p45, frequency: 12741.300000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p46, frequency: 15681.600000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p47, frequency: 12830.400000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p48, frequency: 15790.500000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p49, frequency: 12919.500000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p50, frequency: 15899.400000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p51, frequency: 13008.600000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p52, frequency: 16008.300000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p53, frequency: 13097.700000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p54, frequency: 16117.200000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p55, frequency: 13186.800000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p56, frequency: 16226.100000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p57, frequency: 13275.900000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p58, frequency: 16335.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p59, frequency: 13365.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p60, frequency: 16443.900000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p61, frequency: 13454.100000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p62, frequency: 16552.800000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p63, frequency: 13543.200000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p64, frequency: 16661.700000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p65, frequency: 13632.300000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p66, frequency: 16770.600000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p67, frequency: 13721.400000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p68, frequency: 16879.500000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p69, frequency: 13810.500000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p70, frequency: 16988.400000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p71, frequency: 13899.600000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p72, frequency: 17097.300000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p73, frequency: 13988.700000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p74, frequency: 17206.200000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p75, frequency: 14077.800000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p76, frequency: 17315.100000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p77, frequency: 14166.900000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p78, frequency: 17424.000000, amplitude: -40.0000}
+    - partial_state: {identifier: s1p79, frequency: 14256.000000, amplitude: -40.0000}

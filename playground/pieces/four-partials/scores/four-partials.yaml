@@ -1,0 +1,19 @@
+# convergence reduced to its two fundamentals, to hear one pair converge.
+# Four partials at random frequencies glide over 10 s to the sawteeth's
+# fundamentals: two to 100 Hz on the left, two to 99 Hz on the right,
+# each pair meeting at phase 0. Then 10 s held. Stereo from M/S.
+#
+# Unlike convergence, every partial stays at -12 dB throughout, so any
+# change in level is the pair's phase relationship and nothing else:
+# a pair in phase sums to -6 dB.
+score:
+  hzl_version: "0.1.0"
+  hzl_type: score
+  name: four-partials
+  namespace: scores
+  layer: "0: base"
+  labels: []
+  tempo_map: {namespace: tempo_maps, name: main}
+  sound_entities:
+    - sound_entity: {namespace: entities, name: pair}
+      position: "0:0"

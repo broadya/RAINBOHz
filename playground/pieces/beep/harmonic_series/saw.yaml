@@ -1,0 +1,12 @@
+# A sawtooth at 440 Hz: 16 harmonics at 1/n amplitude (-20 log10 n dB),
+# 6 dB below full scale. Change base_frequency for another pitch.
+harmonic_series:
+  hzl_version: "0.1.0"
+  hzl_type: harmonic_series
+  name: saw
+  namespace: harmonic_series
+  layer: "0: base"
+  base_frequency: 440.0
+  number_of_harmonics: 16
+  frequency_expression: "harmonic_index"
+  amplitude_expression: "-6 - 20*log10(harmonic_index)"
