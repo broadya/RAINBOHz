@@ -47,6 +47,7 @@ add_executable(rendering_engine_tests
     test_spatialise.cpp
     test_units.cpp
     test_wav_writer.cpp
+    test_write_batch.cpp
     transform/test_musical_units.cpp
     transform/test_squash.cpp
     transform/test_tempo_map.cpp

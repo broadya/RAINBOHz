@@ -107,16 +107,90 @@ DbValue toDbValue(const lbug::common::Value& value) {
     }
 }
 
+/// The Ladybug type a DbRecordList column binds as.
+///
+/// @param type  The column's type.
+/// @return BOOL, INT64 or DOUBLE.
+lbug::common::LogicalType toLadybugType(DbColumnType type) {
+    using lbug::common::LogicalType;
+    switch (type) {
+    case DbColumnType::Bool:
+        return LogicalType::BOOL();
+    case DbColumnType::Int64:
+        return LogicalType::INT64();
+    case DbColumnType::Double:
+        return LogicalType::DOUBLE();
+    }
+    throw EngineDbError{"unknown DbColumnType"};
+}
+
+/// Converts a DbRecordList to a Ladybug LIST of STRUCT.
+///
+/// Every row is checked against the columns before anything is built, so a
+/// malformed list is refused with a message naming the row and column rather
+/// than reaching Ladybug.
+///
+/// @param records  The rows to bind.
+/// @return A new LIST value with one STRUCT per row, its fields named and
+///         typed as `records.columns` says.
+/// @throws EngineDbError  If a row has the wrong number of values, or a value
+///         of a different type from its column's.
+std::unique_ptr<lbug::common::Value> toLadybugRecords(const DbRecordList& records) {
+    using lbug::common::LogicalType;
+    using lbug::common::StructField;
+    using lbug::common::Value;
+
+    std::vector<StructField> fields;
+    fields.reserve(records.columns.size());
+    for (const auto& [name, type] : records.columns) {
+        fields.emplace_back(name, toLadybugType(type));
+    }
+    const LogicalType structType = LogicalType::STRUCT(std::move(fields));
+
+    std::vector<std::unique_ptr<Value>> items;
+    items.reserve(records.rows.size());
+    for (std::size_t r = 0; r < records.rows.size(); ++r) {
+        const std::vector<DbScalar>& row = records.rows[r];
+        if (row.size() != records.columns.size()) {
+            throw EngineDbError{"record " + std::to_string(r) + " has " +
+                                std::to_string(row.size()) + " values for " +
+                                std::to_string(records.columns.size()) + " columns"};
+        }
+        std::vector<std::unique_ptr<Value>> children;
+        children.reserve(row.size());
+        for (std::size_t c = 0; c < row.size(); ++c) {
+            const DbColumnType type = records.columns[c].second;
+            const DbScalar& field = row[c];
+            const bool matches =
+                (type == DbColumnType::Bool && std::holds_alternative<bool>(field)) ||
+                (type == DbColumnType::Int64 && std::holds_alternative<std::int64_t>(field)) ||
+                (type == DbColumnType::Double && std::holds_alternative<double>(field));
+            if (!matches) {
+                throw EngineDbError{"record " + std::to_string(r) + ", column " +
+                                    records.columns[c].first +
+                                    ": value is not of the column's type"};
+            }
+            children.push_back(
+                std::visit([](auto v) { return std::make_unique<Value>(v); }, field));
+        }
+        items.push_back(std::make_unique<Value>(structType.copy(), std::move(children)));
+    }
+    return std::make_unique<Value>(LogicalType::LIST(structType.copy()), std::move(items));
+}
+
 /// Converts a DbParameter to the Ladybug value bound to a `$name`.
 ///
 /// @param parameter  The parameter's value.
 /// @return A new Ladybug value of the matching type: BOOL, INT64, DOUBLE,
-///         STRING, or a LIST of INT64.
+///         STRING, a LIST of INT64, or a LIST of STRUCT.
+/// @throws EngineDbError  If a DbRecordList is malformed (toLadybugRecords).
 std::unique_ptr<lbug::common::Value> toLadybugValue(const DbParameter& parameter) {
     return std::visit(
         [](const auto& v) -> std::unique_ptr<lbug::common::Value> {
             using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, std::vector<std::int64_t>>) {
+            if constexpr (std::is_same_v<T, DbRecordList>) {
+                return toLadybugRecords(v);
+            } else if constexpr (std::is_same_v<T, std::vector<std::int64_t>>) {
                 using lbug::common::LogicalType;
                 std::vector<std::unique_ptr<lbug::common::Value>> children;
                 children.reserve(v.size());

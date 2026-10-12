@@ -21,6 +21,8 @@
 namespace {
 
 using rainbohz::rendering_engine::Census;
+using rainbohz::rendering_engine::DbColumnType;
+using rainbohz::rendering_engine::DbRecordList;
 using rainbohz::rendering_engine::DbRow;
 using rainbohz::rendering_engine::DbValue;
 using rainbohz::rendering_engine::EngineDb;
@@ -224,6 +226,77 @@ TEST(EngineDb, QueryBindsAListOfIds) {
         db.query("UNWIND $ids AS id MATCH (p:Point {id: id}) RETURN p.t;",
               {{"ids", std::vector<std::int64_t>{}}})
             .empty());
+}
+
+// A list of records is how one statement writes many rows, and RETURN gives
+// back the id each row was assigned, keyed by the caller's own key.
+TEST(EngineDb, QueryBindsAListOfRecords) {
+    EngineDb db;
+    db.execute("CREATE NODE TABLE Point(id SERIAL, t DOUBLE, lit BOOLEAN, PRIMARY KEY(id));");
+    DbRecordList records{
+        .columns = {{"k", DbColumnType::Int64}, {"t", DbColumnType::Double},
+            {"lit", DbColumnType::Bool}},
+        .rows = {{std::int64_t{10}, 0.5, true}, {std::int64_t{20}, 1.5, false}},
+    };
+    const std::vector<DbRow> created =
+        db.query("UNWIND $rows AS r CREATE (p:Point {t: r.t, lit: r.lit}) RETURN r.k, p.id;",
+            {{"rows", records}});
+    ASSERT_EQ(created.size(), 2U);
+    EXPECT_EQ(requireInt64(created[0][0]), 10);
+    EXPECT_EQ(requireInt64(created[1][0]), 20);
+
+    const std::vector<DbRow> rows = db.query("MATCH (p:Point) WHERE p.id = $id RETURN p.t, p.lit;",
+        {{"id", requireInt64(created[1][1])}});
+    ASSERT_EQ(rows.size(), 1U);
+    EXPECT_EQ(optionalDouble(rows[0][0]), 1.5);
+    EXPECT_EQ(std::get<bool>(rows[0][1]), false);
+
+    // An empty list writes nothing rather than failing.
+    records.rows.clear();
+    EXPECT_TRUE(
+        db.query("UNWIND $rows AS r CREATE (p:Point {t: r.t, lit: r.lit}) RETURN r.k, p.id;",
+              {{"rows", records}})
+            .empty());
+}
+
+// COPY from a subquery over a list of records adds relationships by
+// primary-key index lookup, inside an explicit transaction.
+TEST(EngineDb, CopyAddsRelationshipsFromAListOfRecords) {
+    EngineDb db;
+    db.execute("CREATE NODE TABLE Point(id SERIAL, PRIMARY KEY(id));");
+    db.execute("CREATE NODE TABLE Head(id SERIAL, PRIMARY KEY(id));");
+    db.execute("CREATE REL TABLE NEXT(FROM Head TO Point, FROM Point TO Point, ONE_ONE);");
+    for (int i = 0; i < 3; ++i) {
+        db.execute("CREATE (:Point {});");
+    }
+    const DbRecordList links{
+        .columns = {{"from", DbColumnType::Int64}, {"to", DbColumnType::Int64}},
+        .rows = {{std::int64_t{0}, std::int64_t{1}}, {std::int64_t{1}, std::int64_t{2}}},
+    };
+    {
+        Transaction transaction{db};
+        db.query("COPY NEXT FROM (UNWIND $rows AS r RETURN r.from, r.to) "
+                 "(from='Point', to='Point');",
+            {{"rows", links}});
+        transaction.commit();
+    }
+    const std::vector<DbRow> rows =
+        db.query("MATCH (a:Point)-[:NEXT]->(b:Point) RETURN a.id, b.id ORDER BY a.id;");
+    ASSERT_EQ(rows.size(), 2U);
+    EXPECT_EQ(requireInt64(rows[0][1]), 1);
+    EXPECT_EQ(requireInt64(rows[1][1]), 2);
+}
+
+TEST(EngineDb, QueryRefusesAMalformedListOfRecords) {
+    EngineDb db;
+    db.execute("CREATE NODE TABLE Point(id SERIAL, t DOUBLE, PRIMARY KEY(id));");
+    const std::string cypher = "UNWIND $rows AS r CREATE (:Point {t: r.t});";
+    const DbRecordList shortRow{.columns = {{"t", DbColumnType::Double}}, .rows = {{}}};
+    EXPECT_THROW(db.query(cypher, {{"rows", shortRow}}), EngineDbError);
+    const DbRecordList wrongType{
+        .columns = {{"t", DbColumnType::Double}}, .rows = {{std::int64_t{1}}}};
+    EXPECT_THROW(db.query(cypher, {{"rows", wrongType}}), EngineDbError);
+    EXPECT_EQ(countPoints(db), 0);
 }
 
 TEST(EngineDb, QueryReportsFailures) {

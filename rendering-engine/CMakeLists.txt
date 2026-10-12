@@ -125,6 +125,7 @@ add_library(rendering_engine_lib STATIC
     src/transform/timing_query.cpp
     src/transform/transform.cpp
     src/wav_writer.cpp
+    src/write_batch.cpp
 )
 add_library(rainbohz::rendering_engine_lib ALIAS rendering_engine_lib)
 

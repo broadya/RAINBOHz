@@ -239,6 +239,7 @@ rendering-engine/
 │   ├── segment_maths.hpp   a segment's frequency and phase
 │   ├── units.hpp           unit types for physical quantities
 │   ├── wav_writer.hpp      32-bit float WAV output (dr_wav)
+│   ├── write_batch.hpp     batched writes: rows per table, one statement each
 │   └── transform/          the transform stage: the only home of musical time
 │       ├── musical_units.hpp  ticks, tempo, ticks per beat
 │       ├── tempo_map.hpp      the TempoMap and its conversion to seconds
@@ -261,6 +262,7 @@ rendering-engine/
 │   ├── script_loader.cpp
 │   ├── server.cpp           the only file that includes cpp-httplib
 │   ├── wav_writer.cpp
+│   ├── write_batch.cpp
 │   └── transform/
 │       ├── squash.cpp
 │       ├── tempo_map.cpp
@@ -288,6 +290,7 @@ rendering-engine/
     ├── test_server.cpp
     ├── test_units.cpp
     ├── test_wav_writer.cpp
+    ├── test_write_batch.cpp
     └── transform/
         ├── test_musical_units.cpp
         ├── test_squash.cpp

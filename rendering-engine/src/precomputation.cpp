@@ -3,6 +3,7 @@
 #include "rainbohz/rendering_engine/precomputation.hpp"
 
 #include "rainbohz/rendering_engine/spatial_gains.hpp"
+#include "rainbohz/rendering_engine/write_batch.hpp"
 
 #include <algorithm>
 #include <array>
@@ -176,119 +177,147 @@ constexpr std::string_view kReadCompensationLinks =
     "MATCH (a:PartialPhaseCompensationSegment)-[:NEXT_POINT]->(b:PartialPhaseCompensationSegment) "
     "RETURN a.id, b.id;";
 
-/// Deletes a set of PartialPhaseCompensationSegments by id.
-constexpr std::string_view kDeleteCompensation =
-    "UNWIND $ids AS id MATCH (c:PartialPhaseCompensationSegment {id: id}) DETACH DELETE c;";
+/// How many partials' output is written per flush, and so per transaction
+/// (§10). Rows per statement grow with it; past a few thousand the cost per
+/// row no longer falls (ADR 0022).
+constexpr std::size_t kPartialsPerFlush = 64;
 
-/// Deletes the PartialSegmentNominalFrequency of the PartialIntegrableSegment $segment.
-constexpr std::string_view kDeleteNominalOfSegment =
+/// Every FrameEntry of an earlier run, with the partial it belongs to, so that
+/// it can be deleted by id rather than found through the partial (§10).
+constexpr std::string_view kReadExistingFrameEntries =
+    "MATCH (e:FrameEntry)-[:FRAME_ENTRY_PARTIAL]->(p:Partial) RETURN p.id, e.id;";
+
+/// The PartialSegmentNominalFrequency of every existing PartialIntegrableSegment.
+constexpr std::string_view kReadExistingNominals =
     "MATCH (s:PartialIntegrableSegment)-[:SEGMENT_TO_FREQUENCY_NOMINAL]->"
-    "(n:PartialSegmentNominalFrequency) WHERE s.id = $segment DETACH DELETE n;";
+    "(n:PartialSegmentNominalFrequency) RETURN s.id, n.id;";
 
-/// Deletes a PartialIntegrableSegment by id.
-constexpr std::string_view kDeleteSegment =
-    "MATCH (s:PartialIntegrableSegment) WHERE s.id = $segment DETACH DELETE s;";
+/// Every Partial that already has PARTIAL_IN_FRAME edges.
+constexpr std::string_view kReadExistingFrameScope =
+    "MATCH (p:Partial)-[:PARTIAL_IN_FRAME]->(:Frame) RETURN DISTINCT p.id;";
 
-/// Deletes a PartialSegmentPhysicalTimeline by id.
-constexpr std::string_view kDeletePhysicalTimeline =
-    "MATCH (t:PartialSegmentPhysicalTimeline) WHERE t.id = $physicalTimeline DETACH DELETE t;";
-
-/// Deletes the PARTIAL_IN_FRAME edges from the Partial $partial to its Frames.
-constexpr std::string_view kDeleteFrameScope =
-    "MATCH (p:Partial)-[r:PARTIAL_IN_FRAME]->(:Frame) WHERE p.id = $partial DELETE r;";
-
-/// Deleting a segment removes the FRAME_ENTRY_PHYSICAL_TIMELINE edges into it, but the
-/// FrameEntry nodes themselves, and their other edges, are the partial's
-/// output too and go explicitly (§10).
-constexpr std::string_view kDeleteFrameEntries =
-    "MATCH (e:FrameEntry)-[:FRAME_ENTRY_PARTIAL]->(p:Partial) WHERE p.id = $partial "
-    "DETACH DELETE e;";
-
-/// Creates a PartialSegmentPhysicalTimeline for the Partial $partial and returns its id.
-constexpr std::string_view kCreatePhysicalTimeline =
-    "MATCH (p:Partial) WHERE p.id = $partial "
-    "CREATE (p)-[:HAS_PHYSICAL_TIMELINE]->(t:PartialSegmentPhysicalTimeline) RETURN t.id;";
-
-// Frame numbers are INT32 in the schema; range() yields INT64.
-/// Links the Partial $partial by PARTIAL_IN_FRAME to each Frame from $first to $last,
-/// merging any Frame that does not exist yet.
-constexpr std::string_view kCreateFrameScope = "MATCH (p:Partial) WHERE p.id = $partial "
-                                               "UNWIND range($first, $last) AS k "
-                                               "MERGE (f:Frame {frame_number: CAST(k AS INT32)}) "
-                                               "CREATE (p)-[:PARTIAL_IN_FRAME]->(f);";
-
-/// One FrameEntry with its eight edges, from the frame number and the ids of
-/// the six list nodes it leads to (§6.7): the partial's segment, amplitude
-/// point and compensation segment, and its SoundSource's azimuth, elevation
-/// and distance points. One statement per frame; UNWIND over a list parameter
-/// is the batching path if the count ever shows in a profile (§10). The Frame
-/// node exists: kCreateFrameScope has just merged it.
-constexpr std::string_view kCreateFrameEntry =
-    "MATCH (f:Frame), (p:Partial), (s:PartialIntegrableSegment), "
-    "(a:AmplitudePhysicalTimelinePoint), (c:PartialPhaseCompensationSegment), "
-    "(az:AzimuthPhysicalTimelinePoint), (el:ElevationPhysicalTimelinePoint), "
-    "(d:DistancePhysicalTimelinePoint) "
-    "WHERE f.frame_number = CAST($frame AS INT32) AND p.id = $partial "
-    "AND s.id = $segment AND a.id = $point AND c.id = $compensation "
-    "AND az.id = $azimuth AND el.id = $elevation AND d.id = $distance "
-    "CREATE (f)-[:FRAME_ENTRY]->(e:FrameEntry)-[:FRAME_ENTRY_PARTIAL]->(p), "
-    "(e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(s), (e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(a), "
-    "(e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(c), (e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(az), "
-    "(e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(el), (e)-[:FRAME_ENTRY_PHYSICAL_TIMELINE]->(d) "
-    "RETURN e.id;";
-
-/// One compensation segment, linked from the PartialSegmentPhysicalTimeline
-/// (the first) or from the previous compensation segment (§6.8).
-constexpr std::string_view kCreateFirstCompensation =
-    "MATCH (prev:PartialSegmentPhysicalTimeline) WHERE prev.id = $previous "
-    "CREATE (prev)-[:NEXT_POINT]->(c:PartialPhaseCompensationSegment {"
-    "start_time: $startTime, end_time: $endTime, "
-    "start_phase_delta: $startDelta, end_phase_delta: $endDelta}) RETURN c.id;";
-
-/// As kCreateFirstCompensation, but linked from the previous compensation segment.
-constexpr std::string_view kCreateNextCompensation =
-    "MATCH (prev:PartialPhaseCompensationSegment) WHERE prev.id = $previous "
-    "CREATE (prev)-[:NEXT_POINT]->(c:PartialPhaseCompensationSegment {"
-    "start_time: $startTime, end_time: $endTime, "
-    "start_phase_delta: $startDelta, end_phase_delta: $endDelta}) RETURN c.id;";
-
-/// The statement that creates one segment and its nominal frequency, linked
-/// from the node before it in the chain.
+/// A statement that deletes the nodes of `table` whose ids are staged.
 ///
-/// There are four variants, from two choices: what the segment is linked from
-/// (the timeline node, or the previous segment), and whether its nominal
-/// frequency has a linear component. Curve properties are never written, so
-/// they are NULL, as §5 requires. Each variant is a fixed string, so EngineDb
-/// prepares each once.
+/// @param table  Node table with a SERIAL `id` key.
+/// @return The statement, over rows with one Int64 column `id`. Each row is
+///         found by primary key, and DETACH DELETE removes its edges too.
+std::string deleteById(std::string_view table) {
+    return "UNWIND $rows AS r MATCH (n:" + std::string{table} + " {id: r.id}) DETACH DELETE n;";
+}
+
+/// The batch operations precomputation writes through, one per table or
+/// relationship pair (§10). Registered once per run.
+struct Writes {
+    /// @name Deletes of an earlier run's output, by id
+    ///@{
+    WriteOperation deleteFrameEntries; ///< FrameEntry nodes.
+    WriteOperation deleteNominals;     ///< PartialSegmentNominalFrequency nodes.
+    WriteOperation deleteSegments;     ///< PartialIntegrableSegment nodes.
+    WriteOperation deleteCompensation; ///< PartialPhaseCompensationSegment nodes.
+    WriteOperation deleteTimelines;    ///< PartialSegmentPhysicalTimeline nodes.
+    WriteOperation deleteFrameScope;   ///< A partial's PARTIAL_IN_FRAME edges.
+    ///@}
+
+    /// @name Nodes
+    ///@{
+    WriteOperation mergeFrame;    ///< Frame nodes, created if missing.
+    WriteOperation timeline;      ///< PartialSegmentPhysicalTimeline.
+    WriteOperation segment;       ///< PartialIntegrableSegment.
+    WriteOperation nominalLinear; ///< PartialSegmentNominalFrequency with a linear component.
+    WriteOperation nominalFlat;   ///< PartialSegmentNominalFrequency without one.
+    WriteOperation compensation;  ///< PartialPhaseCompensationSegment.
+    WriteOperation frameEntry;    ///< FrameEntry.
+    ///@}
+
+    /// @name Relationships
+    ///@{
+    WriteOperation hasTimeline;       ///< Partial → PartialSegmentPhysicalTimeline.
+    WriteOperation firstSegment;      ///< Timeline → first segment, NEXT_POINT.
+    WriteOperation nextSegment;       ///< Segment → segment, NEXT_POINT.
+    WriteOperation firstCompensation; ///< Timeline → first compensation segment.
+    WriteOperation nextCompensation;  ///< Compensation → compensation segment.
+    WriteOperation segmentNominal;    ///< Segment → its nominal frequency.
+    WriteOperation partialInFrame;    ///< Partial → Frame, by frame number.
+    WriteOperation frameToEntry;      ///< Frame → FrameEntry.
+    WriteOperation entryPartial;      ///< FrameEntry → Partial.
+    /// FrameEntry → the six list nodes it leads to (§6.7): segment, amplitude
+    /// point, compensation segment, then azimuth, elevation and distance
+    /// points.
+    std::array<WriteOperation, 6> entryLists;
+    ///@}
+};
+
+/// Registers every operation precomputation writes through.
 ///
-/// @param afterPhysicalTimeline  True for the first segment, linked from the
-///                       PartialSegmentPhysicalTimeline; false for the others, linked
-///                       from the previous PartialIntegrableSegment.
-/// @param linear         Whether to write linear_gradient, and
-///                       linear_component true; otherwise linear_component is
-///                       false and linear_gradient NULL.
-/// @return The statement. It binds $previous, $startTime, $endTime,
-///         $startPhase, $startFrequency, and, when `linear`, $linearGradient;
-///         and returns the new segment's id.
-const std::string& createSegmentStatement(bool afterPhysicalTimeline, bool linear) {
-    const auto build = [](bool fromPhysicalTimeline, bool withLinear) {
-        std::string cypher = fromPhysicalTimeline ? "MATCH (prev:PartialSegmentPhysicalTimeline) "
-                                                  : "MATCH (prev:PartialIntegrableSegment) ";
-        cypher += "WHERE prev.id = $previous "
-                  "CREATE (prev)-[:NEXT_POINT]->(s:PartialIntegrableSegment {"
-                  "start_time: $startTime, end_time: $endTime, start_phase: $startPhase"
-                  "})-[:SEGMENT_TO_FREQUENCY_NOMINAL]->(:PartialSegmentNominalFrequency {"
-                  "start_nominal_frequency: $startFrequency, ";
-        cypher += withLinear ? "linear_component: true, linear_gradient: $linearGradient, "
-                             : "linear_component: false, ";
-        cypher += "curve_component: false}) RETURN s.id;";
-        return cypher;
+/// @param[in,out] batch  The batch to register them with.
+/// @return The operations.
+Writes registerWrites(WriteBatch& batch) {
+    using enum DbColumnType;
+    constexpr std::string_view kNext = "NEXT_POINT";
+    constexpr std::string_view kTimeline = "PartialSegmentPhysicalTimeline";
+    constexpr std::string_view kSegment = "PartialIntegrableSegment";
+    constexpr std::string_view kCompensation = "PartialPhaseCompensationSegment";
+    constexpr std::string_view kEntryList = "FRAME_ENTRY_PHYSICAL_TIMELINE";
+    const auto byId = [&](std::string_view table) {
+        return batch.addStatement(WritePhase::Delete, deleteById(table), {{"id", Int64}});
     };
-    static const std::array<std::array<std::string, 2>, 2> kVariants{{
-        {build(false, false), build(false, true)},
-        {build(true, false), build(true, true)},
-    }};
-    return kVariants[afterPhysicalTimeline ? 1 : 0][linear ? 1 : 0];
+    const auto edge = [&](std::string_view rel, std::string_view from, std::string_view to) {
+        return batch.addEdgeInsert(rel, from, to);
+    };
+    Writes writes{};
+    writes.deleteFrameEntries = byId("FrameEntry");
+    writes.deleteNominals = byId("PartialSegmentNominalFrequency");
+    writes.deleteSegments = byId(kSegment);
+    writes.deleteCompensation = byId(kCompensation);
+    writes.deleteTimelines = byId(kTimeline);
+    writes.deleteFrameScope = batch.addStatement(WritePhase::Delete,
+        "UNWIND $rows AS r MATCH (p:Partial {id: r.id})-[e:PARTIAL_IN_FRAME]->(:Frame) DELETE e;",
+        {{"id", Int64}});
+
+    // Frame numbers are INT32 in the schema; the row carries an INT64.
+    writes.mergeFrame = batch.addStatement(WritePhase::Node,
+        "UNWIND $rows AS r MERGE (:Frame {frame_number: CAST(r.frame AS INT32)});",
+        {{"frame", Int64}}, true);
+    writes.timeline = batch.addNodeInsert("CREATE (n:PartialSegmentPhysicalTimeline)", {});
+    writes.segment = batch.addNodeInsert("CREATE (n:PartialIntegrableSegment {start_time: "
+                                         "r.startTime, end_time: r.endTime, start_phase: "
+                                         "r.startPhase})",
+        {{"startTime", Double}, {"endTime", Double}, {"startPhase", Double}});
+    // Curve properties are never written, so they are NULL, as §5 requires;
+    // a flat nominal frequency leaves linear_gradient NULL the same way.
+    writes.nominalLinear = batch.addNodeInsert(
+        "CREATE (n:PartialSegmentNominalFrequency {start_nominal_frequency: r.startFrequency, "
+        "linear_component: true, linear_gradient: r.linearGradient, curve_component: false})",
+        {{"startFrequency", Double}, {"linearGradient", Double}});
+    writes.nominalFlat = batch.addNodeInsert(
+        "CREATE (n:PartialSegmentNominalFrequency {start_nominal_frequency: r.startFrequency, "
+        "linear_component: false, curve_component: false})",
+        {{"startFrequency", Double}});
+    writes.compensation = batch.addNodeInsert(
+        "CREATE (n:PartialPhaseCompensationSegment {start_time: r.startTime, end_time: "
+        "r.endTime, start_phase_delta: r.startDelta, end_phase_delta: r.endDelta})",
+        {{"startTime", Double}, {"endTime", Double}, {"startDelta", Double}, {"endDelta", Double}});
+    writes.frameEntry = batch.addNodeInsert("CREATE (n:FrameEntry)", {});
+
+    writes.hasTimeline = edge("HAS_PHYSICAL_TIMELINE", "Partial", kTimeline);
+    writes.firstSegment = edge(kNext, kTimeline, kSegment);
+    writes.nextSegment = edge(kNext, kSegment, kSegment);
+    writes.firstCompensation = edge(kNext, kTimeline, kCompensation);
+    writes.nextCompensation = edge(kNext, kCompensation, kCompensation);
+    writes.segmentNominal =
+        edge("SEGMENT_TO_FREQUENCY_NOMINAL", kSegment, "PartialSegmentNominalFrequency");
+    writes.partialInFrame = edge("PARTIAL_IN_FRAME", "Partial", "Frame");
+    writes.frameToEntry = edge("FRAME_ENTRY", "Frame", "FrameEntry");
+    writes.entryPartial = edge("FRAME_ENTRY_PARTIAL", "FrameEntry", "Partial");
+    writes.entryLists = {
+        edge(kEntryList, "FrameEntry", kSegment),
+        edge(kEntryList, "FrameEntry", "AmplitudePhysicalTimelinePoint"),
+        edge(kEntryList, "FrameEntry", kCompensation),
+        edge(kEntryList, "FrameEntry", "AzimuthPhysicalTimelinePoint"),
+        edge(kEntryList, "FrameEntry", "ElevationPhysicalTimelinePoint"),
+        edge(kEntryList, "FrameEntry", "DistancePhysicalTimelinePoint"),
+    };
+    return writes;
 }
 
 // ---------------------------------------------------------------------------
@@ -374,6 +403,16 @@ struct Inputs {
 
     /// PartialPhaseCompensationSegment NEXT_POINT links: id to next id.
     std::unordered_map<std::int64_t, std::int64_t> compensationNext;
+
+    /// For each PartialIntegrableSegment with a nominal frequency, the
+    /// PartialSegmentNominalFrequency's id.
+    std::unordered_map<std::int64_t, std::int64_t> segmentNominal;
+
+    /// For each partial with FrameEntry nodes from an earlier run, their ids.
+    std::unordered_map<std::int64_t, std::vector<std::int64_t>> existingFrameEntries;
+
+    /// Partials that already have PARTIAL_IN_FRAME edges.
+    std::unordered_set<std::int64_t> existingFrameScope;
 };
 
 /// Reads an id-to-id link table from a two-column query.
@@ -482,6 +521,14 @@ Inputs readInputs(EngineDb& db) {
 
     inputs.segmentNext = readLinks(db, kReadSegmentLinks);
     inputs.compensationNext = readLinks(db, kReadCompensationLinks);
+    inputs.segmentNominal = readLinks(db, kReadExistingNominals);
+
+    for (const DbRow& row : db.query(kReadExistingFrameEntries)) {
+        inputs.existingFrameEntries[requireInt64(row.at(0))].push_back(requireInt64(row.at(1)));
+    }
+    for (const DbRow& row : db.query(kReadExistingFrameScope)) {
+        inputs.existingFrameScope.insert(requireInt64(row.at(0)));
+    }
 
     return inputs;
 }
@@ -556,6 +603,9 @@ struct StalePhysicalTimeline {
 
     /// Its PartialPhaseCompensationSegment ids, in chain order.
     std::vector<std::int64_t> compensationIds;
+
+    /// The PartialSegmentNominalFrequency ids of its segments.
+    std::vector<std::int64_t> nominalIds;
 };
 
 /// Everything to be written for one partial.
@@ -565,6 +615,12 @@ struct PartialOutput {
 
     /// Timelines from an earlier run to delete.
     std::vector<StalePhysicalTimeline> stale;
+
+    /// FrameEntry nodes from an earlier run to delete.
+    std::vector<std::int64_t> staleFrameEntries;
+
+    /// Whether the partial has PARTIAL_IN_FRAME edges from an earlier run.
+    bool staleFrameScope = false;
 
     /// The segments to write, integrated.
     std::vector<Segment> segments;
@@ -588,118 +644,90 @@ struct PartialOutput {
     std::vector<FrameEntryTarget> entries;
 };
 
-/// Replaces a partial's output in one transaction (§6.2, stage 4; §9).
+/// Stages the replacement of a partial's output as one unit of `batch`
+/// (§6.2, stage 5; §9).
 ///
-/// Deletes the partial's FrameEntry nodes, the stale timelines, their
-/// segments, nominal frequencies and compensation segments, and the partial's
-/// PARTIAL_IN_FRAME edges; then creates the new timeline, segment chain and
-/// nominal frequencies, compensation chain, any missing Frame nodes, the new
-/// frame scope edges, and one FrameEntry per frame in scope with its eight
-/// edges.
+/// The unit deletes, by id, the partial's FrameEntry nodes, its stale
+/// timelines with their segments, nominal frequencies and compensation
+/// segments, and its PARTIAL_IN_FRAME edges; then creates the new timeline,
+/// segment chain and nominal frequencies, compensation chain, any missing
+/// Frame nodes, the frame scope edges, and one FrameEntry per frame in scope
+/// with its eight edges. New nodes are referred to by handle until the batch
+/// flushes, so nothing here waits for an id.
 ///
-/// @param[in,out] db  Database to write. Modified only if every statement
-///                    succeeds; otherwise the transaction is rolled back.
-/// @param output      What to write.
-/// @throws EngineDbError  If any statement fails. Nothing has been written.
-/// @throws PartialPrecomputationError  If the partial is no longer in the
-///         database. Nothing has been written.
-void writePartial(EngineDb& db, const PartialOutput& output) {
-    Transaction transaction{db};
+/// @param[in,out] batch  Batch to stage into. Gains one unit; nothing is
+///                       written until it flushes, and then the unit is
+///                       written whole or not at all.
+/// @param writes         The batch's registered operations.
+/// @param output         What to write.
+void stagePartial(WriteBatch& batch, const Writes& writes, const PartialOutput& output) {
+    batch.beginUnit();
+    const auto stageIds = [&](WriteOperation operation, const std::vector<std::int64_t>& ids) {
+        for (const std::int64_t id : ids) {
+            batch.stageRow(operation, {id});
+        }
+    };
 
-    db.query(kDeleteFrameEntries, {{"partial", output.partialId}});
+    stageIds(writes.deleteFrameEntries, output.staleFrameEntries);
     for (const StalePhysicalTimeline& stale : output.stale) {
-        for (const std::int64_t segmentId : stale.segmentIds) {
-            db.query(kDeleteNominalOfSegment, {{"segment", segmentId}});
-            db.query(kDeleteSegment, {{"segment", segmentId}});
-        }
-        if (!stale.compensationIds.empty()) {
-            db.query(kDeleteCompensation, {{"ids", stale.compensationIds}});
-        }
-        db.query(kDeletePhysicalTimeline, {{"physicalTimeline", stale.physicalTimelineId}});
+        stageIds(writes.deleteNominals, stale.nominalIds);
+        stageIds(writes.deleteSegments, stale.segmentIds);
+        stageIds(writes.deleteCompensation, stale.compensationIds);
+        batch.stageRow(writes.deleteTimelines, {stale.physicalTimelineId});
     }
-    db.query(kDeleteFrameScope, {{"partial", output.partialId}});
-
-    const std::vector<DbRow> created =
-        db.query(kCreatePhysicalTimeline, {{"partial", output.partialId}});
-    if (created.size() != 1) {
-        throw PartialPrecomputationError{"the partial disappeared while it was being precomputed"};
+    if (output.staleFrameScope) {
+        batch.stageRow(writes.deleteFrameScope, {output.partialId});
     }
-    const std::int64_t physicalTimelineId = requireInt64(created.front().at(0));
-    std::int64_t previous = physicalTimelineId;
 
-    std::vector<std::int64_t> segmentIds;
-    segmentIds.reserve(output.segments.size());
-    bool first = true;
+    const NodeHandle timeline = batch.stageNode(writes.timeline, {});
+    batch.stageEdge(writes.hasTimeline, output.partialId, timeline);
+
+    std::vector<NodeHandle> segments;
+    segments.reserve(output.segments.size());
     for (const Segment& segment : output.segments) {
+        const NodeHandle node = batch.stageNode(writes.segment,
+            {segment.startTime.value(), segment.endTime.value(), segment.startPhase.value()});
         const std::optional<FrequencyGradient>& gradient = segment.nominal.linearGradient;
-        DbParameters parameters{
-            {"previous", previous},
-            {"startTime", segment.startTime.value()},
-            {"endTime", segment.endTime.value()},
-            {"startPhase", segment.startPhase.value()},
-            {"startFrequency", segment.nominal.startFrequency.value()},
-        };
-        if (gradient.has_value()) {
-            parameters.emplace_back("linearGradient", gradient->value());
-        }
-        const std::vector<DbRow> rows =
-            db.query(createSegmentStatement(first, gradient.has_value()), parameters);
-        if (rows.size() != 1) {
-            throw EngineDbError{"creating a PartialIntegrableSegment returned " +
-                                std::to_string(rows.size()) + " rows, not 1"};
-        }
-        previous = requireInt64(rows.front().at(0));
-        segmentIds.push_back(previous);
-        first = false;
+        const NodeHandle nominal =
+            gradient.has_value()
+                ? batch.stageNode(writes.nominalLinear,
+                      {segment.nominal.startFrequency.value(), gradient->value()})
+                : batch.stageNode(writes.nominalFlat, {segment.nominal.startFrequency.value()});
+        batch.stageEdge(segments.empty() ? writes.firstSegment : writes.nextSegment,
+            segments.empty() ? timeline : segments.back(), node);
+        batch.stageEdge(writes.segmentNominal, node, nominal);
+        segments.push_back(node);
     }
 
-    std::vector<std::int64_t> compensationIds;
-    compensationIds.reserve(output.compensation.size());
-    previous = physicalTimelineId;
+    std::vector<NodeHandle> compensation;
+    compensation.reserve(output.compensation.size());
     for (const CompensationSegment& segment : output.compensation) {
-        const std::vector<DbRow> rows =
-            db.query(compensationIds.empty() ? kCreateFirstCompensation : kCreateNextCompensation,
-                {
-                    {"previous", previous},
-                    {"startTime", segment.startTime.value()},
-                    {"endTime", segment.endTime.value()},
-                    {"startDelta", segment.startDelta.value()},
-                    {"endDelta", segment.endDelta.value()},
-                });
-        if (rows.size() != 1) {
-            throw EngineDbError{"creating a PartialPhaseCompensationSegment returned " +
-                                std::to_string(rows.size()) + " rows, not 1"};
-        }
-        previous = requireInt64(rows.front().at(0));
-        compensationIds.push_back(previous);
+        const NodeHandle node = batch.stageNode(
+            writes.compensation, {segment.startTime.value(), segment.endTime.value(),
+                                     segment.startDelta.value(), segment.endDelta.value()});
+        batch.stageEdge(compensation.empty() ? writes.firstCompensation : writes.nextCompensation,
+            compensation.empty() ? timeline : compensation.back(), node);
+        compensation.push_back(node);
     }
 
-    db.query(
-        kCreateFrameScope, {
-                               {"partial", output.partialId},
-                               {"first", static_cast<std::int64_t>(output.frames.first.value())},
-                               {"last", static_cast<std::int64_t>(output.frames.last.value())},
-                           });
+    // Counted in 64 bits, so that a last frame of INT32_MAX ends the loop.
+    for (std::int64_t k = output.frames.first.value(); k <= output.frames.last.value(); ++k) {
+        batch.stageRow(writes.mergeFrame, {k});
+        batch.stageEdge(writes.partialInFrame, output.partialId, k);
+    }
 
     for (const FrameEntryTarget& entry : output.entries) {
-        const std::vector<DbRow> rows = db.query(
-            kCreateFrameEntry, {
-                                   {"frame", static_cast<std::int64_t>(entry.frame.value())},
-                                   {"partial", output.partialId},
-                                   {"segment", segmentIds.at(entry.segment)},
-                                   {"point", output.amplitudePointIds.at(entry.point)},
-                                   {"compensation", compensationIds.at(entry.compensation)},
-                                   {"azimuth", output.spatialPointIds[0][entry.spatial[0]]},
-                                   {"elevation", output.spatialPointIds[1][entry.spatial[1]]},
-                                   {"distance", output.spatialPointIds[2][entry.spatial[2]]},
-                               });
-        if (rows.size() != 1) {
-            throw EngineDbError{
-                "creating a FrameEntry returned " + std::to_string(rows.size()) + " rows, not 1"};
+        const NodeHandle node = batch.stageNode(writes.frameEntry, {});
+        batch.stageEdge(writes.frameToEntry, std::int64_t{entry.frame.value()}, node);
+        batch.stageEdge(writes.entryPartial, node, output.partialId);
+        batch.stageEdge(writes.entryLists[0], node, segments.at(entry.segment));
+        batch.stageEdge(writes.entryLists[1], node, output.amplitudePointIds.at(entry.point));
+        batch.stageEdge(writes.entryLists[2], node, compensation.at(entry.compensation));
+        for (std::size_t k = 0; k < 3; ++k) {
+            batch.stageEdge(writes.entryLists.at(3 + k), node,
+                output.spatialPointIds.at(k)[entry.spatial.at(k)]);
         }
     }
-
-    transaction.commit();
 }
 
 /// A SoundSource's three spatial timelines, walked and checked once per run
@@ -759,9 +787,11 @@ SourceTimelines readSourceTimelines(
     return result;
 }
 
-/// Precomputes and writes one partial.
+/// Precomputes one partial and stages its output.
 ///
-/// @param[in,out] db    Database to write the partial's output to.
+/// @param[in,out] batch  Batch the partial's output is staged into, as one
+///                      unit; it is written when the batch flushes.
+/// @param writes        The batch's registered operations.
 /// @param inputs        Everything read for the run.
 /// @param[in,out] sources  The spatial timelines of the sources checked so
 ///                      far; gains the partial's source if it is new.
@@ -769,12 +799,13 @@ SourceTimelines readSourceTimelines(
 /// @param frameSize     Frame size for its frame scope.
 /// @param[out] outcome  On success, its segmentCount, compensationCount,
 ///                      frames and entryCount are set. Its error is left
-///                      alone.
-/// @throws PartialPrecomputationError  If the partial's inputs are invalid,
-///         or it disappears while being written. Nothing has been written.
-/// @throws EngineDbError  If writing fails. Nothing has been written.
-void precomputePartial(EngineDb& db, const Inputs& inputs, SourceTimelineCache& sources,
-    std::int64_t partialId, FrameSize frameSize, PartialOutcome& outcome) {
+///                      alone. They stand unless the batch then fails to
+///                      write the unit.
+/// @throws PartialPrecomputationError  If the partial's inputs are invalid.
+///         Nothing has been staged.
+void precomputePartial(WriteBatch& batch, const Writes& writes, const Inputs& inputs,
+    SourceTimelineCache& sources, std::int64_t partialId, FrameSize frameSize,
+    PartialOutcome& outcome) {
     // Stage 1: this partial's inputs, from what was read in bulk.
     const auto oneHead = [&](const auto& heads, std::string_view timeline) {
         const auto found = heads.find(partialId);
@@ -851,6 +882,8 @@ void precomputePartial(EngineDb& db, const Inputs& inputs, SourceTimelineCache& 
     PartialOutput output{
         .partialId = partialId,
         .stale = {},
+        .staleFrameEntries = {},
+        .staleFrameScope = false,
         .segments = buildSegments(boundaries, envelope),
         .compensation = {},
         .frames = frameScope(boundaries.front(), boundaries.back(), frameSize),
@@ -869,17 +902,30 @@ void precomputePartial(EngineDb& db, const Inputs& inputs, SourceTimelineCache& 
 
     if (const auto existing = inputs.existing.find(partialId); existing != inputs.existing.end()) {
         for (const ExistingPhysicalTimeline& physicalTimeline : existing->second) {
-            output.stale.push_back(StalePhysicalTimeline{
+            StalePhysicalTimeline stale{
                 .physicalTimelineId = physicalTimeline.physicalTimelineId,
                 .segmentIds = walkChain(physicalTimeline.headSegment, inputs.segmentNext,
                     "existing PartialSegmentPhysicalTimeline"),
                 .compensationIds = walkChain(physicalTimeline.headCompensation,
                     inputs.compensationNext, "existing PartialPhaseCompensationSegment list"),
-            });
+                .nominalIds = {},
+            };
+            for (const std::int64_t segmentId : stale.segmentIds) {
+                if (const auto nominal = inputs.segmentNominal.find(segmentId);
+                    nominal != inputs.segmentNominal.end()) {
+                    stale.nominalIds.push_back(nominal->second);
+                }
+            }
+            output.stale.push_back(std::move(stale));
         }
     }
+    if (const auto entries = inputs.existingFrameEntries.find(partialId);
+        entries != inputs.existingFrameEntries.end()) {
+        output.staleFrameEntries = entries->second;
+    }
+    output.staleFrameScope = inputs.existingFrameScope.contains(partialId);
 
-    writePartial(db, output);
+    stagePartial(batch, writes, output);
 
     outcome.segmentCount = output.segments.size();
     outcome.compensationCount = output.compensation.size();
@@ -1400,6 +1446,25 @@ PrecomputationReport precomputeAll(EngineDb& db) {
 
     const Inputs inputs = readInputs(db);
     SourceTimelineCache sources;
+    WriteBatch batch{db};
+    const Writes writes = registerWrites(batch);
+
+    // Each staged partial's index in the report, in the order of its unit.
+    std::vector<std::size_t> staged;
+    const auto flush = [&] {
+        const std::vector<std::optional<std::string>> results = batch.flush();
+        for (std::size_t unit = 0; unit < results.size(); ++unit) {
+            if (results[unit].has_value()) {
+                PartialOutcome& outcome = report.partials.at(staged.at(unit));
+                outcome.error = "engine-db: " + *results[unit];
+                outcome.segmentCount = 0;
+                outcome.compensationCount = 0;
+                outcome.frames = std::nullopt;
+                outcome.entryCount = 0;
+            }
+        }
+        staged.clear();
+    };
 
     // Partials are independent; id order only makes the report deterministic.
     for (const auto& [partialId, partialName] : inputs.partials) {
@@ -1413,14 +1478,17 @@ PrecomputationReport precomputeAll(EngineDb& db) {
             .entryCount = 0,
         };
         try {
-            precomputePartial(db, inputs, sources, partialId, report.frameSize, outcome);
+            precomputePartial(batch, writes, inputs, sources, partialId, report.frameSize, outcome);
+            staged.push_back(report.partials.size());
         } catch (const PartialPrecomputationError& e) {
             outcome.error = e.what();
-        } catch (const EngineDbError& e) {
-            outcome.error = std::string{"engine-db: "} + e.what();
         }
         report.partials.push_back(std::move(outcome));
+        if (staged.size() == kPartialsPerFlush) {
+            flush();
+        }
     }
+    flush();
     return report;
 }
 

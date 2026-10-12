@@ -301,9 +301,11 @@ last segment.
 
 ### 6.1 The run
 
-Partials are precomputed one at a time, each in its own transaction. Partials
-are independent (design.md §2), so the order does not matter for correctness;
-they are taken in `Partial.id` order only so that the report is deterministic.
+Partials are precomputed one at a time, and each partial's output is staged
+as one unit of a write batch, which writes 64 partials at a time (§10).
+Partials are independent (design.md §2), so the order does not matter for
+correctness; they are taken in `Partial.id` order only so that the report is
+deterministic.
 
 A failure in one partial is recorded and the run moves on. A failure in
 reading `EngineConfig` is fatal, because no partial can be precomputed without
@@ -320,9 +322,11 @@ flowchart TD
     bulk --> more{"Another partial?"}
     more -- yes --> one[["Precompute one partial (§6.2)"]]
     one --> ok{"Succeeded?"}
-    ok -- yes --> countOk["Count as precomputed"] --> more
+    ok -- yes --> countOk["Count as precomputed"] --> full{"64 partials staged?"}
+    full -- yes --> flush[["Flush the batch (§10):<br/>a partial whose write fails<br/>is recorded as failed"]] --> more
+    full -- no --> more
     ok -- no --> record["Record error:<br/>partial name, point, reason"] --> more
-    more -- no --> report["Report a FAILED line per failed partial<br/>(ok lines under --verbose), then totals"]
+    more -- no --> last[["Flush what remains"]] --> report["Report a FAILED line per failed partial<br/>(ok lines under --verbose), then totals"]
     report --> anyErr{"Any errors recorded?"}
     anyErr -- no --> exitOk(["Run succeeds"])
     anyErr -- yes --> exitErr(["Run fails: non-zero exit;<br/>successful partials remain written"])
@@ -343,8 +347,9 @@ stage 1 and the write touch the database.
    boundaries, each with its nominal frequency parameters.
 4. **Integrate** — walk the segments in order with the phase accumulator,
    from the initial phase φ₀ (§6.8).
-5. **Compensate and write** — build the phase compensation segments (§6.8),
-   then write everything in one transaction.
+5. **Compensate and stage** — build the phase compensation segments (§6.8),
+   then stage everything as one unit of the write batch, which writes it
+   whole or not at all (§10).
 
 ```mermaid
 flowchart TD
@@ -372,24 +377,23 @@ flowchart TD
     scope --> scopeOk{"Frame numbers fit INT32?"}
     scopeOk -- no --> err
 
-    scopeOk -- yes --> begin["BEGIN TRANSACTION"]
-    begin --> del["Delete P's existing PartialSegmentPhysicalTimeline,<br/>its segments, their nominal frequencies, its compensation segments,<br/>P's PARTIAL_IN_FRAME edges and its FrameEntry nodes"]
-    del --> write["Create PartialSegmentPhysicalTimeline, segments,<br/>NEXT_POINT chains, nominal frequencies, compensation segments"]
-    write --> frames["Create missing Frame nodes;<br/>create PARTIAL_IN_FRAME edges"]
-    frames --> entries["Create FrameEntry nodes and their edges (§6.7)"]
-    entries --> dbOk{"All writes succeeded?"}
-    dbOk -- yes --> commit["COMMIT"] --> done(["Success"])
-    dbOk -- no --> rollback["ROLLBACK"] --> err
+    scopeOk -- yes --> begin["Begin a unit of the write batch"]
+    begin --> del["Stage deletes, by id, of P's existing PartialSegmentPhysicalTimeline,<br/>its segments, their nominal frequencies, its compensation segments,<br/>its FrameEntry nodes, and P's PARTIAL_IN_FRAME edges"]
+    del --> write["Stage PartialSegmentPhysicalTimeline, segments,<br/>NEXT_POINT chains, nominal frequencies, compensation segments"]
+    write --> frames["Stage missing Frame nodes<br/>and PARTIAL_IN_FRAME edges"]
+    frames --> entries["Stage FrameEntry nodes and their edges (§6.7)"]
+    entries --> done(["Staged; written when the batch flushes,<br/>whole or not at all"])
 
     err(["Failure: record partial, point, reason;<br/>nothing written for P"])
 ```
 
 A partial that fails is left with **nothing** written, not a partial result:
-every check that can fail runs before the transaction opens, and a database
-failure inside it rolls back. A partial that failed on a previous run and
-fails again keeps whatever the previous successful run wrote, because the
-deletion is inside the rolled-back transaction. With rebuild-every-run this
-is harmless; it will matter once dirty flags exist (§13).
+every check that can fail runs before anything is staged, and a database
+failure while the batch writes is confined to the partial's unit (§10). A
+partial that failed on a previous run and fails again keeps whatever the
+previous successful run wrote, because its deletions are staged with its
+writes and are never written without them. With rebuild-every-run this is
+harmless; it will matter once dirty flags exist (§13).
 
 ### 6.3 Gathering boundaries
 
@@ -850,9 +854,12 @@ of the recreated nodes differ, so nothing may hold such an id across a run.
 This preserves the invariant in design.md §2 that duplicate precomputation is
 safe.
 
-**One transaction per partial.** A partial's output is either completely
-present or completely absent, never half-written, and one partial's failure
-cannot affect another's output.
+**One unit per partial.** A partial's output is either completely present or
+completely absent, never half-written, and one partial's failure cannot
+affect another's output. The write batch keeps this although it writes 64
+partials per transaction: if that transaction fails, it is rolled back and
+each partial is written again in a transaction of its own, so the failure is
+confined to the partial that caused it (§10; @see ADR 0022).
 
 ## 10. Code structure
 
@@ -931,7 +938,7 @@ classDiagram
         +frameScope(SampleTime start, SampleTime end, FrameSize) FrameRange
         -readInputs(EngineDb) Inputs
         -precomputePartial(EngineDb, Inputs, partial, FrameSize)
-        -writePartial(EngineDb, PartialOutput)
+        -stagePartial(WriteBatch, Writes, PartialOutput)
     }
 
     class PrecomputationReport {
@@ -1009,18 +1016,35 @@ partial's lists are then walked in C++ (`walkChain`), which also detects a list
 that loops back on itself. This is cheaper than walking one query per node,
 and it keeps every read ahead of every write.
 
-**Writing.** Every statement is a fixed string with bound parameters, so
-`EngineDb` prepares each once and reuses it for every partial and segment.
-Stale output is deleted segment by segment; each new segment is created
-together with its nominal frequency, linked from the node before it. Frame
-scope is one statement per partial, `UNWIND range($first, $last)` with a
-`MERGE` on `Frame`. Frame entries are one statement per frame in the first
-version, creating the `FrameEntry` node and its five edges together from the
-frame number and the three list node ids; `UNWIND` over a list parameter is
-the batching path if the count shows in a profile. Deleting a partial's
-segments removes their `FRAME_ENTRY_PHYSICAL_TIMELINE` edges with them, but the
-`FrameEntry` nodes and their other edges are deleted explicitly, with the
-scope edges.
+**Writing.** Output goes through a `WriteBatch` (`write_batch.hpp`;
+@see ADR 0022), not one statement per node or edge. Executing a statement
+costs Ladybug far more than writing one row inside it, so the batch sends
+each table's rows as one statement over a list of records. Operations are
+registered once per run, one per table or relationship pair. Rows staged
+against them are written by `flush()` every 64 partials, in a fixed order:
+
+1. deletes of the earlier run's output, all by id: the `FrameEntry` and
+   nominal-frequency ids are read in bulk with the rest of the inputs, so no
+   delete finds its nodes through a hop from the partial, except
+   `PARTIAL_IN_FRAME`, deleted from the partial, and only for partials that
+   had scope before;
+2. nodes: `MERGE` on `Frame` for the frames in scope, sent once each, then
+   `UNWIND $rows AS r CREATE … RETURN r.k, n.id` per node table, which
+   reports the id of each new node by its handle;
+3. relationships: `COPY … FROM (UNWIND $rows AS r RETURN r.from, r.to)` per
+   relationship pair, which finds both ends by primary-key index; ends staged
+   as handles are resolved to the ids from step 2.
+
+So a list is written as one node insert plus one `NEXT_POINT` insert,
+however long it is, and nothing waits for an id. The number of statements per
+flush depends on the number of tables (28 operations), not on the number of
+rows. Nodes come before relationships because node properties never hold
+node ids: every reference between rows is a relationship.
+
+Each partial is one unit of the batch. A flush writes all its units in one
+transaction. If that fails, the batch rolls back and writes each unit in a
+transaction of its own, and a unit that still fails is reported as that
+partial's failure, with Ladybug's error text.
 
 **Tests.** `segment_maths` is tested against hand-derived closed-form values:
 a constant segment, rising and falling glides, negative frequency, a segment of

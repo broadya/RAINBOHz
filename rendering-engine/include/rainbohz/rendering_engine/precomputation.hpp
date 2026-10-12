@@ -588,15 +588,18 @@ struct PrecomputationReport {
 /// Precomputes every partial in `db` (§6.1).
 ///
 /// Reads the EngineConfig and every partial's inputs, then precomputes the
-/// partials one at a time, in Partial.id order, each in its own transaction.
+/// partials one at a time, in Partial.id order. Each partial's output is
+/// staged as one unit of a WriteBatch, which writes 64 partials per
+/// transaction, each table's rows as one statement (§10; @see ADR 0022).
 /// Any output a partial already has -- its PartialSegmentPhysicalTimeline, segments,
 /// their nominal frequencies, its compensation segments, its PARTIAL_IN_FRAME
 /// edges and its FrameEntry nodes -- is deleted and rebuilt. Frame nodes are created as needed and
 /// never deleted.
 ///
 /// A partial that fails is recorded in the report and the run carries on.
-/// Its transaction is rolled back, so any output from an earlier run is left
-/// as it was.
+/// Nothing of it is written, so any output from an earlier run is left as it
+/// was. A failure while the batch writes is confined to the partial that
+/// caused it: the batch then writes each partial in a transaction of its own.
 ///
 /// @param[in,out] db  Database holding the score. Modified: every partial
 ///                    that succeeds has its output replaced, and missing

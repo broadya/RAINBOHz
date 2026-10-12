@@ -82,6 +82,33 @@ using DbValue = std::variant<std::monostate, bool, std::int64_t, double, std::st
 /// One row of a query result, one DbValue per returned column, in order.
 using DbRow = std::vector<DbValue>;
 
+/// One field of a row in a DbRecordList. As with DbParameter, there is no NULL.
+using DbScalar = std::variant<bool, std::int64_t, double>;
+
+/// The Cypher type a DbRecordList column binds as.
+enum class DbColumnType : std::uint8_t {
+    Bool,   ///< BOOLEAN.
+    Int64,  ///< INT64; also how a SERIAL id is passed.
+    Double, ///< DOUBLE.
+};
+
+/// A table of rows, bound to one parameter as a Cypher LIST of STRUCT.
+///
+/// This is how one statement writes many rows: `UNWIND $rows AS r CREATE
+/// (n:T {x: r.x}) RETURN r.k, n.id` inserts every row and reports the id each
+/// was given, and `COPY R FROM (UNWIND $rows AS r RETURN r.from, r.to)` adds
+/// many relationships through the primary-key index. Executing one statement
+/// costs far more than handling one row inside it, so batching rows this way
+/// is what makes bulk writes cheap (@see ADR 0022).
+struct DbRecordList {
+    /// The struct's fields, in order: each name is referenced as `r.<name>`.
+    std::vector<std::pair<std::string, DbColumnType>> columns;
+
+    /// The rows. Each holds one value per column, in column order, of the
+    /// alternative the column's type names; query() refuses any other.
+    std::vector<std::vector<DbScalar>> rows;
+};
+
 /// The value bound to one query parameter. There is no NULL: a property that
 /// should be NULL is left out of the statement instead.
 ///
@@ -91,9 +118,10 @@ using DbRow = std::vector<DbValue>;
 /// partial's list one hop at a time (docs/rendering.md section 6.3). Note that
 /// `WHERE n.id IN $ids` is refused by Ladybug 0.19.1 for a SERIAL id, because
 /// it will not compare a SERIAL[] with an INT64[]; the UNWIND form is the one
-/// that works (established by experiment).
+/// that works (established by experiment). A DbRecordList binds as a LIST of
+/// STRUCT, for writing many rows in one statement.
 using DbParameter =
-    std::variant<bool, std::int64_t, double, std::string, std::vector<std::int64_t>>;
+    std::variant<bool, std::int64_t, double, std::string, std::vector<std::int64_t>, DbRecordList>;
 
 /// Named query parameters. Each name is referenced in the Cypher as `$name`.
 using DbParameters = std::vector<std::pair<std::string, DbParameter>>;
@@ -304,8 +332,10 @@ public:
     /// @return The rows, in the order the database returned them. Empty for
     ///         a statement that returns nothing.
     /// @throws EngineDbError  If the statement fails to prepare or to execute,
-    ///         with Ladybug's error text; or if a returned column is of a type
-    ///         DbValue does not represent.
+    ///         with Ladybug's error text; if a returned column is of a type
+    ///         DbValue does not represent; or if a DbRecordList row has the
+    ///         wrong number of values, or a value of the wrong type for its
+    ///         column. Nothing has been executed in the last case.
     std::vector<DbRow> query(std::string_view cypher, const DbParameters& parameters = {});
 
     /// Starts an explicit read-write transaction on this connection.
