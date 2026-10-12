@@ -9,9 +9,12 @@
 // Every sample of a frame it writes is fill × 100 + frame number, so the
 // output of a session says, sample by sample, which fill of which frame was
 // played: a lane overwritten while it was being read, or a loop played from
-// the wrong fill, shows up as a wrong value.
+// the wrong fill, shows up as a wrong value. In a two-channel mode the right
+// channel holds that value + 0.5, so a slice cut at the wrong place in the
+// interleaved samples shows up too.
 
 #include "rainbohz/playback_client/audio_sink.hpp"
+#include "rainbohz/playback_client/channel_mode.hpp"
 #include "rainbohz/playback_client/playback_api.hpp"
 #include "rainbohz/playback_client/wav_io.hpp"
 
@@ -55,9 +58,15 @@ private:
     std::filesystem::path path_;
 };
 
-/// The value every sample of `frame` from `fill` holds.
+/// The value every sample of `frame` from `fill` holds (the left channel's,
+/// in a two-channel mode).
 inline float frameValue(std::int64_t fill, std::int32_t frame) {
     return static_cast<float>((fill * 100) + frame);
+}
+
+/// The value every right-channel sample of `frame` from `fill` holds.
+inline float rightFrameValue(std::int64_t fill, std::int32_t frame) {
+    return frameValue(fill, frame) + 0.5F;
 }
 
 /// A scripted PlaybackApi.
@@ -118,9 +127,15 @@ public:
         const std::filesystem::path file =
             outDir_ / ("frame-" + std::to_string(frame.value()) + ".wav");
         {
-            WavWriter writer{file, SampleRate{sampleRate_}};
-            const std::vector<float> samples(
-                static_cast<std::size_t>(length), frameValue(fill, frame.value()));
+            const ChannelCount channels = playableChannels(channelMode).value_or(ChannelCount{1});
+            WavWriter writer{file, SampleRate{sampleRate_}, channels};
+            std::vector<float> samples;
+            for (std::int32_t i = 0; i < length; ++i) {
+                samples.push_back(frameValue(fill, frame.value()));
+                if (channels.value() == 2) {
+                    samples.push_back(rightFrameValue(fill, frame.value()));
+                }
+            }
             writer.write(samples);
             writer.close();
         }

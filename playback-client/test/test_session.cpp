@@ -12,7 +12,9 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -34,12 +36,21 @@ constexpr std::size_t kFramesPerLane = 2;
 const MusicalPosition kStart{.beats = 1, .ticks = 1}; // sample 5
 const MusicalPosition kEnd{.beats = 2, .ticks = 3};   // sample 11
 
-/// The samples `loops` loops of the scenario must give, fill j for loop j.
-std::vector<float> expectedOutput(std::int64_t loops) {
+/// The samples `loops` loops of the scenario must give, fill j for loop j:
+/// interleaved left/right pairs when `stereo`.
+std::vector<float> expectedOutput(std::int64_t loops, bool stereo = false) {
     std::vector<float> expected;
+    const auto append = [&](std::int64_t count, std::int64_t fill, std::int32_t frame) {
+        for (std::int64_t i = 0; i < count; ++i) {
+            expected.push_back(frameValue(fill, frame));
+            if (stereo) {
+                expected.push_back(test::rightFrameValue(fill, frame));
+            }
+        }
+    };
     for (std::int64_t loop = 0; loop < loops; ++loop) {
-        expected.insert(expected.end(), 5, frameValue(loop, 0)); // frame 0, samples 5-9
-        expected.insert(expected.end(), 1, frameValue(loop, 1)); // frame 1, sample 0
+        append(5, loop, 0); // frame 0, samples 5-9
+        append(1, loop, 1); // frame 1, sample 0
     }
     return expected;
 }
@@ -51,7 +62,9 @@ protected:
         : api_{serverDir_.path(), kRate, kFrameSize, kFramesPerLane},
           fetcher_{makeObjectFetcher()} {}
 
-    SessionPlan plan() { return planSession(api_, kStart, kEnd); }
+    SessionPlan plan(const std::optional<std::string>& expectedMode = std::nullopt) {
+        return planSession(api_, kStart, kEnd, expectedMode);
+    }
 
     SessionResult play(std::int64_t loops) {
         const BufferDir buffer{bufferRoot_.path()};
@@ -79,9 +92,26 @@ TEST_F(SessionTest, PlansTheRangeOnTheRootMap) {
     EXPECT_EQ(planned.frames.length(), SampleCount{6});
 }
 
-TEST_F(SessionTest, RefusesAnythingButMono) {
-    api_.channelMode = "stereo";
-    EXPECT_THROW(plan(), SessionError);
+TEST_F(SessionTest, PlansMonoAndTheLeftRightModes) {
+    EXPECT_EQ(plan().channels, ChannelCount{1});
+    for (const char* mode : {"stereo-from-xy", "stereo-from-mid-side", "blumlein-classic"}) {
+        api_.channelMode = mode;
+        EXPECT_EQ(plan().channels, ChannelCount{2}) << mode;
+    }
+}
+
+TEST_F(SessionTest, RefusesTheOtherChannelModes) {
+    for (const char* mode : {"mid-side", "blumlein-rotated", "foa-a-format", "foa-b-format"}) {
+        api_.channelMode = mode;
+        EXPECT_THROW(plan(), SessionError) << mode;
+    }
+}
+
+TEST_F(SessionTest, RefusesAModeOtherThanTheOneAskedFor) {
+    api_.channelMode = "stereo-from-mid-side";
+    EXPECT_THROW(plan("stereo-from-xy"), SessionError);
+    EXPECT_THROW(plan("mono"), SessionError);
+    EXPECT_EQ(plan("stereo-from-mid-side").channels, ChannelCount{2});
 }
 
 TEST_F(SessionTest, RefusesTicksBeyondTheMapsResolution) {
@@ -103,6 +133,15 @@ TEST_F(SessionTest, OneLoopFillsOneLane) {
     EXPECT_TRUE(sink_.finished);
     EXPECT_TRUE(std::filesystem::exists(bufferPath_ / "lane-a" / "frame-000000.wav"));
     EXPECT_FALSE(std::filesystem::exists(bufferPath_ / "lane-b" / "frame-000000.wav"));
+}
+
+// Stereo frames are sliced in sample frames, not values: each loop is the
+// same six sample frames, as interleaved left/right pairs.
+TEST_F(SessionTest, PlaysStereoInterleaved) {
+    api_.channelMode = "stereo-from-xy";
+    const SessionResult result = play(3);
+    ASSERT_TRUE(result.ok()) << result.error.value_or("");
+    EXPECT_EQ(sink_.samples(), expectedOutput(3, true));
 }
 
 TEST_F(SessionTest, EveryLoopIsAFreshFillInAlternateLanes) {

@@ -22,7 +22,8 @@
 
 namespace rainbohz::playback_client {
 
-/// An audio output for mono samples at the session's sample rate.
+/// An audio output for the session's audio: its channels, interleaved, at
+/// its sample rate.
 class AudioSink {
 public:
     /// Stops the output if it is still running.
@@ -41,7 +42,7 @@ public:
 
     /// Hands samples to the output, blocking until it has taken them all.
     ///
-    /// @param samples  Mono samples, in playing order.
+    /// @param samples  Whole sample frames, interleaved, in playing order.
     /// @return True when every sample was taken; false when abort() stopped
     ///         the write part-way.
     /// @throws std::runtime_error if the output fails.
@@ -61,28 +62,34 @@ public:
     /// been written in time.
     ///
     /// @return The silence played between the first write() and finish(), in
-    ///         samples at the session's rate. Always zero for a sink that is
+    ///         sample frames at the session's rate. Always zero for a sink that is
     ///         not paced in real time.
     virtual SampleCount underrun() const noexcept = 0;
 };
 
 /// The operating system's default output device, through miniaudio.
 ///
-/// The mono signal is copied to every channel of the device. If the device
-/// does not run at `rate`, miniaudio resamples, and the sink logs that it
-/// does.
+/// The session's channels are laid onto the device's as mixToDevice()
+/// describes (device_mix.hpp): mono to every channel; left/right to the
+/// first two, or mixed down on a one-channel device. The sink logs the
+/// layout when it opens the device. If the device does not run at `rate`,
+/// miniaudio resamples, and the sink logs that it does.
 ///
-/// @param rate  The rate of the samples written.
+/// @param rate      The rate of the samples written.
+/// @param channels  The channels of the samples written: 1 or 2.
 /// @return The sink, not yet started.
 /// @throws std::runtime_error if there is no usable output device.
-std::unique_ptr<AudioSink> makeDeviceSink(SampleRate rate);
+std::unique_ptr<AudioSink> makeDeviceSink(SampleRate rate, ChannelCount channels);
 
-/// A mono 32-bit float WAV file, written as fast as samples arrive.
+/// A 32-bit float WAV file of the session's channels, written as fast as
+/// samples arrive.
 ///
-/// @param file  The file, replaced if it exists.
-/// @param rate  Its sample rate.
+/// @param file      The file, replaced if it exists.
+/// @param rate      Its sample rate.
+/// @param channels  Its channels.
 /// @return The sink. The file is opened by start() and complete after
 ///         finish(); abort() leaves it truncated but valid.
-std::unique_ptr<AudioSink> makeWavFileSink(const std::filesystem::path& file, SampleRate rate);
+std::unique_ptr<AudioSink> makeWavFileSink(
+    const std::filesystem::path& file, SampleRate rate, ChannelCount channels);
 
 } // namespace rainbohz::playback_client

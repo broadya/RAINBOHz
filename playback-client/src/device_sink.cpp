@@ -2,6 +2,7 @@
 
 #include "rainbohz/playback_client/audio_sink.hpp"
 
+#include "rainbohz/playback_client/device_mix.hpp"
 #include "rainbohz/playback_client/log.hpp"
 #include "rainbohz/playback_client/ring_buffer.hpp"
 
@@ -35,8 +36,10 @@
 /// that carries its implementation, with the decoding, encoding and engine
 /// parts compiled out: only the device API is used.
 ///
-/// The feeder writes into a SampleRing; the device's callback, on miniaudio's
-/// own real-time thread, pops from it. The callback takes no lock, does no
+/// The feeder writes into a SampleRing, in whole sample frames of the
+/// session's channels; the device's callback, on miniaudio's own real-time
+/// thread, pops whole frames from it and lays them onto the device's
+/// channels with mixToDevice(). The callback takes no lock, does no
 /// I/O, does not allocate and does not log: when the ring runs dry it plays
 /// silence and counts the samples it had to make up, which the session
 /// reports afterwards. Waiting is on the feeder's side only, where write()
@@ -54,9 +57,28 @@ constexpr std::chrono::milliseconds kPollInterval{2};
 /// The ring holds this fraction of a second of audio.
 constexpr int kRingDivisor = 2;
 
-/// The largest number of samples the callback pops at once; a larger
+/// The largest number of sample frames the callback pops at once; a larger
 /// request is served in chunks of this size.
-constexpr std::size_t kScratchSamples = 4096;
+constexpr std::size_t kScratchFrames = 4096;
+
+/// Describes how the session's channels are laid onto the device's.
+///
+/// @param session  The session's channels.
+/// @param device   The device's channels.
+/// @return The layout, for the log.
+std::string layoutText(ChannelCount session, ma_uint32 device) {
+    if (session.value() == 1) {
+        return device == 1 ? "mono" : "mono, copied to all " + std::to_string(device) + " channels";
+    }
+    if (device == 1) {
+        return "stereo mixed down to the device's one channel, (L + R) / 2";
+    }
+    std::string text = "left and right on channels 1 and 2";
+    if (device > 2) {
+        text += ", the other " + std::to_string(device - 2) + " silent";
+    }
+    return text;
+}
 
 /// A miniaudio device, uninitialised when it is destroyed if it was ever
 /// initialised.
@@ -92,14 +114,18 @@ struct OwnedDevice {
 /// The default output device, fed from a ring buffer.
 class DeviceSink final : public AudioSink {
 public:
-    /// A sink for samples at `rate`, with its device opened but not started.
+    /// A sink for samples at `rate` with `channels` channels, with its device
+    /// opened but not started.
     ///
-    /// @param rate  The rate of the samples written.
+    /// @param rate      The rate of the samples written.
+    /// @param channels  Their channels.
     /// @throws std::runtime_error if the device cannot be opened.
-    explicit DeviceSink(SampleRate rate)
-        : ring_{std::max<std::size_t>(
-              static_cast<std::size_t>(rate.value() / kRingDivisor), kScratchSamples)},
-          scratch_(kScratchSamples) {
+    DeviceSink(SampleRate rate, ChannelCount channels)
+        : channels_{channels}, granule_{static_cast<std::size_t>(channels.value())},
+          ring_{std::max<std::size_t>(
+                    static_cast<std::size_t>(rate.value() / kRingDivisor), kScratchFrames) *
+                granule_},
+          scratch_(kScratchFrames * granule_) {
         ma_device_config config = ma_device_config_init(ma_device_type_playback);
         config.playback.format = ma_format_f32;
         config.playback.channels = 0; // the device's own channel count
@@ -117,6 +143,9 @@ public:
         logLine(LogLevel::Info, "audio device: " + std::string{std::data(device.playback.name)} +
                                     ", " + std::to_string(device.playback.channels) +
                                     " channel(s) at " + std::to_string(deviceRate) + " Hz");
+        logLine(
+            device.playback.channels == 1 && channels.value() > 1 ? LogLevel::Warn : LogLevel::Info,
+            "channel layout: " + layoutText(channels, device.playback.channels));
         if (std::cmp_not_equal(deviceRate, rate.value())) {
             logLine(LogLevel::Info, "the device runs at " + std::to_string(deviceRate) +
                                         " Hz; resampling from " + std::to_string(rate.value()) +
@@ -144,7 +173,7 @@ public:
                 return false;
             }
             throwIfDeviceLost();
-            const std::size_t pushed = ring_.push(samples);
+            const std::size_t pushed = ring_.push(samples, granule_);
             if (pushed > 0) {
                 primed_.store(true, std::memory_order_release);
             }
@@ -217,8 +246,9 @@ private:
     /// miniaudio's data callback: fills the device's buffer from the ring.
     ///
     /// Runs on miniaudio's real-time thread. Real-time safe: it pops from a
-    /// lock-free ring into preallocated scratch, writes zeros where the ring
-    /// ran dry, and touches only atomics besides.
+    /// lock-free ring into preallocated scratch, lays it onto the device's
+    /// channels with mixToDevice(), writes zeros where the ring ran dry, and
+    /// touches only atomics besides.
     ///
     /// @param device       The device; its user data is the DeviceSink.
     /// @param[out] output  The device's interleaved float buffer, `frames` ×
@@ -228,31 +258,29 @@ private:
     static void callback(ma_device* device, void* output, const void* input, ma_uint32 frames) {
         (void)input;
         auto& self = *static_cast<DeviceSink*>(device->pUserData);
-        const ma_uint32 channels = device->playback.channels;
+        const std::size_t channels = device->playback.channels;
+        const std::size_t granule = self.granule_;
         const std::span<float> out{
             static_cast<float*>(output), static_cast<std::size_t>(frames) * channels};
+        const std::span<float> scratch{self.scratch_};
 
+        // Counted in sample frames. The ring holds whole frames only (write()
+        // pushes in granules), so a pop of whole frames gets whole frames.
         std::size_t done = 0;
         while (done < frames) {
-            const std::size_t want = std::min<std::size_t>(frames - done, self.scratch_.size());
-            const std::size_t got =
-                self.aborted_.load(std::memory_order_relaxed)
-                    ? 0
-                    : self.ring_.pop(std::span<float>{self.scratch_.data(), want});
-            for (std::size_t i = 0; i < want; ++i) {
-                const float sample = i < got ? self.scratch_[i] : 0.0F;
-                for (ma_uint32 channel = 0; channel < channels; ++channel) {
-                    out[((done + i) * channels) + channel] = sample;
-                }
-            }
-            done += want;
+            const std::size_t want = std::min<std::size_t>(frames - done, kScratchFrames);
+            const std::size_t got = self.aborted_.load(std::memory_order_relaxed)
+                                        ? 0
+                                        : self.ring_.pop(scratch.first(want * granule)) / granule;
+            mixToDevice(scratch.first(got * granule), self.channels_,
+                out.subspan(done * channels, got * channels), channels);
+            done += got;
             if (got < want) {
                 // The ring is dry; the rest of this buffer is silence. It is
                 // an underrun if audio was expected.
-                const std::size_t silent = (want - got) + (frames - done);
                 if (self.primed_.load(std::memory_order_acquire) &&
                     !self.finishing_.load(std::memory_order_acquire)) {
-                    self.underrun_.fetch_add(silent, std::memory_order_relaxed);
+                    self.underrun_.fetch_add(frames - done, std::memory_order_relaxed);
                 }
                 std::ranges::fill(out.subspan(done * channels), 0.0F);
                 break;
@@ -260,9 +288,16 @@ private:
         }
     }
 
-    /// Samples written and not yet taken by the callback.
+    /// The channels of the samples written.
+    ChannelCount channels_;
+    /// Values per sample frame: channels_, as a size. The ring is pushed and
+    /// popped in multiples of it.
+    std::size_t granule_;
+    /// Values written and not yet taken by the callback: whole sample frames,
+    /// interleaved.
     SampleRing ring_;
-    /// The callback's working buffer, allocated once here.
+    /// The callback's working buffer, allocated once here, kScratchFrames
+    /// sample frames long.
     std::vector<float> scratch_;
     /// Set once write() has pushed samples: from then on a dry ring is an
     /// underrun.
@@ -271,7 +306,8 @@ private:
     std::atomic<bool> finishing_{false};
     /// Set by abort(): write() returns false and the callback plays silence.
     std::atomic<bool> aborted_{false};
-    /// Silent samples the callback played while audio was expected (underrun()).
+    /// Silent sample frames the callback played while audio was expected
+    /// (underrun()).
     std::atomic<std::uint64_t> underrun_{0};
     /// Set by notification() when the device stopped by itself: write() and
     /// finish() then fail rather than wait for a callback that will not come.
@@ -284,8 +320,8 @@ private:
 
 } // namespace
 
-std::unique_ptr<AudioSink> makeDeviceSink(SampleRate rate) {
-    return std::make_unique<DeviceSink>(rate);
+std::unique_ptr<AudioSink> makeDeviceSink(SampleRate rate, ChannelCount channels) {
+    return std::make_unique<DeviceSink>(rate, channels);
 }
 
 } // namespace rainbohz::playback_client

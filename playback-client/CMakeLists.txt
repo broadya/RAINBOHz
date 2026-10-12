@@ -90,6 +90,8 @@ include(Dependencies)
 add_library(playback_client_lib STATIC
     src/audio_sink.cpp
     src/buffer_dir.cpp
+    src/channel_mode.cpp
+    src/device_mix.cpp
     src/device_sink.cpp
     src/feeder.cpp
     src/frame_plan.cpp

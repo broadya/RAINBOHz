@@ -4,6 +4,9 @@
 
 // A single-producer, single-consumer ring buffer of samples, lock-free.
 //
+// The samples are interleaved values: for a session of C channels, one
+// sample frame is C of them, and the device sink pushes whole frames only.
+//
 // The bridge between the feeder, which may block, and the audio callback,
 // which must not (docs/design.md §5). One thread pushes, one other thread
 // pops; neither ever waits for the other, and neither allocates after
@@ -35,16 +38,25 @@ public:
     /// @return The capacity given to the constructor.
     std::size_t capacity() const noexcept { return buffer_.size(); }
 
-    /// Appends as many of `samples` as fit. Producer side only.
+    /// Appends as many of `samples` as fit, in whole granules. Producer side
+    /// only.
     ///
-    /// @param samples  Samples to append, in order.
-    /// @return How many were appended, from the front of `samples`; fewer
+    /// A granule is the unit the consumer pops in: one interleaved sample
+    /// frame, `channels` values. Pushing only whole ones means the ring always
+    /// holds whole sample frames, so a consumer popping whole frames never
+    /// gets part of one.
+    ///
+    /// @param samples  Values to append, in order.
+    /// @param granule  Append a multiple of this many; positive.
+    /// @return How many were appended, from the front of `samples`; a
+    ///         multiple of `granule`, unless `samples` itself is not. Fewer
     ///         than all when the ring is full.
     /// @note Real-time safe: no lock, allocation or system call.
-    std::size_t push(std::span<const float> samples) noexcept {
+    std::size_t push(std::span<const float> samples, std::size_t granule = 1) noexcept {
         const std::uint64_t write = write_.load(std::memory_order_relaxed);
         const std::uint64_t read = read_.load(std::memory_order_acquire);
-        const std::size_t room = capacity() - static_cast<std::size_t>(write - read);
+        std::size_t room = capacity() - static_cast<std::size_t>(write - read);
+        room -= room % granule;
         const std::size_t count = samples.size() < room ? samples.size() : room;
         for (std::size_t i = 0; i < count; ++i) {
             buffer_[static_cast<std::size_t>((write + i) % capacity())] = samples[i];

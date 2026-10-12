@@ -64,6 +64,11 @@ The target architecture, built from 2026-09-27 onwards.
   absolute path, so the output is the same on every machine.
 - No trailing whitespace in tracked files; `make check-whitespace`, part of
   `make test`, enforces it.
+- `playback-client` plays stereo as well as mono: `stereo-from-xy`,
+  `stereo-from-mid-side` and `blumlein-classic` scores play as left and
+  right, on the device's first two channels, mixed down on a one-channel
+  device, and in a two-channel `--output-wav`. The score sets the mode;
+  `--channel-mode` makes the client fail unless the score has the one named.
 
 ## Before this changelog
 

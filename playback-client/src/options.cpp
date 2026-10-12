@@ -2,12 +2,15 @@
 
 #include "rainbohz/playback_client/options.hpp"
 
+#include "rainbohz/playback_client/channel_mode.hpp"
+
 #include <CLI/CLI.hpp>
 
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <vector>
 
 /// @file
 /// @brief Parses the playback-client command line into Options, with CLI11.
@@ -39,6 +42,7 @@ ParseResult parseCommandLine(int argc, const char* const* argv) {
     std::string end;
     std::string bufferRoot;
     std::string outputWav;
+    std::string channelMode;
 
     app.add_option("--server", options.serverUrl,
            "The REST API's base URL, /v1 included (default " + std::string{kDefaultServerUrl} + ")")
@@ -54,6 +58,11 @@ ParseResult parseCommandLine(int argc, const char* const* argv) {
         "Keep the run's buffer directory at exit, for debugging");
     app.add_option("--output-wav", outputWav,
         "Write what would be played to this WAV file instead of the audio device");
+    app.add_option("--channel-mode", channelMode,
+           "Fail unless the score's channel mode is this one (default: play whichever of "
+           "these the score has)")
+        ->check(CLI::IsMember(
+            std::vector<std::string>(kPlayableChannelModes.begin(), kPlayableChannelModes.end())));
     app.add_flag("--debug", options.debug, "Log every REST call, frame and wait");
 
     try {
@@ -82,6 +91,9 @@ ParseResult parseCommandLine(int argc, const char* const* argv) {
                                             : std::filesystem::path{bufferRoot};
     if (!outputWav.empty()) {
         options.outputWav = std::filesystem::path{outputWav};
+    }
+    if (!channelMode.empty()) {
+        options.channelMode = channelMode;
     }
     return ParseResult{.options = options, .exitCode = 0};
 }

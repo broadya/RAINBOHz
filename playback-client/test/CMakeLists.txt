@@ -53,8 +53,9 @@ gtest_discover_tests(playback_client_tests
 #
 # Starts rendering-engine in server mode, loads an example score, runs
 # playback-client with --output-wav, and checks the file against the frames
-# the server rendered, sample for sample. Fails when the engine has not been
-# built (make test-playback-client builds it first).
+# the server rendered, sample for sample. Runs twice: with a mono score, and
+# with a stereo one (channel mode 1, stereo from M/S). Fails when the engine
+# has not been built (make test-playback-client builds it first).
 #
 # The engine is taken from rendering-engine's build tree for the same preset,
 # which is this build tree's name. Override with -DPC_RENDERING_ENGINE=...
@@ -68,6 +69,8 @@ cmake_path(SET PC_ENGINE_SCHEMA NORMALIZE
     "${CMAKE_CURRENT_SOURCE_DIR}/../../engine-db/schema/engine-schema.cypher")
 cmake_path(SET PC_EXAMPLE_SCORE NORMALIZE
     "${CMAKE_CURRENT_SOURCE_DIR}/../../engine-db/examples/tempo-map-score.cypher")
+cmake_path(SET PC_STEREO_SCORE NORMALIZE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../engine-db/examples/spatial-musical-score.cypher")
 
 # The interpreter is chosen at the top level (CMakeLists.txt): the root .venv.
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
@@ -79,3 +82,11 @@ add_test(NAME "playback.e2e"
         --score "${PC_EXAMPLE_SCORE}"
         --work-dir "${CMAKE_CURRENT_BINARY_DIR}/e2e")
 set_tests_properties("playback.e2e" PROPERTIES TIMEOUT 300)
+add_test(NAME "playback.e2e.stereo"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_playback_check.py"
+        --client "$<TARGET_FILE:playback-client>"
+        --engine "${PC_RENDERING_ENGINE}"
+        --schema "${PC_ENGINE_SCHEMA}"
+        --score "${PC_STEREO_SCORE}"
+        --work-dir "${CMAKE_CURRENT_BINARY_DIR}/e2e-stereo")
+set_tests_properties("playback.e2e.stereo" PROPERTIES TIMEOUT 300)

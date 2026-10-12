@@ -27,14 +27,15 @@ namespace {
 /// Writes what would be played to a WAV file, unpaced.
 class WavFileSink final : public AudioSink {
 public:
-    /// A sink writing `file` at `rate`.
+    /// A sink writing `file` at `rate`, with `channels` channels.
     ///
-    /// @param file  The file.
-    /// @param rate  Its sample rate.
-    WavFileSink(std::filesystem::path file, SampleRate rate)
-        : file_{std::move(file)}, rate_{rate} {}
+    /// @param file      The file.
+    /// @param rate      Its sample rate.
+    /// @param channels  Its channels.
+    WavFileSink(std::filesystem::path file, SampleRate rate, ChannelCount channels)
+        : file_{std::move(file)}, rate_{rate}, channels_{channels} {}
 
-    void start() override { writer_.emplace(file_, rate_); }
+    void start() override { writer_.emplace(file_, rate_, channels_); }
 
     bool write(std::span<const float> samples) override {
         if (aborted_.load()) {
@@ -66,6 +67,8 @@ private:
     std::filesystem::path file_;
     /// The sample rate of the samples written, and of the file.
     SampleRate rate_;
+    /// The channels of the samples written, and of the file.
+    ChannelCount channels_;
     /// The open writer; empty until start().
     std::optional<WavWriter> writer_;
     /// Set by abort(): every later write() returns false.
@@ -74,8 +77,9 @@ private:
 
 } // namespace
 
-std::unique_ptr<AudioSink> makeWavFileSink(const std::filesystem::path& file, SampleRate rate) {
-    return std::make_unique<WavFileSink>(file, rate);
+std::unique_ptr<AudioSink> makeWavFileSink(
+    const std::filesystem::path& file, SampleRate rate, ChannelCount channels) {
+    return std::make_unique<WavFileSink>(file, rate, channels);
 }
 
 } // namespace rainbohz::playback_client

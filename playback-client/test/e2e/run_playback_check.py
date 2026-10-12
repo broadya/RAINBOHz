@@ -9,14 +9,19 @@ Starts rendering-engine in server mode on a free port, then:
    the hint to load a score first.
 2. Loads the example score with PUT /v1/score.
 3. Runs playback-client with an end before its start, and expects exit 2.
-4. Runs playback-client over a range of several frames, for three loops,
+4. Runs playback-client with a --channel-mode the score does not have, and
+   expects exit 1 naming the score's mode.
+5. Runs playback-client over a range of several frames, for three loops,
    with --output-wav, and checks that the file is exactly the range's samples
    three times over: the frames the server rendered, trimmed at the
-   positions the server reports, with no gap and nothing extra. Checks too
-   that the run's buffer directory was removed, and that the log has each
-   fill's timing line.
-5. Runs it again for two loops with --keep-buffer, and checks that both
+   positions the server reports, with no gap and nothing extra, in the
+   score's channels. Checks too that the run's buffer directory was removed,
+   and that the log has each fill's timing line.
+6. Runs it again for two loops with --keep-buffer, and checks that both
    lanes were kept, each with every frame of the range.
+
+The score decides the channels: CTest runs this once with a mono score and
+once with a stereo one.
 
     run_playback_check.py --client <binary> --engine <binary> --schema <cypher>
         --score <cypher> --work-dir <dir>
@@ -44,10 +49,14 @@ START_SECONDS = 30
 CALL_SECONDS = 120
 CLIENT_SECONDS = 240
 
-# The range played: beats 1:240 to 6:480 of the tempo-map score. Its tempo
-# map puts beat 4 at 2.77 s and holds 60 BPM after it, so the range is about
-# 0.6 s to 5.3 s, frames 0 to 5 at one second a frame, and its first and last
-# frames are both trimmed.
+# The channels of each mode the client plays; the server's names.
+CHANNELS = {"mono": 1, "stereo-from-xy": 2, "stereo-from-mid-side": 2, "blumlein-classic": 2}
+
+# The range played: beats 1:240 to 6:480. The tempo-map score's map puts
+# beat 4 at 2.77 s and holds 60 BPM after it, so the range is about 0.6 s to
+# 5.3 s, frames 0 to 5 at one second a frame; the spatial musical score holds
+# 60 BPM throughout, so it is 1.25 s to 6.5 s, frames 1 to 6. Either way the
+# first and last frames are both trimmed.
 START = "1:240"
 END = "6:480"
 LOOPS = 3
@@ -156,10 +165,15 @@ def range_frames(base: str) -> list[int]:
     return list(range(start["frame"], last + 1))
 
 
-def expected_range(base: str, frames_dir: str) -> list[float]:
-    """The samples one pass over the range must give, from the server's own answers and files."""
+def expected_range(base: str, frames_dir: str) -> tuple[int, list[float]]:
+    """The samples one pass over the range must give, from the server's own answers and files.
+
+    Returns:
+        The score's channel count, and the samples, interleaved.
+    """
     config = call(base, "GET", "/engine-config")
     frame_size = config["frame_size"]
+    width = CHANNELS[config["channel_mode"]]
     positions = range_positions(base)
     first = positions[0]["frame"] * frame_size + positions[0]["offset"]
     last = positions[1]["frame"] * frame_size + positions[1]["offset"]
@@ -170,11 +184,13 @@ def expected_range(base: str, frames_dir: str) -> list[float]:
         if not os.path.exists(path):
             call(base, "POST", f"/frames/{frame}/renderings")
         channels, rate, samples = read_float_wav(path)
-        if channels != 1 or rate != config["sample_rate"] or len(samples) != frame_size:
-            raise ValueError(f"{path} is not a mono frame of {frame_size} at {config['sample_rate']}")
+        if (channels != width or rate != config["sample_rate"]
+                or len(samples) != frame_size * width):
+            raise ValueError(f"{path} is not a {width}-channel frame of {frame_size} "
+                             f"at {config['sample_rate']}")
         stream.extend(samples)
     origin = positions[0]["frame"] * frame_size
-    return stream[first - origin:last - origin]
+    return width, stream[(first - origin) * width:(last - origin) * width]
 
 
 def main() -> int:
@@ -215,15 +231,26 @@ def main() -> int:
         result = run_client(args, base, "--start", "6", "--end", "1:0", "--output-wav", output_wav)
         check(result.returncode == 2, f"reversed range, exit {result.returncode}, not 2", failures)
 
-        # 4. Play three loops to a file.
+        # 4. A --channel-mode the score does not have.
+        mode = call(base, "GET", "/engine-config")["channel_mode"]
+        other = "stereo-from-xy" if mode == "mono" else "mono"
+        result = run_client(args, base, "--start", START, "--end", END,
+                            "--output-wav", output_wav, "--channel-mode", other)
+        check(result.returncode == 1, f"--channel-mode {other} against {mode}, exit "
+              f"{result.returncode}, not 1", failures)
+        check(f"channel mode is {mode}" in result.stderr,
+              f"--channel-mode {other}: no message naming {mode}", failures)
+
+        # 5. Play three loops to a file.
         result = run_client(args, base, "--start", START, "--end", END, "--loops", str(LOOPS),
                             "--output-wav", output_wav, "--buffer-dir", buffer_root, "--debug")
         print(result.stderr, end="")
         check(result.returncode == 0, f"playing, exit {result.returncode}, not 0", failures)
         if result.returncode == 0:
-            expected = expected_range(base, frames_dir)
+            width, expected = expected_range(base, frames_dir)
             channels, _, played = read_float_wav(output_wav)
-            check(channels == 1, f"the output has {channels} channels", failures)
+            check(channels == width, f"the output has {channels} channels, not {width}",
+                  failures)
             check(len(played) == LOOPS * len(expected),
                   f"the output has {len(played)} samples, not {LOOPS} x {len(expected)}", failures)
             for loop in range(LOOPS):
@@ -233,7 +260,7 @@ def main() -> int:
                   "the log does not have one timing line per fill", failures)
         check(os.listdir(buffer_root) == [], "the buffer directory was not removed", failures)
 
-        # 5. Keep the buffer.
+        # 6. Keep the buffer.
         result = run_client(args, base, "--start", START, "--end", END, "--loops", "2",
                             "--output-wav", output_wav, "--buffer-dir", buffer_root,
                             "--keep-buffer")

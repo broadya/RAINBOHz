@@ -10,6 +10,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <span>
 #include <vector>
 
 namespace rainbohz::playback_client {
@@ -104,24 +105,46 @@ TEST(Wav, ReadsBackWhatItWrote) {
     const auto file = dir.path() / "f.wav";
     const std::vector<float> samples{0.5F, -0.25F, 1.0F, 0.0F};
     {
-        WavWriter writer{file, SampleRate{8000}};
+        WavWriter writer{file, SampleRate{8000}, ChannelCount{1}};
         writer.write(samples);
         writer.close();
     }
-    EXPECT_EQ(readFrame(file, SampleRate{8000}, FrameSize{4}), samples);
+    EXPECT_EQ(readFrame(file, SampleRate{8000}, ChannelCount{1}, FrameSize{4}), samples);
+}
+
+TEST(Wav, ReadsBackStereoInterleaved) {
+    const TempDir dir;
+    const auto file = dir.path() / "f.wav";
+    const std::vector<float> samples{0.5F, -0.5F, 0.25F, -0.25F, 1.0F, 0.0F};
+    {
+        WavWriter writer{file, SampleRate{8000}, ChannelCount{2}};
+        writer.write(std::span<const float>{samples}.first(2));
+        writer.write(std::span<const float>{samples}.subspan(2));
+        writer.close();
+    }
+    EXPECT_EQ(readFrame(file, SampleRate{8000}, ChannelCount{2}, FrameSize{3}), samples);
+    EXPECT_THROW(readFrame(file, SampleRate{8000}, ChannelCount{1}, FrameSize{3}), WavError);
+}
+
+TEST(Wav, RefusesToWritePartOfASampleFrame) {
+    const TempDir dir;
+    WavWriter writer{dir.path() / "f.wav", SampleRate{8000}, ChannelCount{2}};
+    EXPECT_THROW(writer.write(std::vector<float>(3, 0.0F)), WavError);
 }
 
 TEST(Wav, RefusesAFrameOfTheWrongRateOrLength) {
     const TempDir dir;
     const auto file = dir.path() / "f.wav";
     {
-        WavWriter writer{file, SampleRate{8000}};
+        WavWriter writer{file, SampleRate{8000}, ChannelCount{1}};
         writer.write(std::vector<float>(4, 0.0F));
         writer.close();
     }
-    EXPECT_THROW(readFrame(file, SampleRate{44100}, FrameSize{4}), WavError);
-    EXPECT_THROW(readFrame(file, SampleRate{8000}, FrameSize{5}), WavError);
-    EXPECT_THROW(readFrame(dir.path() / "absent.wav", SampleRate{8000}, FrameSize{4}), WavError);
+    const ChannelCount mono{1};
+    EXPECT_THROW(readFrame(file, SampleRate{44100}, mono, FrameSize{4}), WavError);
+    EXPECT_THROW(readFrame(file, SampleRate{8000}, mono, FrameSize{5}), WavError);
+    EXPECT_THROW(
+        readFrame(dir.path() / "absent.wav", SampleRate{8000}, mono, FrameSize{4}), WavError);
 }
 
 } // namespace

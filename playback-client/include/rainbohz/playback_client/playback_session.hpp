@@ -35,6 +35,9 @@ public:
 struct SessionPlan {
     /// The engine parameters.
     EngineParameters engine;
+    /// The channels of engine.channelMode: what every frame has, and what
+    /// the output plays.
+    ChannelCount channels{1};
     /// The root tempo map, on which the positions are read.
     TempoMapSummary tempoMap;
     /// The range's first sample.
@@ -50,16 +53,20 @@ struct SessionPlan {
 /// Calls GET /engine-config, GET /tempo-maps/root, and GET
 /// /tempo-maps/{id}/frame-position for each end, in that order.
 ///
-/// @param api    The REST calls.
-/// @param start  The range's start on the root map.
-/// @param end    The range's end on the root map; after `start`.
+/// @param api           The REST calls.
+/// @param start         The range's start on the root map.
+/// @param end           The range's end on the root map; after `start`.
+/// @param expectedMode  The channel mode the score must have
+///                      (--channel-mode); empty to take any playable one.
 /// @return The plan.
 /// @throws PlaybackApiError if a call fails.
-/// @throws SessionError if the channel mode is not mono, a position's ticks
-///         are not below the map's ticks_per_beat, or the range is empty once
+/// @throws SessionError if the channel mode is not one this version plays
+///         (channel_mode.hpp) or not `expectedMode`, a position's ticks are
+///         not below the map's ticks_per_beat, or the range is empty once
 ///         converted to samples.
 /// @note Side effect: logs the plan at info level.
-SessionPlan planSession(PlaybackApi& api, const MusicalPosition& start, const MusicalPosition& end);
+SessionPlan planSession(PlaybackApi& api, const MusicalPosition& start, const MusicalPosition& end,
+    const std::optional<std::string>& expectedMode = std::nullopt);
 
 /// How a session ended.
 struct SessionResult {

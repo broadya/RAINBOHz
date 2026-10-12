@@ -252,14 +252,14 @@ The engine parameters, from the score's `EngineConfig`:
 
 `frame_size` is resolved: when `EngineConfig.frameSize` is NULL, a frame is one
 second, and `frame_size` is the sample rate. `channel_mode` is `mono`,
-`stereo`, `mid-side`, `foa-a-format` or `foa-b-format` (channel modes 0 to 4,
-as the schema numbers them). It reports what the score says; rendering
-implements only `mono` in this version
-([rendering.md](rendering.md) §9).
+`stereo-from-mid-side`, `stereo-from-xy`, `mid-side`, `blumlein-classic`,
+`blumlein-rotated`, `foa-a-format` or `foa-b-format` (channel modes 0 to 7,
+as the schema numbers them). It reports what the score says, and every
+frame is rendered in that mode ([rendering.md](rendering.md) §8.5).
 
 409 when no score is loaded. 422 when there is not exactly one `EngineConfig`,
 its `sampleRate` is NULL or not positive, its frame size is unusable, or its
-`channelMode` is NULL or not one of the five.
+`channelMode` is NULL or not 0 to 7.
 
 ## 4. URIs
 

@@ -46,7 +46,7 @@ The client does not load a score. One must be loaded already
 playback-client --start B:T --end B:T
                 [--server http://127.0.0.1:8080/v1] [--loops 1]
                 [--buffer-dir <dir>] [--keep-buffer]
-                [--output-wav <file>] [--debug]
+                [--output-wav <file>] [--channel-mode <mode>] [--debug]
 ```
 
 | Option | Meaning |
@@ -57,6 +57,7 @@ playback-client --start B:T --end B:T
 | `--buffer-dir` | Where the run's buffer directory is made. Defaults to the system temporary directory. |
 | `--keep-buffer` | Keep the run's buffer directory at exit. By default it is removed. |
 | `--output-wav` | Write what would be played to this file instead of the device (§5). |
+| `--channel-mode` | Fail unless the score's channel mode is this one: `mono`, `stereo-from-xy`, `stereo-from-mid-side` or `blumlein-classic` (§3). By default any of them plays. |
 | `--debug` | Log every REST call, frame and wait (§6). |
 
 Exit status: 0 when every loop was played; 1 on any failure, or when
@@ -66,8 +67,16 @@ interrupted; 2 for a usage error.
 
 Before any audio, the main thread makes four calls, in order:
 
-1. `GET /engine-config` gives the sample rate and frame size. The channel mode
-   must be `mono`; rendering implements nothing else yet.
+1. `GET /engine-config` gives the sample rate, frame size and channel mode.
+   The score decides the mode (`EngineConfig.channelMode`, set by
+   `hzlc --channel-mode`), and the server renders it into every frame; the
+   client plays what it is given. It plays the modes whose output is mono or
+   a left/right pair: `mono` (one channel), and `stereo-from-xy`,
+   `stereo-from-mid-side` and `blumlein-classic` (two). The others, raw
+   `mid-side`, `blumlein-rotated` and the two first-order Ambisonics formats,
+   need a decode or a speaker layout the client does not have, and are
+   refused. With `--channel-mode`, a score of any other mode is refused too,
+   so that a run can state what it expects to hear.
 2. `GET /tempo-maps/root` gives the root map's id and its `ticks_per_beat`.
    Each position's ticks must be below that, which only the server can tell.
 3. `GET /tempo-maps/{id}/frame-position?at=` for the start, then for the end.
@@ -148,18 +157,27 @@ Two sinks implement `AudioSink`.
 is the system's default output device. Between it and the feeder is a
 single-producer, single-consumer lock-free ring, about half a second long.
 
-- The feeder writes into the ring. When the ring is full it polls, sleeping
-  2 ms at a time.
-- miniaudio's real-time callback pops from the ring, copies the mono signal to
-  every device channel, and writes zeros when the ring runs dry. It takes no
-  lock, does no I/O, does not allocate and does not log.
-- The callback counts the silent samples it plays between the first write and
-  the start of the play-out at the end. That count is the underrun.
+- Audio is interleaved from the frame files to the device: a sample frame of
+  a two-channel score is two values, left then right. Sample counts, offsets
+  and the underrun stay in sample frames, which are time.
+- The feeder writes into the ring, whole sample frames only
+  (`SampleRing::push()`'s granule), so the ring never holds part of one. When
+  the ring is full it polls, sleeping 2 ms at a time.
+- miniaudio's real-time callback pops whole sample frames from the ring, lays
+  them onto the device's channels (`mixToDevice()`), and writes zeros when the
+  ring runs dry. It takes no lock, does no I/O, does not allocate and does
+  not log.
+- The device runs with its own channel count. Mono goes to every device
+  channel. Left and right go to the first two channels, and any others are
+  silent; on a one-channel device they are mixed down, (L + R) / 2, with a
+  warning. The layout is logged when the device opens.
+- The callback counts the silent sample frames it plays between the first
+  write and the start of the play-out at the end. That count is the underrun.
 - A device that does not run at the score's rate is resampled by miniaudio,
   and the client logs that it is.
 
-**A WAV file** (`--output-wav`) takes samples as fast as they come and leaves
-out the gaps, so its content is exactly the range, trimmed, `--loops` times
+**A WAV file** (`--output-wav`) has the score's channels. It takes samples as
+fast as they come and leaves out the gaps, so its content is exactly the range, trimmed, `--loops` times
 over. That is what the end-to-end test checks it against.
 
 After its last loop, the feeder plays the output out. The device sink waits for
@@ -198,7 +216,8 @@ the ring may hide, are debug lines.
 ```
 
 The names follow rendering-engine's own frame files. A frame read from a lane
-must be mono, at the score's sample rate, and exactly one frame long. Anything
+must have the score's channels, at its sample rate, and be exactly one frame
+long. Anything
 else means the buffer does not hold what the session asked for, and is an
 error.
 
@@ -211,12 +230,12 @@ behind the same interface.
 
 | Test | What it covers |
 | --- | --- |
-| `test_units_and_parsing.cpp` | Positions, the frame plan (trims, a boundary end, one frame, empty and reversed ranges), the ring, the command line |
-| `test_files.cpp` | `file://` decoding and fetching, the buffer directory, WAV reading and writing |
+| `test_units_and_parsing.cpp` | Positions, the frame plan (trims, a boundary end, one frame, empty and reversed ranges), the ring and its whole-frame pushes, the playable channel modes, the device channel layout, the command line |
+| `test_files.cpp` | `file://` decoding and fetching, the buffer directory, WAV reading and writing, mono and stereo |
 | `test_lane_board.cpp` | Each transition of §4, and that stopping wakes every wait |
-| `test_session.cpp` | Whole sessions over a fake API: one loop, many loops, fast network with slow playback, slow network, streaming of the first loop, errors on either thread, an interrupt mid-call, and a stalled call cancelled on an interrupt and on a playback error |
+| `test_session.cpp` | The channel modes planned, refused and checked against `--channel-mode`; whole sessions over a fake API: one loop, many loops, stereo, fast network with slow playback, slow network, streaming of the first loop, errors on either thread, an interrupt mid-call, and a stalled call cancelled on an interrupt and on a playback error |
 | `test_playback_api.cpp` | The HTTP API's `cancel()` against a real, stalling HTTP server: a stalled call ends when cancelled, and a call after a cancel fails at once |
-| `playback.e2e` | The real binary against a real `rendering-engine` server: no score loaded (exit 1 and the hint), a reversed range (exit 2), three loops to `--output-wav` checked sample for sample against the server's frames, the buffer removed, and `--keep-buffer` keeping both lanes |
+| `playback.e2e`, `playback.e2e.stereo` | The real binary against a real `rendering-engine` server, with a mono score and with a stereo one (M/S decoded): no score loaded (exit 1 and the hint), a reversed range (exit 2), a `--channel-mode` the score does not have (exit 1), three loops to `--output-wav` checked sample for sample against the server's frames, the buffer removed, and `--keep-buffer` keeping both lanes |
 
 `make test-playback-client` runs them all. The end-to-end test needs
 `rendering-engine` built for the same preset, and fails otherwise; the make
@@ -228,9 +247,11 @@ target builds it first.
   (§1).
 - **Local files only.** Object storage, and an S3 simulator to stand in for
   it, come later.
-- **Mono only**, as rendering. Channel modes beyond mono are refused.
+- **Mono and left/right stereo only.** Raw mid-side, rotated Blumlein and
+  first-order Ambisonics are refused; playing them needs a decode or a
+  speaker layout.
 - **The default device only.** No device choice, latency setting or
-  multi-channel layout.
+  channel routing beyond §5's fixed layout.
 - **No retries**: not on 429, not on a failed call.
 - **No crossfade at the loop point.** The loop is sample-exact, so a range
   that does not loop cleanly clicks.

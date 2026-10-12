@@ -61,7 +61,10 @@ struct EngineParameters {
     SampleRate sampleRate{1};
     /// Samples per frame, resolved.
     FrameSize frameSize{1};
-    /// `mono`, `stereo`, `mid-side`, `foa-a-format` or `foa-b-format`.
+    /// `mono`, `stereo-from-mid-side`, `stereo-from-xy`, `mid-side`,
+    /// `blumlein-classic`, `blumlein-rotated`, `foa-a-format` or
+    /// `foa-b-format` (channel modes 0 to 7). Which of them the client plays
+    /// is channel_mode.hpp's concern.
     std::string channelMode;
 };
 

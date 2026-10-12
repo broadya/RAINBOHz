@@ -84,15 +84,16 @@ int runClient(const pc::Options& options) {
     int status = kFailure;
     try {
         const std::unique_ptr<pc::PlaybackApi> api = pc::makeHttpPlaybackApi(options.serverUrl);
-        const pc::SessionPlan plan = pc::planSession(*api, options.start, options.end);
+        const pc::SessionPlan plan =
+            pc::planSession(*api, options.start, options.end, options.channelMode);
 
         buffer.emplace(options.bufferRoot);
         pc::logLine(pc::LogLevel::Info, "buffer: " + buffer->path().string());
 
         const std::unique_ptr<pc::AudioSink> sink =
             options.outputWav.has_value()
-                ? pc::makeWavFileSink(*options.outputWav, plan.engine.sampleRate)
-                : pc::makeDeviceSink(plan.engine.sampleRate);
+                ? pc::makeWavFileSink(*options.outputWav, plan.engine.sampleRate, plan.channels)
+                : pc::makeDeviceSink(plan.engine.sampleRate, plan.channels);
         const std::unique_ptr<pc::ObjectFetcher> fetcher = pc::makeObjectFetcher();
 
         const pc::SessionResult result =

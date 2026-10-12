@@ -5,10 +5,11 @@
 // Reading the frames rendering-engine writes, and writing --output-wav.
 //
 // Frames are 32-bit float WAV files (rendering-engine/docs/rendering.md §5).
-// This version plays mono only: a frame must be one channel, at the session's
-// sample rate, and exactly one frame long; anything else means the buffer
-// does not hold what the session asked for, and is an error rather than
-// something to convert. dr_wav does the container work, behind this header.
+// A frame must have the session's channels, at its sample rate, and be
+// exactly one frame long; anything else means the buffer does not hold what
+// the session asked for, and is an error rather than something to convert.
+// Audio moves as interleaved values: a sample frame of C channels is C of
+// them. dr_wav does the container work, behind this header.
 
 #include "rainbohz/playback_client/units.hpp"
 
@@ -29,23 +30,26 @@ public:
 
 /// Reads one rendered frame.
 ///
-/// @param file  The frame's WAV file.
-/// @param rate  The sample rate it must have.
-/// @param size  The number of samples it must hold.
-/// @return The frame's samples, `size` of them.
-/// @throws WavError if the file cannot be opened or read, or is not mono, at
-///         `rate`, and `size` samples long.
-std::vector<float> readFrame(const std::filesystem::path& file, SampleRate rate, FrameSize size);
+/// @param file      The frame's WAV file.
+/// @param rate      The sample rate it must have.
+/// @param channels  The channels it must have.
+/// @param size      The number of sample frames it must hold.
+/// @return The frame's samples, interleaved: `size` × `channels` values.
+/// @throws WavError if the file cannot be opened or read, or does not have
+///         `channels` channels, at `rate`, and `size` sample frames.
+std::vector<float> readFrame(
+    const std::filesystem::path& file, SampleRate rate, ChannelCount channels, FrameSize size);
 
-/// Writes a mono 32-bit float WAV file incrementally.
+/// Writes a 32-bit float WAV file incrementally.
 class WavWriter {
 public:
     /// Opens `file` for writing, replacing it.
     ///
-    /// @param file  The file.
-    /// @param rate  Its sample rate.
+    /// @param file      The file.
+    /// @param rate      Its sample rate.
+    /// @param channels  Its channels.
     /// @throws WavError if the file cannot be opened.
-    WavWriter(const std::filesystem::path& file, SampleRate rate);
+    WavWriter(const std::filesystem::path& file, SampleRate rate, ChannelCount channels);
 
     /// Finishes the file, if close() was not called; errors are ignored.
     ~WavWriter();
@@ -57,8 +61,9 @@ public:
 
     /// Appends samples.
     ///
-    /// @param samples  Mono samples, in order.
-    /// @throws WavError if they cannot all be written.
+    /// @param samples  Whole sample frames, interleaved, in order.
+    /// @throws WavError if they are not whole sample frames, or cannot all
+    ///         be written.
     void write(std::span<const float> samples);
 
     /// Finishes the file: writes its header's lengths and closes it.

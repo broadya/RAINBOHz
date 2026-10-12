@@ -7,7 +7,7 @@
 //   playback-client --start B:T --end B:T
 //                   [--server URL] [--loops N]
 //                   [--buffer-dir DIR] [--keep-buffer]
-//                   [--output-wav FILE] [--debug]
+//                   [--output-wav FILE] [--channel-mode MODE] [--debug]
 //
 // The parser is CLI11, confined to the implementation: no third-party type
 // appears in this header.
@@ -51,6 +51,11 @@ struct Options {
     /// Write what would be played to this WAV file instead of the audio
     /// device: unpaced, without gaps. For tests.
     std::optional<std::filesystem::path> outputWav;
+
+    /// The channel mode the score must have, by the server's name; one of
+    /// kPlayableChannelModes. The score decides the mode; this only checks
+    /// it. Empty to play whichever playable mode the score has.
+    std::optional<std::string> channelMode;
 
     /// Write debug lines to the log: every REST call and its time, every
     /// frame, every wait.

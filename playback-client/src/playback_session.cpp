@@ -3,6 +3,7 @@
 #include "rainbohz/playback_client/playback_session.hpp"
 
 #include "rainbohz/playback_client/audio_sink.hpp"
+#include "rainbohz/playback_client/channel_mode.hpp"
 #include "rainbohz/playback_client/feeder.hpp"
 #include "rainbohz/playback_client/lane_board.hpp"
 #include "rainbohz/playback_client/log.hpp"
@@ -100,12 +101,17 @@ void checkTicks(const char* which, const MusicalPosition& position, const TempoM
 
 } // namespace
 
-SessionPlan planSession(
-    PlaybackApi& api, const MusicalPosition& start, const MusicalPosition& end) {
+SessionPlan planSession(PlaybackApi& api, const MusicalPosition& start, const MusicalPosition& end,
+    const std::optional<std::string>& expectedMode) {
     const EngineParameters engine = api.engineParameters();
-    if (engine.channelMode != "mono") {
-        throw SessionError{
-            "the score's channel mode is " + engine.channelMode + "; this version plays mono only"};
+    if (expectedMode.has_value() && engine.channelMode != *expectedMode) {
+        throw SessionError{"the score's channel mode is " + engine.channelMode + ", not the " +
+                           *expectedMode + " that --channel-mode asks for"};
+    }
+    const std::optional<ChannelCount> channels = playableChannels(engine.channelMode);
+    if (!channels.has_value()) {
+        throw SessionError{"the score's channel mode is " + engine.channelMode +
+                           "; this version plays " + playableChannelModesText()};
     }
     const TempoMapSummary map = api.rootTempoMap();
     checkTicks("start", start, map);
@@ -122,10 +128,11 @@ SessionPlan planSession(
     }
 
     const SampleCount length = frames.length();
-    logLine(LogLevel::Info, "score: " + std::to_string(engine.sampleRate.value()) +
-                                " Hz, frames of " + std::to_string(engine.frameSize.value()) +
-                                " samples; tempo map " + std::to_string(map.id) +
-                                (map.name.empty() ? "" : " (" + map.name + ")"));
+    logLine(LogLevel::Info,
+        "score: " + std::to_string(engine.sampleRate.value()) + " Hz, " + engine.channelMode +
+            " (" + std::to_string(channels->value()) + " channel(s)), frames of " +
+            std::to_string(engine.frameSize.value()) + " samples; tempo map " +
+            std::to_string(map.id) + (map.name.empty() ? "" : " (" + map.name + ")"));
     logLine(LogLevel::Info,
         "range " + formatMusicalPosition(start) + " to " + formatMusicalPosition(end) + ": frame " +
             std::to_string(first.frame.value()) + " +" + std::to_string(first.offset) +
@@ -133,8 +140,12 @@ SessionPlan planSession(
             ", " + std::to_string(frames.slices.size()) + " frame(s), " +
             std::to_string(length.value()) + " samples (" +
             formatFixed(length.seconds(engine.sampleRate), 3) + " s)");
-    return SessionPlan{
-        .engine = engine, .tempoMap = map, .start = first, .end = last, .frames = frames};
+    return SessionPlan{.engine = engine,
+        .channels = *channels,
+        .tempoMap = map,
+        .start = first,
+        .end = last,
+        .frames = frames};
 }
 
 SessionResult playSession(PlaybackApi& api, ObjectFetcher& fetcher, AudioSink& sink,
@@ -144,7 +155,8 @@ SessionResult playSession(PlaybackApi& api, ObjectFetcher& fetcher, AudioSink& s
     sink.start();
 
     const NetworkSettings networkSettings{.fills = loops, .sampleRate = plan.engine.sampleRate};
-    const FeederSettings feederSettings{.loops = loops, .sampleRate = plan.engine.sampleRate};
+    const FeederSettings feederSettings{
+        .loops = loops, .sampleRate = plan.engine.sampleRate, .channels = plan.channels};
 
     std::atomic<bool> feederDone{false};
     std::atomic<bool> networkDone{false};

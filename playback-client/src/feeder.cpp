@@ -37,7 +37,7 @@ public:
     /// @param plan      The frames of one pass.
     /// @param buffer    Where the lanes are.
     /// @param sink      Where the audio goes.
-    /// @param settings  How many loops, and the sample rate.
+    /// @param settings  How many loops, the sample rate and the channels.
     Feeder(LaneBoard& board, const FramePlan& plan, const BufferDir& buffer, AudioSink& sink,
         FeederSettings settings)
         : board_{&board}, plan_{&plan}, buffer_{&buffer}, sink_{&sink}, settings_{settings},
@@ -102,11 +102,13 @@ private:
                         "frame " + std::to_string(slice.frame.value()) + " (streaming)");
                 }
             }
-            const std::vector<float> samples = readFrame(
-                buffer_->framePath(lane, slice.frame), settings_.sampleRate, plan_->frameSize);
-            const auto played =
-                std::span<const float>{samples}.subspan(static_cast<std::size_t>(slice.begin),
-                    static_cast<std::size_t>(slice.end - slice.begin));
+            const std::vector<float> samples = readFrame(buffer_->framePath(lane, slice.frame),
+                settings_.sampleRate, settings_.channels, plan_->frameSize);
+            // The slice is in sample frames; the samples are interleaved.
+            const auto channels = static_cast<std::size_t>(settings_.channels.value());
+            const auto played = std::span<const float>{samples}.subspan(
+                static_cast<std::size_t>(slice.begin) * channels,
+                static_cast<std::size_t>(slice.end - slice.begin) * channels);
             if (!sink_->write(played)) {
                 return false;
             }
@@ -157,7 +159,8 @@ private:
     const BufferDir* buffer_;
     /// The audio output every loop is written to.
     AudioSink* sink_;
-    /// How many loops to play, and the sample rate every frame must have.
+    /// How many loops to play, and the sample rate and channels every frame
+    /// must have.
     FeederSettings settings_;
     /// When the feeder was made; the startup time is measured from it.
     Clock::time_point started_;

@@ -33,6 +33,8 @@ struct FeederSettings {
     std::int64_t loops = 1;
     /// The sample rate every frame must have.
     SampleRate sampleRate{1};
+    /// The channels every frame must have.
+    ChannelCount channels{1};
 };
 
 /// One time the feeder had to wait for the network thread.
@@ -69,7 +71,7 @@ struct FeederReport {
 /// @param buffer         Where the lanes are.
 /// @param[in,out] sink   Where the audio goes; started by the caller, and
 ///                       finished here after the last loop.
-/// @param settings       How many loops, and the sample rate.
+/// @param settings       How many loops, the sample rate and the channels.
 /// @return What it did.
 /// @note Side effects: reads frame files; writes to the sink, and finishes
 ///       it after the last loop; logs each loop at info level, waits at

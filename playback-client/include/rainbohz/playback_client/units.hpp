@@ -117,6 +117,30 @@ private:
     std::int32_t value_; ///< Samples per frame.
 };
 
+/// Audio channels: how many interleaved values make one sample frame.
+///
+/// Sample counts, offsets and frame sizes count sample frames, which are
+/// time; a buffer of interleaved audio holds sample frames × channels values.
+class ChannelCount {
+public:
+    /// `channels` channels.
+    ///
+    /// @param channels  The count. Validation (positive) is the caller's
+    ///                  concern.
+    constexpr explicit ChannelCount(std::int32_t channels) noexcept : value_{channels} {}
+
+    /// The count.
+    ///
+    /// @return Channels per sample frame.
+    constexpr std::int32_t value() const noexcept { return value_; }
+
+    /// Orders two values of this type by their representation.
+    friend constexpr auto operator<=>(ChannelCount, ChannelCount) noexcept = default;
+
+private:
+    std::int32_t value_; ///< Channels per sample frame.
+};
+
 /// A frame number, Frame.frame_number in engine-db: frame n holds samples
 /// n × frame size to (n + 1) × frame size, exclusive.
 class FrameNumber {

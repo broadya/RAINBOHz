@@ -32,14 +32,17 @@ or directly:
 playback-client --start B:T --end B:T
                 [--server http://127.0.0.1:8080/v1] [--loops 1]
                 [--buffer-dir <dir>] [--keep-buffer]
-                [--output-wav <file>] [--debug]
+                [--output-wav <file>] [--channel-mode <mode>] [--debug]
 ```
 
 The range is `[start, end)` on the score's root tempo map, written as
 `beats:ticks` or bare beats. The client must run where it can read the
 server's `--out-dir`: a render returns a `file://` URI, which stands in for an
 object-storage URL, and the client copies the file. `--output-wav` writes what
-would have been played to a file instead of the device. The log goes to
+would have been played to a file instead of the device. The score decides
+the channel mode; the client plays `mono`, `stereo-from-xy`,
+`stereo-from-mid-side` and `blumlein-classic`, and refuses the rest.
+`--channel-mode <mode>` makes it fail unless the score has that mode. The log goes to
 standard error. Each fill's line gives its real-time factor; below 1,
 rendering keeps up.
 

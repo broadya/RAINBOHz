@@ -239,7 +239,7 @@ disagree, that one wins.
 | `engine-db/` | `engine-db` — **the implementation** | Cypher DDL | Under construction; rendering and canonical concepts, without the modulator musical timelines or dependency information yet |
 | `canonical-db/` | Canonical model — **design artefact** | Cypher DDL | Loads cleanly; not the implementation; considerably out of date beside `engine-db` |
 | `rendering-engine/` | `rendering-engine` | C++20 | Hosts and loads `engine-db`; transforms musical time to physical time (first version: one tempo map, frequency, amplitude, phase targets and spatial position); precomputes; renders frames to multi-channel WAV files (first version: linear curves, one spatial position per SoundSource, all eight channel modes, labels ignored); `batch` and `server` (REST) modes |
-| `playback-client/` | `playback-client` | C++20 | First version: loops a range through the default audio device over `rendering-engine`'s REST service, two buffer lanes, mono; `--output-wav` for tests |
+| `playback-client/` | `playback-client` | C++20 | First version: loops a range through the default audio device over `rendering-engine`'s REST service, two buffer lanes, mono and stereo (X/Y, decoded M/S, classic Blumlein) as the score says, `--channel-mode` to check it; `--output-wav` for tests |
 
 Component directory names match the canonical component identifiers from
 `architecture/overview.md` §2. Do not introduce synonyms.

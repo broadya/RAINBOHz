@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+#include "rainbohz/playback_client/channel_mode.hpp"
+#include "rainbohz/playback_client/device_mix.hpp"
 #include "rainbohz/playback_client/frame_plan.hpp"
 #include "rainbohz/playback_client/musical_position.hpp"
 #include "rainbohz/playback_client/options.hpp"
@@ -12,6 +14,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -142,6 +145,21 @@ TEST(SampleRing, WrapsManyTimes) {
     }
 }
 
+// Pushes in granules leave the ring holding whole sample frames: with room
+// for 5 values, a stereo push takes 4 and leaves the fifth slot free.
+TEST(SampleRing, PushesWholeGranulesOnly) {
+    SampleRing ring{5};
+    const std::array<float, 6> in{1, 2, 3, 4, 5, 6};
+    EXPECT_EQ(ring.push(in, 2), 4U);
+    EXPECT_EQ(ring.size(), 4U);
+    std::array<float, 2> out{};
+    EXPECT_EQ(ring.pop(out), 2U);
+    EXPECT_EQ(out, (std::array<float, 2>{1, 2}));
+    // Room for 3 now: one more frame, not a frame and a half.
+    EXPECT_EQ(ring.push(std::span<const float>{in}.subspan(4), 2), 2U);
+    EXPECT_EQ(ring.size(), 4U);
+}
+
 // size() from a third thread, while both sides run flat out, is a count the
 // ring really held, so never more than its capacity. A single pair of loads
 // fails this either way round when both sides move between them: write_
@@ -174,6 +192,53 @@ TEST(SampleRing, SizeFromAThirdThreadNeverExceedsTheCapacity) {
     EXPECT_LE(largest, kCapacity);
 }
 
+// --- Channel modes -----------------------------------------------------------
+
+TEST(ChannelMode, PlaysMonoAndTheLeftRightModes) {
+    EXPECT_EQ(playableChannels("mono"), ChannelCount{1});
+    EXPECT_EQ(playableChannels("stereo-from-xy"), ChannelCount{2});
+    EXPECT_EQ(playableChannels("stereo-from-mid-side"), ChannelCount{2});
+    EXPECT_EQ(playableChannels("blumlein-classic"), ChannelCount{2});
+    for (const std::string_view mode : kPlayableChannelModes) {
+        EXPECT_TRUE(playableChannels(mode).has_value()) << mode;
+    }
+}
+
+TEST(ChannelMode, RefusesTheRest) {
+    for (const char* mode :
+        {"mid-side", "blumlein-rotated", "foa-a-format", "foa-b-format", "stereo", "", "unknown"}) {
+        EXPECT_FALSE(playableChannels(mode).has_value()) << mode;
+    }
+}
+
+// --- Device mix --------------------------------------------------------------
+
+TEST(DeviceMix, CopiesMonoToEveryChannel) {
+    const std::array<float, 2> source{0.5F, -1.0F};
+    std::array<float, 6> device{};
+    mixToDevice(source, ChannelCount{1}, device, 3);
+    EXPECT_EQ(device, (std::array<float, 6>{0.5F, 0.5F, 0.5F, -1.0F, -1.0F, -1.0F}));
+}
+
+TEST(DeviceMix, PutsStereoOnTheFirstTwoChannels) {
+    const std::array<float, 4> source{0.25F, -0.5F, 1.0F, 0.75F};
+    std::array<float, 4> two{};
+    mixToDevice(source, ChannelCount{2}, two, 2);
+    EXPECT_EQ(two, source);
+
+    std::array<float, 8> four{};
+    four.fill(9.0F);
+    mixToDevice(source, ChannelCount{2}, four, 4);
+    EXPECT_EQ(four, (std::array<float, 8>{0.25F, -0.5F, 0.0F, 0.0F, 1.0F, 0.75F, 0.0F, 0.0F}));
+}
+
+TEST(DeviceMix, MixesStereoDownForAOneChannelDevice) {
+    const std::array<float, 4> source{0.25F, -0.5F, 1.0F, 0.5F};
+    std::array<float, 2> device{};
+    mixToDevice(source, ChannelCount{2}, device, 1);
+    EXPECT_EQ(device, (std::array<float, 2>{-0.125F, 0.75F}));
+}
+
 // --- Command line ------------------------------------------------------------
 
 ParseResult parse(std::vector<const char*> args) {
@@ -191,20 +256,22 @@ TEST(Options, TakesTheRangeAndDefaultsTheRest) {
     EXPECT_FALSE(result.options->keepBuffer);
     EXPECT_FALSE(result.options->debug);
     EXPECT_FALSE(result.options->outputWav.has_value());
+    EXPECT_FALSE(result.options->channelMode.has_value());
     EXPECT_EQ(result.options->bufferRoot, std::filesystem::temp_directory_path());
 }
 
 TEST(Options, TakesEveryOption) {
     const auto root = std::filesystem::temp_directory_path().string();
-    const ParseResult result =
-        parse({"--server", "http://h:1/v1", "--start", "0", "--end", "1", "--loops", "3",
-            "--buffer-dir", root.c_str(), "--keep-buffer", "--output-wav", "o.wav", "--debug"});
+    const ParseResult result = parse({"--server", "http://h:1/v1", "--start", "0", "--end", "1",
+        "--loops", "3", "--buffer-dir", root.c_str(), "--keep-buffer", "--output-wav", "o.wav",
+        "--channel-mode", "stereo-from-xy", "--debug"});
     ASSERT_TRUE(result.options.has_value());
     EXPECT_EQ(result.options->serverUrl, "http://h:1/v1");
     EXPECT_EQ(result.options->loops, 3);
     EXPECT_TRUE(result.options->keepBuffer);
     EXPECT_TRUE(result.options->debug);
     EXPECT_EQ(result.options->outputWav, std::filesystem::path{"o.wav"});
+    EXPECT_EQ(result.options->channelMode, "stereo-from-xy");
 }
 
 TEST(Options, RefusesAnEndNotAfterTheStart) {
@@ -217,6 +284,7 @@ TEST(Options, RefusesBadValues) {
     EXPECT_EQ(parse({"--start", "0", "--end", "2", "--loops", "0"}).exitCode, 2);
     EXPECT_EQ(parse({"--start", "0"}).exitCode, 2);
     EXPECT_EQ(parse({"--start", "0", "--end", "1", "--buffer-dir", "/no/such/dir"}).exitCode, 2);
+    EXPECT_EQ(parse({"--start", "0", "--end", "1", "--channel-mode", "foa-b-format"}).exitCode, 2);
 }
 
 TEST(Options, HelpExitsZero) {
