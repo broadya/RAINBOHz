@@ -69,10 +69,10 @@ dBFS. That is deliberate, as an experiment. Its HzL is **generated**: edit
 `../.venv/bin/python pieces/convergence/generate.py`. Don't edit the YAML.
 
 **It needs the optimised build:** `PG_PRESET=macos-max pg start convergence`.
-There it loads in about 53 s and renders at about 0.5 times real time. On the
-debug build loading takes about 4 min and rendering runs 2.7 times slower
-than real time. A `pg reload` blocks the engine for the whole load, so
-playback stalls until it finishes.
+There it loads in about 4 s and renders at about 0.5 times real time. On the
+debug build rendering runs 2.7 times slower than real time, too slow to
+loop live. A `pg reload` blocks the engine for the whole load, so playback
+may stall briefly.
 
 `four-partials` and `two-partials` are earlier versions reduced to a few
 partials, which glide from random frequencies to 100/99 Hz and to 100 Hz in
