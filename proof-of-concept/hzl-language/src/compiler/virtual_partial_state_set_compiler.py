@@ -14,9 +14,9 @@ from typing import Any, Dict, List
 from compiler_common import load_yaml_file, get_yaml_file_path, validate_partial, save_yaml_file
 
 # Base directory for input YAML files (adjust as needed).
-BASE_DIR = "/Users/alanbroady/Development/RAINBOHz/hzl-language/tests/test_data"
+BASE_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "tests", "test_data"))
 # Constant output directory for compiled state sets.
-OUTPUT_DIR = "/Users/alanbroady/Development/RAINBOHz/hzl-language/tests/test_output"
+OUTPUT_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "tests", "test_output"))
 
 def load_virtual_partial_state_set(filepath: str) -> Dict[str, Any]:
     """Load the virtual partial state set from a YAML file."""

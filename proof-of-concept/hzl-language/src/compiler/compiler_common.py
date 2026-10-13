@@ -10,7 +10,7 @@ import argparse
 from typing import Any, Dict, Tuple
 
 # Constant output directory for compiled state sets.
-OUTPUT_DIR = "/Users/alanbroady/Development/RAINBOHz/hzl-language/tests/test_output"
+OUTPUT_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "tests", "test_output"))
 
 # Define allowed ranges with an explicit type annotation.
 ALLOWED_RANGES: Dict[str, Tuple[float, float]] = {

@@ -17,7 +17,7 @@ import yaml
 from compiler_common import load_yaml_file, get_yaml_file_path, validate_property, save_yaml_file
 
 # Constant output directory for compiled state sets.
-OUTPUT_DIR = "/Users/alanbroady/Development/RAINBOHz/hzl-language/tests/test_output"
+OUTPUT_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "tests", "test_output"))
 
 def compile_scale(scale_data: dict) -> dict:
     """

@@ -1,3 +1,4 @@
+#include <filesystem>
 #include <iostream>
 
 #include "gtest/gtest.h"
@@ -9,7 +10,7 @@
 using namespace RAINBOHz;
 
 inline std::string TEST_FILES_DIR =
-    "/Users/alanbroady/Development/RAINBOHz/audio-rendering/tests/test_data";
+    (std::filesystem::path(__FILE__).parent_path() / "test_data").string();
 
 TEST(AudioFragmentParserTest, NoChecks) {
     // Path to the YAML file (adjust the path as necessary for your test environment)
