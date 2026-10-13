@@ -741,7 +741,7 @@ CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
 // means that an approach that first generates the source signal
 // at the sample rate would not be sufficient. For example, a
 // signal at 10kHz could become a signal at 30kHz if the
-// velocity towards the reciever is very high. This needs to be
+// velocity towards the receiver is very high. This needs to be
 // fully attenuated but would not be if the source were treated
 // simply as a stream of samples being resampled to compensate
 // for velocity.

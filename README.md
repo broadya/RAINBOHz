@@ -102,7 +102,7 @@ See [`architecture/overview.md`](architecture/overview.md) for the full
 description, and §11 there for why an earlier pipelined design was collapsed
 into this one.
 
-## Programming Langauges
+## Programming Languages
 C++20 using clang / Coding conventions according the C++ Core Guidelines.
 Python 3.12
 
