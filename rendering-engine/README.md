@@ -341,6 +341,7 @@ database path) and `cmake/ProjectWarnings.cmake`, all at the repository root.
 | --- | --- |
 | `macos-debug` | Local development. Default on macOS. |
 | `macos-release` | RelWithDebInfo. |
+| `macos-max` / `linux-max` | Release + ThinLTO, Ladybug included; no debug info. |
 | `macos-asan` | Debug + AddressSanitizer + UBSan. |
 | `linux-debug` / `linux-release` | Native Linux; serves both arm64 and x86_64. |
 | `windows-debug` / `windows-release` | MSVC, from a Developer Command Prompt. |

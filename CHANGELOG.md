@@ -40,6 +40,8 @@ The target architecture, built from 2026-09-27 onwards.
 - Schema tools in `scripts/`: validation against a real LadybugDB, Mermaid
   diagrams, and comment wrapping.
 - `CONTRIBUTING.md`, `SECURITY.md`, `CITATION.cff` and this changelog.
+- `macos-max` and `linux-max` CMake presets: fully optimised builds (Release
+  with ThinLTO, Ladybug included).
 
 ### Changed
 

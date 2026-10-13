@@ -524,6 +524,10 @@ The build configuration is selected with `RE_PRESET`, which defaults to
 make rendering-engine RE_PRESET=macos-release
 ```
 
+`macos-max` / `linux-max` is the fully optimised configuration: Release
+(`-O3`, `NDEBUG`, no debug info) with ThinLTO across our code and Ladybug. Its
+first build is longer still, and every link pays the LTO cost.
+
 **The first C++ build compiles Ladybug from source and takes a long time.**
 Later builds are incremental and ccache-accelerated. Build trees are per-preset
 (`rendering-engine/build/<preset>/`), so switching configuration does not

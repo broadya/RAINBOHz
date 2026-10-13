@@ -37,6 +37,16 @@
       "inherits": "clang",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
     },
+    {
+      "name": "max",
+      "hidden": true,
+      "inherits": "clang",
+      "description": "Fully optimised: Release (-O3, NDEBUG, no debug info) with link-time optimisation, which CMake gives clang as ThinLTO. Both reach Ladybug, which is built in the same tree, so it is optimised across the boundary with our code.",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON"
+      }
+    },
 
     {
       "name": "cross-base",
@@ -63,6 +73,12 @@
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
     },
     {
+      "name": "macos-max",
+      "displayName": "macOS arm64 - Release + ThinLTO",
+      "inherits": "max",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
+    },
+    {
       "name": "macos-asan",
       "displayName": "macOS arm64 - Debug + ASan/UBSan",
       "description": "Address and undefined-behaviour sanitizers. Use before trusting any change to memory-owning code.",
@@ -85,6 +101,12 @@
       "name": "linux-release",
       "displayName": "Linux (host arch) - RelWithDebInfo",
       "inherits": "release",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "linux-max",
+      "displayName": "Linux (host arch) - Release + ThinLTO",
+      "inherits": "max",
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
     },
 
@@ -123,9 +145,11 @@
   "buildPresets": [
     { "name": "macos-debug",   "configurePreset": "macos-debug" },
     { "name": "macos-release", "configurePreset": "macos-release" },
+    { "name": "macos-max",     "configurePreset": "macos-max" },
     { "name": "macos-asan",    "configurePreset": "macos-asan" },
     { "name": "linux-debug",   "configurePreset": "linux-debug" },
     { "name": "linux-release", "configurePreset": "linux-release" },
+    { "name": "linux-max",     "configurePreset": "linux-max" },
     { "name": "windows-debug",   "configurePreset": "windows-debug" },
     { "name": "windows-release", "configurePreset": "windows-release" },
     { "name": "linux-aarch64-cross", "configurePreset": "linux-aarch64-cross" },
@@ -141,9 +165,11 @@
     },
     { "name": "macos-debug",   "inherits": "base", "configurePreset": "macos-debug" },
     { "name": "macos-release", "inherits": "base", "configurePreset": "macos-release" },
+    { "name": "macos-max",     "inherits": "base", "configurePreset": "macos-max" },
     { "name": "macos-asan",    "inherits": "base", "configurePreset": "macos-asan" },
     { "name": "linux-debug",   "inherits": "base", "configurePreset": "linux-debug" },
     { "name": "linux-release", "inherits": "base", "configurePreset": "linux-release" },
+    { "name": "linux-max",     "inherits": "base", "configurePreset": "linux-max" },
     { "name": "windows-debug",   "inherits": "base", "configurePreset": "windows-debug" },
     { "name": "windows-release", "inherits": "base", "configurePreset": "windows-release" }
   ],
