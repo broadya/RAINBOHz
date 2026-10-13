@@ -151,8 +151,9 @@
 // ============================================================
 
 // ============================================================
-// CORE STRUCURE, COMMON TO THE ENTIRE MODEL
+// CORE STRUCTURE, COMMON TO THE ENTIRE MODEL
 // ============================================================
+// Score -> SoundEntity -> SoundSource -> PartialSet -> Partial
 
 // ============================================================
 // Score: An entire piece of music to be rendered. Expected to
@@ -366,7 +367,7 @@ CREATE REL TABLE HAS_PARTIAL (
 // where the length of a sound is not affected by tempo.
 //
 // ------------------------------------------------------------
-// azimtuth                         degrees
+// azimuth                         degrees
 // ------------------------------------------------------------
 // valid range [-180,180]
 // In degrees because the canonical model is intended to be in
@@ -375,6 +376,11 @@ CREATE REL TABLE HAS_PARTIAL (
 // Follows conventions from Ambisonics / Ambix. NB This means
 // that moving to the right from the listener's perspective is a
 // negative change in azimuth.
+// For azimuth, when modulators take values out of
+// defined ranges, wraparound takes place. A linear modulator
+// can create continuous rotation, which is a typical and
+// useful use case. Note that this is not possible for
+// elevation.
 //
 // 0 = directly in front of the listener
 // 90 = left of the listener
@@ -394,11 +400,6 @@ CREATE REL TABLE HAS_PARTIAL (
 // 0 = directly in front of the listener
 // 90 = directly above the listener
 // -90 = directly below the listener
-//
-// For azimuth and elevation, when modulators take values out of
-// defined ranges, wraparound takes place. A linear modulator
-// can create continuous rotation (when carefully combined with
-// azimuth), which is a typical and useful use case.
 //
 // ------------------------------------------------------------
 // distance                         metres
@@ -450,7 +451,7 @@ CREATE NODE TABLE TempoMap (
 );
 
 // ============================================================
-// TempoMapPoint: An point in a tempo map determines the start
+// TempoMapPoint: A point in a tempo map determines the start
 // tempo of the following segment.
 //
 // hold is a BOOLEAN flag that can be used to indicate a fixed
@@ -854,7 +855,7 @@ CREATE NODE TABLE PartialSetMusicalTimeline (
 );
 
 // ============================================================
-// PartialSetMusicalTimelinePoint: An point within a
+// PartialSetMusicalTimelinePoint: A point within a
 // PartialSetMusicalTimeline. Defines the state of the partials
 // for that timeline at a given point in time.
 //
@@ -967,9 +968,11 @@ CREATE REL TABLE HAS_LABEL (
 // not by the database (LadybugDB has no CHECK constraints).
 //
 // Ranges (compiler-enforced):
-//   azimuth      rad,     [-π,π]      Anticlockwise from front
-//   elevation    rad,     [-π/2,π/2]  From horizontal plane
-//   distance     metres,  [1,16384]
+//   azimuth      degrees,     [-180,180]      Anticlockwise from front
+//   elevation    degrees,     [-90,90]  From horizontal plane
+//   distance     metres,      [1,16384]
+//
+// @canonical
 // ============================================================
 CREATE NODE TABLE SpatialPositionState (
     id          SERIAL,
@@ -1348,7 +1351,7 @@ CREATE NODE TABLE DistancePhysicalTimelinePoint (
 );
 
 // ============================================================
-// FrequencyModulatorPhysicalTimelinePoint: An point within a
+// FrequencyModulatorPhysicalTimelinePoint: A point within a
 // FrequencyModulatorPhysicalTimeline. Defines the modulator
 // state for that timeline at a given point in time.
 // ============================================================
@@ -1358,7 +1361,7 @@ CREATE NODE TABLE FrequencyModulatorPhysicalTimelinePoint (
 );
 
 // ============================================================
-// AmplitudeModulatorPhysicalTimelinePoint: An point within an
+// AmplitudeModulatorPhysicalTimelinePoint: A point within an
 // AmplitudeModulatorPhysicalTimeline. Defines the modulator
 // state for that timeline at a given point in time.
 // ============================================================
@@ -1369,7 +1372,7 @@ CREATE NODE TABLE AmplitudeModulatorPhysicalTimelinePoint (
 );
 
 // ============================================================
-// PhaseModulatorPhysicalTimelinePoint: An point within a
+// PhaseModulatorPhysicalTimelinePoint: A point within a
 // PhaseModulatorPhysicalTimeline. Defines the modulator state
 // for that timeline at a given point in time.
 // ============================================================
@@ -1380,7 +1383,7 @@ CREATE NODE TABLE PhaseModulatorPhysicalTimelinePoint (
 );
 
 // ============================================================
-// AzimuthModulatorPhysicalTimelinePoint: An point within an
+// AzimuthModulatorPhysicalTimelinePoint: A point within an
 // AzimuthModulatorPhysicalTimeline. Defines the modulator state
 // for that timeline at a given point in time.
 // ============================================================
@@ -1391,7 +1394,7 @@ CREATE NODE TABLE AzimuthModulatorPhysicalTimelinePoint (
 );
 
 // ============================================================
-// ElevationModulatorPhysicalTimelinePoint: An point within an
+// ElevationModulatorPhysicalTimelinePoint: A point within an
 // ElevationModulatorPhysicalTimeline. Defines the modulator
 // state for that timeline at a given point in time.
 // ============================================================
@@ -1402,7 +1405,7 @@ CREATE NODE TABLE ElevationModulatorPhysicalTimelinePoint (
 );
 
 // ============================================================
-// DistanceModulatorPhysicalTimelinePoint: An point within a
+// DistanceModulatorPhysicalTimelinePoint: A point within a
 // DistanceModulatorPhysicalTimeline. Defines the modulator
 // state for that timeline at a given point in time.
 // ============================================================
@@ -1710,7 +1713,6 @@ CREATE REL TABLE NEXT_POINT (
     // Head of the linked lists
     FROM PartialSegmentPhysicalTimeline TO PartialIntegrableSegment,
     FROM PartialSegmentPhysicalTimeline TO PartialPhaseCompensationSegment,
-    FROM SpatialPositionMusicalTimeline TO SpatialPositionMusicalTimelinePoint,
     FROM AmplitudePhysicalTimeline TO AmplitudePhysicalTimelinePoint,
     FROM FrequencyPhysicalTimeline TO FrequencyPhysicalTimelinePoint,
     FROM PhasePhysicalTimeline TO PhasePhysicalTimelinePoint,
@@ -1728,11 +1730,11 @@ CREATE REL TABLE NEXT_POINT (
     FROM Score TO TempoMap, // Defines time = zero
     FROM TempoMap TO TempoMapPoint,
     FROM PartialSetMusicalTimeline TO PartialSetMusicalTimelinePoint,
+    FROM SpatialPositionMusicalTimeline TO SpatialPositionMusicalTimelinePoint,
 
     // Further nodes of the linked lists
     FROM PartialIntegrableSegment TO PartialIntegrableSegment,
     FROM PartialPhaseCompensationSegment TO PartialPhaseCompensationSegment,
-    FROM SpatialPositionMusicalTimelinePoint TO SpatialPositionMusicalTimelinePoint,
     FROM AmplitudePhysicalTimelinePoint TO AmplitudePhysicalTimelinePoint,
     FROM FrequencyPhysicalTimelinePoint TO FrequencyPhysicalTimelinePoint,
     FROM PhasePhysicalTimelinePoint TO PhasePhysicalTimelinePoint,
@@ -1749,6 +1751,7 @@ CREATE REL TABLE NEXT_POINT (
     // @canonical
     FROM TempoMapPoint TO TempoMapPoint,
     FROM PartialSetMusicalTimelinePoint TO PartialSetMusicalTimelinePoint,
+    FROM SpatialPositionMusicalTimelinePoint TO SpatialPositionMusicalTimelinePoint,
     ONE_ONE
 );
 

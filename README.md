@@ -3,9 +3,6 @@
 
 <img alt="RAINBOHz" src="docs/readme/rainbohz-logo.png">
 
-## Audio Warning
-Turn down your headphone / speaker level before trying experiments with RAINBOHz. This software can generate unusual audio signals that could damage your speakers or headphones, and more importantly could damage your hearning. Keep those levels down whilst experimenting!
-
 ## Project Summary
 RAINBOHz is a research project exploring additive synthesis at large scale, referred to as __macro-scale additive synthesis__. It exists at the "macro-scale" from two perspectives. It allows large numbers of additive partials to be used, and it allows control over the macro timescale i.e. over a complete musical work (or a signifant part thereof) defined by a score.
 
@@ -44,6 +41,9 @@ In particular the following are large gaps in the current implementation.
 - Build using GitHub actions
 
 The architecture takes all of these issues into account, but they are simply not yet implemented.
+
+## Audio Warning
+Turn down your headphone / speaker level before trying experiments with RAINBOHz. This software can generate unusual audio signals that could damage your speakers or headphones, and more importantly could damage your hearning. Keep those levels down whilst experimenting!
 
 ## AI Disclosure
 
