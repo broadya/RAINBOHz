@@ -4,7 +4,7 @@
 <img alt="RAINBOHz" src="docs/readme/rainbohz-logo.png">
 
 ## Project Summary
-RAINBOHz is a research project exploring additive synthesis at large scale, referred to as __macro-scale additive synthesis__. It exists at the "macro-scale" from two perspectives. It allows large numbers of additive partials to be used, and it allows control over the macro timescale i.e. over a complete musical work (or a significant part thereof) defined by a score.
+RAINBOHz is a research project exploring additive synthesis at large scale, referred to as __macro-scale additive synthesis__. It operates at the "macro-scale" from two perspectives. It allows large numbers of additive partials to be used, and it allows control over the macro timescale i.e. over a complete musical work (or a significant part thereof) defined by a score.
 
 Scores are written in a domain-specific, declarative language called __HzL__. This language and its compiler are part of this project. It is expected that practitioners will use a combination of
 hand-coding, assembly from pre-built component libraries, and LLMs to generate HzL scores.
