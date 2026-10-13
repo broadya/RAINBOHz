@@ -49,8 +49,12 @@ SpatialPosition at(double azimuthDeg, double elevationDeg, double metres) {
 }
 
 std::vector<double> gains(ChannelMode mode, double azimuthDeg, double elevationDeg = 0.0) {
+    // Named, not a temporary: in C++20 a range-for does not extend the life of
+    // a temporary that the range expression only reads through, and channels()
+    // is a view into it.
+    const ChannelGains direction = directionGains(mode, deg(azimuthDeg), deg(elevationDeg));
     std::vector<double> out;
-    for (const LinearGain g : directionGains(mode, deg(azimuthDeg), deg(elevationDeg)).channels()) {
+    for (const LinearGain g : direction.channels()) {
         out.push_back(g.value());
     }
     return out;
@@ -84,8 +88,9 @@ std::vector<Angles> randomDirections(std::size_t n) {
 }
 
 std::vector<double> gains(ChannelMode mode, const Angles& angles) {
+    const ChannelGains direction = directionGains(mode, angles.azimuth, angles.elevation);
     std::vector<double> out;
-    for (const LinearGain g : directionGains(mode, angles.azimuth, angles.elevation).channels()) {
+    for (const LinearGain g : direction.channels()) {
         out.push_back(g.value());
     }
     return out;
