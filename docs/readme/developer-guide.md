@@ -9,9 +9,9 @@
 | `rendering-engine/` | Rendering engine, C++ — loads, transforms, precomputes and renders; first version |
 | `playback-client/` | Playback client, C++ — loops a range of a score through the default audio device; first version |
 | `docs/adr/` | Architecture Decision Records |
+| `cmake/` | Shared CMake configuration for the C++ components: warnings, presets and cross toolchains |
 | `scripts/` | Schema loading, validation, diagrams and comment wrapping, and the shared DDL machinery |
-| `tools/` | Developer tooling kept outside the repository (the Ladybug Cypher VS Code extension); gitignored |
-| `proof-of-concept/` | Archived earlier phase. Historical reference; not built. |
+| `proof-of-concept/` | Proofs of concept, each in its own sub-directory, tried before being built into the components. The original sub-directories are frozen as a historical record. Not built |
 | `playground/` | Musical experiments: `pg` loops an HzL piece through the engine and reloads it on request. **No stability guarantee**; may change or vanish at any time |
 
 ## Developer Guide

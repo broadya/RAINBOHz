@@ -14,7 +14,7 @@ This repo contains the production implementation. The `proof-of-concept/` direct
 
 ## Architecture
 
-The system is an end-to-end pipeline with multiple stages. This initial phase implements the first stage: a domain-specific build pipeline that compiles a YAML-based DSL into a graph database.
+The system is an end-to-end pipeline with multiple stages. First versions of the compiler (`hzl-compiler`), the renderer (`rendering-engine`) and a playback client (`playback-client`) are implemented; see Components. The Ninja-based build pipeline described below is the design for compilation and is not yet built: today `hzlc` runs every compilation stage in one process.
 
 ### Pipeline Overview
 
@@ -36,7 +36,7 @@ The system is an end-to-end pipeline with multiple stages. This initial phase im
 - **Content-based invalidation, not timestamp-based.** Source files are hashed. A file that is committed but unchanged (same hash) is not rebuilt.
 - **The build process is co-located with the database.** The server is a domain-specific database appliance: it accepts DSL input, compiles it internally, and stores the result. External consumers query the graph via OpenCypher or an API layer. The build machinery is an internal implementation detail.
 - **No feedback anywhere in the system.** Partial state is a pure function of time, with no history-dependent stepping.
-- **Partials are fully independent at the canonical form level.** This is the hard architectural boundary between the DSL and the C++ renderer (a later pipeline stage, not in scope here).
+- **Partials are fully independent at the canonical form level.** This is the hard architectural boundary between the DSL and the C++ renderer (`rendering-engine`).
 
 ### Deployment
 
@@ -49,11 +49,11 @@ The system is an end-to-end pipeline with multiple stages. This initial phase im
 ## Tech Stack
 
 - **DSL source format:** YAML
-- **Build system:** Ninja (with Python generator for .ninja files)
+- **Build system:** Ninja (with Python generator for .ninja files), not yet built
 - **Build step language:** Python
-- **Graph database:** LadybugDB (embedded, linked via Python bindings)
+- **Graph database:** LadybugDB (embedded in process in `rendering-engine` through its C++ API; the schema tools drive the `lbug` CLI)
 - **Query language:** OpenCypher
-- **Renderer (future):** C++20 with Google Highway SIMD
+- **Renderer:** C++20 (`rendering-engine`); Google Highway SIMD is planned, not yet used
 - **DAW integration (future):** CLAP/ARA 3.x thin client
 - **Containerisation:** Docker (multi-arch arm64)
 - **Cloud (future):** AWS Lambda (Graviton), ENA networking
