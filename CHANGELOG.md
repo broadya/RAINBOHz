@@ -80,6 +80,14 @@ The target architecture, built from 2026-09-27 onwards.
   (or sources) per transaction, through a new `WriteBatch` layer (ADR 0022).
   Loading the 800-partial playground piece `convergence` went from 62 s to
   22 s on `macos-max`, with byte-identical audio.
+- `hzlc` writes the score as one statement per table in chunks of 1,000
+  rows (`UNWIND … CREATE` for nodes, `COPY … FROM (UNWIND …)` for
+  relationships), instead of one `CREATE` clause whose binding grew faster
+  than quadratically. `convergence` loads in under 1 s instead of 7 s, and a
+  1,600-partial score in under 2 s instead of 72 s. Node ids now follow the
+  compiler's order (they used to come out reversed), so a score with many
+  partials sums them in a different order: `convergence` moves by at most
+  2.4e-7.
 
 ## Before this changelog
 

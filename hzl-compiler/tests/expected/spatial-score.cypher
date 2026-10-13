@@ -5,161 +5,250 @@
 // ============================================================
 
 // Engine configuration, from compiler options; not part of the score.
-CREATE (engineConfig0:EngineConfig {sampleRate: 48000, channelMode: 1});
+CREATE (n:EngineConfig {sampleRate: 48000, channelMode: 1});
 
 // Score: 1
-CREATE (score0:Score {name: "scores/spatial_score"}),
+UNWIND [
+    {name: "scores/spatial_score"}
+] AS r CREATE (n:Score {name: r.name});
+
 // TempoMap: 1
-       (tempoMap0:TempoMap {name: "tempo_maps/steady", ticks_per_beat: 960}),
+UNWIND [
+    {name: "tempo_maps/steady", ticks_per_beat: 960}
+] AS r CREATE (n:TempoMap {name: r.name, ticks_per_beat: r.ticks_per_beat});
+
 // TempoMapPoint: 1
-       (tempoMapPoint0:TempoMapPoint {position: 0, start_tempo: 60.0, hold: true}),
+UNWIND [
+    {position: 0, start_tempo: 60.0, hold: true}
+] AS r CREATE (n:TempoMapPoint {position: r.position, start_tempo: r.start_tempo, hold: r.hold});
+
 // SoundEntity: 1
-       (soundEntity0:SoundEntity {name: "entities/orbit"}),
+UNWIND [
+    {name: "entities/orbit"}
+] AS r CREATE (n:SoundEntity {name: r.name});
+
 // SoundSource: 1
-       (soundSource0:SoundSource {name: "sources/orbiting"}),
+UNWIND [
+    {name: "sources/orbiting"}
+] AS r CREATE (n:SoundSource {name: r.name});
+
 // SpatialPositionMusicalTimeline: 1
-       (spatialPositionMusicalTimeline0:SpatialPositionMusicalTimeline),
+UNWIND range(1, 1) AS r CREATE (n:SpatialPositionMusicalTimeline);
+
 // SpatialPositionMusicalTimelinePoint: 9
-       (spatialPositionMusicalTimelinePoint0:SpatialPositionMusicalTimelinePoint {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0}),
-       (spatialPositionMusicalTimelinePoint1:SpatialPositionMusicalTimelinePoint {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0}),
-       (spatialPositionMusicalTimelinePoint2:SpatialPositionMusicalTimelinePoint {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0}),
-       (spatialPositionMusicalTimelinePoint3:SpatialPositionMusicalTimelinePoint {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0}),
-       (spatialPositionMusicalTimelinePoint4:SpatialPositionMusicalTimelinePoint {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0}),
-       (spatialPositionMusicalTimelinePoint5:SpatialPositionMusicalTimelinePoint {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0}),
-       (spatialPositionMusicalTimelinePoint6:SpatialPositionMusicalTimelinePoint {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0}),
-       (spatialPositionMusicalTimelinePoint7:SpatialPositionMusicalTimelinePoint {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0}),
-       (spatialPositionMusicalTimelinePoint8:SpatialPositionMusicalTimelinePoint {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0}),
+UNWIND [
+    {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0},
+    {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0},
+    {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0},
+    {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0},
+    {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0},
+    {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0},
+    {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0},
+    {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0},
+    {azimuth_curve_type: 0, azimuth_curve_amount: 0.0, elevation_curve_type: 0, elevation_curve_amount: 0.0, distance_curve_type: 0, distance_curve_amount: 0.0}
+] AS r CREATE (n:SpatialPositionMusicalTimelinePoint {azimuth_curve_type: r.azimuth_curve_type, azimuth_curve_amount: r.azimuth_curve_amount, elevation_curve_type: r.elevation_curve_type, elevation_curve_amount: r.elevation_curve_amount, distance_curve_type: r.distance_curve_type, distance_curve_amount: r.distance_curve_amount});
+
 // SpatialPositionState: 9
-       (spatialPositionState0:SpatialPositionState {azimuth: 0.0, elevation: 0.0, distance: 1.0}),
-       (spatialPositionState1:SpatialPositionState {azimuth: 90.0}),
-       (spatialPositionState2:SpatialPositionState {distance: 1.0}),
-       (spatialPositionState3:SpatialPositionState {azimuth: 172.0, elevation: 0.0}),
-       (spatialPositionState4:SpatialPositionState {elevation: 45.0, distance: 4.0}),
-       (spatialPositionState5:SpatialPositionState {azimuth: -172.0, elevation: 0.0}),
-       (spatialPositionState6:SpatialPositionState {distance: 1.0}),
-       (spatialPositionState7:SpatialPositionState {azimuth: -90.0}),
-       (spatialPositionState8:SpatialPositionState {azimuth: 0.0, elevation: 0.0, distance: 1.0}),
+UNWIND [
+    {azimuth: 0.0, elevation: 0.0, distance: 1.0},
+    {azimuth: 90.0, elevation: CAST(NULL AS DOUBLE), distance: CAST(NULL AS DOUBLE)},
+    {azimuth: CAST(NULL AS DOUBLE), elevation: CAST(NULL AS DOUBLE), distance: 1.0},
+    {azimuth: 172.0, elevation: 0.0, distance: CAST(NULL AS DOUBLE)},
+    {azimuth: CAST(NULL AS DOUBLE), elevation: 45.0, distance: 4.0},
+    {azimuth: -172.0, elevation: 0.0, distance: CAST(NULL AS DOUBLE)},
+    {azimuth: CAST(NULL AS DOUBLE), elevation: CAST(NULL AS DOUBLE), distance: 1.0},
+    {azimuth: -90.0, elevation: CAST(NULL AS DOUBLE), distance: CAST(NULL AS DOUBLE)},
+    {azimuth: 0.0, elevation: 0.0, distance: 1.0}
+] AS r CREATE (n:SpatialPositionState {azimuth: r.azimuth, elevation: r.elevation, distance: r.distance});
+
 // PartialSet: 2
-       (partialSet0:PartialSet {name: "envelopes/root"}),
-       (partialSet1:PartialSet {name: "envelopes/fifth"}),
+UNWIND [
+    {name: "envelopes/root"},
+    {name: "envelopes/fifth"}
+] AS r CREATE (n:PartialSet {name: r.name});
+
 // Partial: 2
-       (partial0:Partial {name: "state_sets#A"}),
-       (partial1:Partial {name: "state_sets#E"}),
+UNWIND [
+    {name: "state_sets#A"},
+    {name: "state_sets#E"}
+] AS r CREATE (n:Partial {name: r.name});
+
 // PartialSetMusicalTimeline: 2
-       (partialSetMusicalTimeline0:PartialSetMusicalTimeline),
-       (partialSetMusicalTimeline1:PartialSetMusicalTimeline),
+UNWIND range(1, 2) AS r CREATE (n:PartialSetMusicalTimeline);
+
 // PartialSetMusicalTimelinePoint: 8
-       (partialSetMusicalTimelinePoint0:PartialSetMusicalTimelinePoint {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0}),
-       (partialSetMusicalTimelinePoint1:PartialSetMusicalTimelinePoint {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0}),
-       (partialSetMusicalTimelinePoint2:PartialSetMusicalTimelinePoint {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0}),
-       (partialSetMusicalTimelinePoint3:PartialSetMusicalTimelinePoint {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0}),
-       (partialSetMusicalTimelinePoint4:PartialSetMusicalTimelinePoint {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0}),
-       (partialSetMusicalTimelinePoint5:PartialSetMusicalTimelinePoint {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0}),
-       (partialSetMusicalTimelinePoint6:PartialSetMusicalTimelinePoint {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0}),
-       (partialSetMusicalTimelinePoint7:PartialSetMusicalTimelinePoint {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0}),
+UNWIND [
+    {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0},
+    {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0},
+    {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0},
+    {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0},
+    {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0},
+    {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0},
+    {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0},
+    {frequency_curve_type: 0, frequency_curve_amount: 0.0, amplitude_curve_type: 0, amplitude_curve_amount: 0.0}
+] AS r CREATE (n:PartialSetMusicalTimelinePoint {frequency_curve_type: r.frequency_curve_type, frequency_curve_amount: r.frequency_curve_amount, amplitude_curve_type: r.amplitude_curve_type, amplitude_curve_amount: r.amplitude_curve_amount});
+
 // PartialStateSet: 8
-       (partialStateSet0:PartialStateSet),
-       (partialStateSet1:PartialStateSet),
-       (partialStateSet2:PartialStateSet),
-       (partialStateSet3:PartialStateSet),
-       (partialStateSet4:PartialStateSet),
-       (partialStateSet5:PartialStateSet),
-       (partialStateSet6:PartialStateSet),
-       (partialStateSet7:PartialStateSet),
+UNWIND range(1, 8) AS r CREATE (n:PartialStateSet);
+
 // PartialState: 8
-       (partialState0:PartialState {frequency: 440.0, amplitude: -60.0, phase: 0.0, phase_free_run: false}),
-       (partialState1:PartialState {amplitude: -12.0}),
-       (partialState2:PartialState {amplitude: -12.0}),
-       (partialState3:PartialState {frequency: 440.0, amplitude: -90.0}),
-       (partialState4:PartialState {frequency: 660.0, amplitude: -60.0, phase: 0.0, phase_free_run: false}),
-       (partialState5:PartialState {amplitude: -18.0}),
-       (partialState6:PartialState {amplitude: -18.0}),
-       (partialState7:PartialState {frequency: 660.0, amplitude: -90.0}),
-// NEXT_POINT: 19
-       (score0)-[:NEXT_POINT]->(tempoMap0),
-       (tempoMap0)-[:NEXT_POINT]->(tempoMapPoint0),
-       (spatialPositionMusicalTimeline0)-[:NEXT_POINT]->(spatialPositionMusicalTimelinePoint0),
-       (spatialPositionMusicalTimelinePoint0)-[:NEXT_POINT]->(spatialPositionMusicalTimelinePoint1),
-       (spatialPositionMusicalTimelinePoint1)-[:NEXT_POINT]->(spatialPositionMusicalTimelinePoint2),
-       (spatialPositionMusicalTimelinePoint2)-[:NEXT_POINT]->(spatialPositionMusicalTimelinePoint3),
-       (spatialPositionMusicalTimelinePoint3)-[:NEXT_POINT]->(spatialPositionMusicalTimelinePoint4),
-       (spatialPositionMusicalTimelinePoint4)-[:NEXT_POINT]->(spatialPositionMusicalTimelinePoint5),
-       (spatialPositionMusicalTimelinePoint5)-[:NEXT_POINT]->(spatialPositionMusicalTimelinePoint6),
-       (spatialPositionMusicalTimelinePoint6)-[:NEXT_POINT]->(spatialPositionMusicalTimelinePoint7),
-       (spatialPositionMusicalTimelinePoint7)-[:NEXT_POINT]->(spatialPositionMusicalTimelinePoint8),
-       (partialSetMusicalTimeline0)-[:NEXT_POINT]->(partialSetMusicalTimelinePoint0),
-       (partialSetMusicalTimelinePoint0)-[:NEXT_POINT]->(partialSetMusicalTimelinePoint1),
-       (partialSetMusicalTimelinePoint1)-[:NEXT_POINT]->(partialSetMusicalTimelinePoint2),
-       (partialSetMusicalTimelinePoint2)-[:NEXT_POINT]->(partialSetMusicalTimelinePoint3),
-       (partialSetMusicalTimeline1)-[:NEXT_POINT]->(partialSetMusicalTimelinePoint4),
-       (partialSetMusicalTimelinePoint4)-[:NEXT_POINT]->(partialSetMusicalTimelinePoint5),
-       (partialSetMusicalTimelinePoint5)-[:NEXT_POINT]->(partialSetMusicalTimelinePoint6),
-       (partialSetMusicalTimelinePoint6)-[:NEXT_POINT]->(partialSetMusicalTimelinePoint7),
-// HAS_SOUNDENTITY: 1
-       (score0)-[:HAS_SOUNDENTITY]->(soundEntity0),
-// HAS_SOUNDSOURCE: 1
-       (soundEntity0)-[:HAS_SOUNDSOURCE]->(soundSource0),
-// HAS_MUSICAL_TIMELINE: 3
-       (soundSource0)-[:HAS_MUSICAL_TIMELINE]->(spatialPositionMusicalTimeline0),
-       (partialSet0)-[:HAS_MUSICAL_TIMELINE]->(partialSetMusicalTimeline0),
-       (partialSet1)-[:HAS_MUSICAL_TIMELINE]->(partialSetMusicalTimeline1),
-// POINT_AT: 17
-       (spatialPositionMusicalTimelinePoint0)-[:POINT_AT {sync_point: 0, offset_seconds: 0.0}]->(tempoMap0),
-       (spatialPositionMusicalTimelinePoint1)-[:POINT_AT {sync_point: 1920, offset_seconds: 0.0}]->(tempoMap0),
-       (spatialPositionMusicalTimelinePoint2)-[:POINT_AT {sync_point: 2880, offset_seconds: 0.0}]->(tempoMap0),
-       (spatialPositionMusicalTimelinePoint3)-[:POINT_AT {sync_point: 3840, offset_seconds: 0.0}]->(tempoMap0),
-       (spatialPositionMusicalTimelinePoint4)-[:POINT_AT {sync_point: 4800, offset_seconds: 0.0}]->(tempoMap0),
-       (spatialPositionMusicalTimelinePoint5)-[:POINT_AT {sync_point: 5760, offset_seconds: 0.0}]->(tempoMap0),
-       (spatialPositionMusicalTimelinePoint6)-[:POINT_AT {sync_point: 6720, offset_seconds: 0.0}]->(tempoMap0),
-       (spatialPositionMusicalTimelinePoint7)-[:POINT_AT {sync_point: 7680, offset_seconds: 0.0}]->(tempoMap0),
-       (spatialPositionMusicalTimelinePoint8)-[:POINT_AT {sync_point: 9600, offset_seconds: 0.0}]->(tempoMap0),
-       (partialSetMusicalTimelinePoint0)-[:POINT_AT {sync_point: 0, offset_seconds: 0.0}]->(tempoMap0),
-       (partialSetMusicalTimelinePoint1)-[:POINT_AT {sync_point: 96, offset_seconds: 0.0}]->(tempoMap0),
-       (partialSetMusicalTimelinePoint2)-[:POINT_AT {sync_point: 9504, offset_seconds: 0.0}]->(tempoMap0),
-       (partialSetMusicalTimelinePoint3)-[:POINT_AT {sync_point: 9600, offset_seconds: 0.0}]->(tempoMap0),
-       (partialSetMusicalTimelinePoint4)-[:POINT_AT {sync_point: 0, offset_seconds: 0.0}]->(tempoMap0),
-       (partialSetMusicalTimelinePoint5)-[:POINT_AT {sync_point: 96, offset_seconds: 0.0}]->(tempoMap0),
-       (partialSetMusicalTimelinePoint6)-[:POINT_AT {sync_point: 9504, offset_seconds: 0.0}]->(tempoMap0),
-       (partialSetMusicalTimelinePoint7)-[:POINT_AT {sync_point: 9600, offset_seconds: 0.0}]->(tempoMap0),
-// POINT_STATE: 17
-       (spatialPositionMusicalTimelinePoint0)-[:POINT_STATE]->(spatialPositionState0),
-       (spatialPositionMusicalTimelinePoint1)-[:POINT_STATE]->(spatialPositionState1),
-       (spatialPositionMusicalTimelinePoint2)-[:POINT_STATE]->(spatialPositionState2),
-       (spatialPositionMusicalTimelinePoint3)-[:POINT_STATE]->(spatialPositionState3),
-       (spatialPositionMusicalTimelinePoint4)-[:POINT_STATE]->(spatialPositionState4),
-       (spatialPositionMusicalTimelinePoint5)-[:POINT_STATE]->(spatialPositionState5),
-       (spatialPositionMusicalTimelinePoint6)-[:POINT_STATE]->(spatialPositionState6),
-       (spatialPositionMusicalTimelinePoint7)-[:POINT_STATE]->(spatialPositionState7),
-       (spatialPositionMusicalTimelinePoint8)-[:POINT_STATE]->(spatialPositionState8),
-       (partialSetMusicalTimelinePoint0)-[:POINT_STATE]->(partialStateSet0),
-       (partialSetMusicalTimelinePoint1)-[:POINT_STATE]->(partialStateSet1),
-       (partialSetMusicalTimelinePoint2)-[:POINT_STATE]->(partialStateSet2),
-       (partialSetMusicalTimelinePoint3)-[:POINT_STATE]->(partialStateSet3),
-       (partialSetMusicalTimelinePoint4)-[:POINT_STATE]->(partialStateSet4),
-       (partialSetMusicalTimelinePoint5)-[:POINT_STATE]->(partialStateSet5),
-       (partialSetMusicalTimelinePoint6)-[:POINT_STATE]->(partialStateSet6),
-       (partialSetMusicalTimelinePoint7)-[:POINT_STATE]->(partialStateSet7),
-// HAS_PARTIALSET: 2
-       (soundSource0)-[:HAS_PARTIALSET]->(partialSet0),
-       (soundSource0)-[:HAS_PARTIALSET]->(partialSet1),
-// HAS_PARTIAL: 2
-       (partialSet0)-[:HAS_PARTIAL]->(partial0),
-       (partialSet1)-[:HAS_PARTIAL]->(partial1),
-// MEMBER_OF_SET_MANY_ONE: 8
-       (partialState0)-[:MEMBER_OF_SET_MANY_ONE]->(partialStateSet0),
-       (partialState1)-[:MEMBER_OF_SET_MANY_ONE]->(partialStateSet1),
-       (partialState2)-[:MEMBER_OF_SET_MANY_ONE]->(partialStateSet2),
-       (partialState3)-[:MEMBER_OF_SET_MANY_ONE]->(partialStateSet3),
-       (partialState4)-[:MEMBER_OF_SET_MANY_ONE]->(partialStateSet4),
-       (partialState5)-[:MEMBER_OF_SET_MANY_ONE]->(partialStateSet5),
-       (partialState6)-[:MEMBER_OF_SET_MANY_ONE]->(partialStateSet6),
-       (partialState7)-[:MEMBER_OF_SET_MANY_ONE]->(partialStateSet7),
-// STATE_OF: 8
-       (partialState0)-[:STATE_OF]->(partial0),
-       (partialState1)-[:STATE_OF]->(partial0),
-       (partialState2)-[:STATE_OF]->(partial0),
-       (partialState3)-[:STATE_OF]->(partial0),
-       (partialState4)-[:STATE_OF]->(partial1),
-       (partialState5)-[:STATE_OF]->(partial1),
-       (partialState6)-[:STATE_OF]->(partial1),
-       (partialState7)-[:STATE_OF]->(partial1);
+UNWIND [
+    {frequency: 440.0, amplitude: -60.0, phase: 0.0, phase_free_run: false},
+    {frequency: CAST(NULL AS DOUBLE), amplitude: -12.0, phase: CAST(NULL AS DOUBLE), phase_free_run: CAST(NULL AS BOOL)},
+    {frequency: CAST(NULL AS DOUBLE), amplitude: -12.0, phase: CAST(NULL AS DOUBLE), phase_free_run: CAST(NULL AS BOOL)},
+    {frequency: 440.0, amplitude: -90.0, phase: CAST(NULL AS DOUBLE), phase_free_run: CAST(NULL AS BOOL)},
+    {frequency: 660.0, amplitude: -60.0, phase: 0.0, phase_free_run: false},
+    {frequency: CAST(NULL AS DOUBLE), amplitude: -18.0, phase: CAST(NULL AS DOUBLE), phase_free_run: CAST(NULL AS BOOL)},
+    {frequency: CAST(NULL AS DOUBLE), amplitude: -18.0, phase: CAST(NULL AS DOUBLE), phase_free_run: CAST(NULL AS BOOL)},
+    {frequency: 660.0, amplitude: -90.0, phase: CAST(NULL AS DOUBLE), phase_free_run: CAST(NULL AS BOOL)}
+] AS r CREATE (n:PartialState {frequency: r.frequency, amplitude: r.amplitude, phase: r.phase, phase_free_run: r.phase_free_run});
+
+// NEXT_POINT, Score -> TempoMap: 1
+COPY NEXT_POINT FROM (UNWIND [
+    {from: 0, to: 0}
+] AS r RETURN r.from, r.to) (from='Score', to='TempoMap');
+
+// NEXT_POINT, TempoMap -> TempoMapPoint: 1
+COPY NEXT_POINT FROM (UNWIND [
+    {from: 0, to: 0}
+] AS r RETURN r.from, r.to) (from='TempoMap', to='TempoMapPoint');
+
+// HAS_SOUNDENTITY, Score -> SoundEntity: 1
+COPY HAS_SOUNDENTITY FROM (UNWIND [
+    {from: 0, to: 0}
+] AS r RETURN r.from, r.to) (from='Score', to='SoundEntity');
+
+// HAS_SOUNDSOURCE, SoundEntity -> SoundSource: 1
+COPY HAS_SOUNDSOURCE FROM (UNWIND [
+    {from: 0, to: 0}
+] AS r RETURN r.from, r.to) (from='SoundEntity', to='SoundSource');
+
+// HAS_MUSICAL_TIMELINE, SoundSource -> SpatialPositionMusicalTimeline: 1
+COPY HAS_MUSICAL_TIMELINE FROM (UNWIND [
+    {from: 0, to: 0}
+] AS r RETURN r.from, r.to) (from='SoundSource', to='SpatialPositionMusicalTimeline');
+
+// NEXT_POINT, SpatialPositionMusicalTimeline -> SpatialPositionMusicalTimelinePoint: 1
+COPY NEXT_POINT FROM (UNWIND [
+    {from: 0, to: 0}
+] AS r RETURN r.from, r.to) (from='SpatialPositionMusicalTimeline', to='SpatialPositionMusicalTimelinePoint');
+
+// POINT_AT, SpatialPositionMusicalTimelinePoint -> TempoMap: 9
+COPY POINT_AT FROM (UNWIND [
+    {from: 0, to: 0, sync_point: 0, offset_seconds: 0.0},
+    {from: 1, to: 0, sync_point: 1920, offset_seconds: 0.0},
+    {from: 2, to: 0, sync_point: 2880, offset_seconds: 0.0},
+    {from: 3, to: 0, sync_point: 3840, offset_seconds: 0.0},
+    {from: 4, to: 0, sync_point: 4800, offset_seconds: 0.0},
+    {from: 5, to: 0, sync_point: 5760, offset_seconds: 0.0},
+    {from: 6, to: 0, sync_point: 6720, offset_seconds: 0.0},
+    {from: 7, to: 0, sync_point: 7680, offset_seconds: 0.0},
+    {from: 8, to: 0, sync_point: 9600, offset_seconds: 0.0}
+] AS r RETURN r.from, r.to, r.sync_point, r.offset_seconds) (from='SpatialPositionMusicalTimelinePoint', to='TempoMap');
+
+// POINT_STATE, SpatialPositionMusicalTimelinePoint -> SpatialPositionState: 9
+COPY POINT_STATE FROM (UNWIND [
+    {from: 0, to: 0},
+    {from: 1, to: 1},
+    {from: 2, to: 2},
+    {from: 3, to: 3},
+    {from: 4, to: 4},
+    {from: 5, to: 5},
+    {from: 6, to: 6},
+    {from: 7, to: 7},
+    {from: 8, to: 8}
+] AS r RETURN r.from, r.to) (from='SpatialPositionMusicalTimelinePoint', to='SpatialPositionState');
+
+// NEXT_POINT, SpatialPositionMusicalTimelinePoint -> SpatialPositionMusicalTimelinePoint: 8
+COPY NEXT_POINT FROM (UNWIND [
+    {from: 0, to: 1},
+    {from: 1, to: 2},
+    {from: 2, to: 3},
+    {from: 3, to: 4},
+    {from: 4, to: 5},
+    {from: 5, to: 6},
+    {from: 6, to: 7},
+    {from: 7, to: 8}
+] AS r RETURN r.from, r.to) (from='SpatialPositionMusicalTimelinePoint', to='SpatialPositionMusicalTimelinePoint');
+
+// HAS_PARTIALSET, SoundSource -> PartialSet: 2
+COPY HAS_PARTIALSET FROM (UNWIND [
+    {from: 0, to: 0},
+    {from: 0, to: 1}
+] AS r RETURN r.from, r.to) (from='SoundSource', to='PartialSet');
+
+// HAS_PARTIAL, PartialSet -> Partial: 2
+COPY HAS_PARTIAL FROM (UNWIND [
+    {from: 0, to: 0},
+    {from: 1, to: 1}
+] AS r RETURN r.from, r.to) (from='PartialSet', to='Partial');
+
+// HAS_MUSICAL_TIMELINE, PartialSet -> PartialSetMusicalTimeline: 2
+COPY HAS_MUSICAL_TIMELINE FROM (UNWIND [
+    {from: 0, to: 0},
+    {from: 1, to: 1}
+] AS r RETURN r.from, r.to) (from='PartialSet', to='PartialSetMusicalTimeline');
+
+// NEXT_POINT, PartialSetMusicalTimeline -> PartialSetMusicalTimelinePoint: 2
+COPY NEXT_POINT FROM (UNWIND [
+    {from: 0, to: 0},
+    {from: 1, to: 4}
+] AS r RETURN r.from, r.to) (from='PartialSetMusicalTimeline', to='PartialSetMusicalTimelinePoint');
+
+// POINT_AT, PartialSetMusicalTimelinePoint -> TempoMap: 8
+COPY POINT_AT FROM (UNWIND [
+    {from: 0, to: 0, sync_point: 0, offset_seconds: 0.0},
+    {from: 1, to: 0, sync_point: 96, offset_seconds: 0.0},
+    {from: 2, to: 0, sync_point: 9504, offset_seconds: 0.0},
+    {from: 3, to: 0, sync_point: 9600, offset_seconds: 0.0},
+    {from: 4, to: 0, sync_point: 0, offset_seconds: 0.0},
+    {from: 5, to: 0, sync_point: 96, offset_seconds: 0.0},
+    {from: 6, to: 0, sync_point: 9504, offset_seconds: 0.0},
+    {from: 7, to: 0, sync_point: 9600, offset_seconds: 0.0}
+] AS r RETURN r.from, r.to, r.sync_point, r.offset_seconds) (from='PartialSetMusicalTimelinePoint', to='TempoMap');
+
+// POINT_STATE, PartialSetMusicalTimelinePoint -> PartialStateSet: 8
+COPY POINT_STATE FROM (UNWIND [
+    {from: 0, to: 0},
+    {from: 1, to: 1},
+    {from: 2, to: 2},
+    {from: 3, to: 3},
+    {from: 4, to: 4},
+    {from: 5, to: 5},
+    {from: 6, to: 6},
+    {from: 7, to: 7}
+] AS r RETURN r.from, r.to) (from='PartialSetMusicalTimelinePoint', to='PartialStateSet');
+
+// MEMBER_OF_SET_MANY_ONE, PartialState -> PartialStateSet: 8
+COPY MEMBER_OF_SET_MANY_ONE FROM (UNWIND [
+    {from: 0, to: 0},
+    {from: 1, to: 1},
+    {from: 2, to: 2},
+    {from: 3, to: 3},
+    {from: 4, to: 4},
+    {from: 5, to: 5},
+    {from: 6, to: 6},
+    {from: 7, to: 7}
+] AS r RETURN r.from, r.to) (from='PartialState', to='PartialStateSet');
+
+// STATE_OF, PartialState -> Partial: 8
+COPY STATE_OF FROM (UNWIND [
+    {from: 0, to: 0},
+    {from: 1, to: 0},
+    {from: 2, to: 0},
+    {from: 3, to: 0},
+    {from: 4, to: 1},
+    {from: 5, to: 1},
+    {from: 6, to: 1},
+    {from: 7, to: 1}
+] AS r RETURN r.from, r.to) (from='PartialState', to='Partial');
+
+// NEXT_POINT, PartialSetMusicalTimelinePoint -> PartialSetMusicalTimelinePoint: 6
+COPY NEXT_POINT FROM (UNWIND [
+    {from: 0, to: 1},
+    {from: 1, to: 2},
+    {from: 2, to: 3},
+    {from: 4, to: 5},
+    {from: 5, to: 6},
+    {from: 6, to: 7}
+] AS r RETURN r.from, r.to) (from='PartialSetMusicalTimelinePoint', to='PartialSetMusicalTimelinePoint');

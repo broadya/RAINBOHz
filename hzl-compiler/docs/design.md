@@ -31,7 +31,7 @@ emits is exactly what the hand-written scores already were.
 | Curves carried per stage, per property | Curves interpreted (the engine renders linear only) |
 | Labels emitted for partials and the score | Labels as a selection; labels on entities, sources and sets (`HAS_LABEL` is not declared for them) |
 | One Python CLI running every stage in process | The Ninja build; incremental compilation; provenance columns (not in the schema) |
-| Cypher output | Columnar output for `COPY FROM` (§7) |
+| Cypher output, batched by table | Columnar files for `COPY FROM` at target scale (§7) |
 
 Layers and namespaces are parsed and carried exactly as the proof of concept
 had them, and nothing is enforced about them. That area is deliberately left
@@ -212,26 +212,75 @@ the same rows, when loading speed matters (§7). `hzlc compile
 ## 7. Emission
 
 The emitter writes the `EngineConfig` in a statement of its own, from the
-compiler's options, then the score as **one statement that is one `CREATE`
-clause** of comma-separated patterns: every node, then every relationship,
-referring to each other by variable. The style follows the hand-written
-examples, with a comment per table and per relationship type.
+compiler's options. The score follows as **one statement per table, in
+chunks of 1,000 rows**, every node table before any relationship:
 
-Why one clause rather than one `CREATE` clause per pattern, which is how the
-hand-written examples are written: Ladybug (our fork of 0.19.1) crashed with
-SIGBUS on a statement of 493 `CREATE` clauses, while the same 493 patterns in
-one clause loaded, transformed and rendered. Established by experiment on
-2026-10-02 with `examples/demo`; the per-clause depth of the binder is the
-likely cause, and the crash was not investigated further. The largest clause
-tried is `examples/demo` with 100 harmonics: 802 partials, 2,400 states,
-7,236 relationships, about 10,500 patterns and 650 KB of Cypher, which
-loaded, transformed and rendered (debug build, 1 min 43 s for the whole run).
+```cypher
+UNWIND [
+    {name: "state_sets#A"},
+    {name: "state_sets#B"}
+] AS r CREATE (n:Partial {name: r.name});
 
-This is the known limit of the current output. A score at the target scale
-(1M+ partials) is not one Cypher statement. The tables of §6 are the answer:
-Ladybug's `COPY FROM` reads CSV and Parquet directly into a node or
-relationship table, and the row lists are already in that shape. That work is
-not started; its trigger is a score the single clause cannot carry.
+COPY HAS_PARTIAL FROM (UNWIND [
+    {from: 0, to: 0},
+    {from: 0, to: 1}
+] AS r RETURN r.from, r.to) (from='PartialSet', to='Partial');
+```
+
+A table with no columns is created by count
+(`UNWIND range(1, n) AS r CREATE (n:PartialStateSet)`). A relationship is
+split by its (FROM, TO) pair of tables, since a `COPY` names one pair.
+Relationship properties (`POINT_AT`'s) are further columns of the `COPY`.
+There is a comment with the count before each table and each pair.
+
+**Ids.** A relationship names its ends by id, and the ids are the model's
+row indices. That holds because the engine loads every score into a fresh
+database, where a `SERIAL` id counts from 0 in the order rows are created,
+and the emitter creates them in model order. It is checked to 20,000 rows in
+one statement. A script loaded into a database that already holds rows would
+connect the wrong nodes. `COPY` finds both ends by primary-key index, so
+loading does no scan.
+
+**Two Ladybug details the shape depends on.** A list of struct literals is
+typed from its first row, so a bare `null` there makes the column a STRING
+and the statement fails. Every NULL is written with its column's type
+(`CAST(NULL AS DOUBLE)`), taken from the row dataclass's annotation. List
+literals are indexed from 1, so rows are structs read by name (`r.from`), as
+`rendering-engine`'s `WriteBatch` does.
+
+**Why batches.** Until 2026-10-13 the score was one statement holding one
+`CREATE` clause of comma-separated patterns. Ladybug's binder merges every
+pattern of a clause into one query graph
+(`QueryGraphCollection::addAndMergeQueryGraphIfConnected`), at a cost that
+grows faster than the square of the pattern count. Profiled on
+`playground/pieces/convergence` (macos-max, `sample` at 1 ms):
+
+| Partials | One clause | Batched |
+|---|---|---|
+| 200 | 0.6 s | about 0.1–0.3 s |
+| 400 | 1.8 s | 0.4–0.5 s |
+| 800 | 7.0 s (5.7 s binding, 0.07 s parsing) | 0.8–0.9 s |
+| 1,600 | 71.7 s | 1.6–1.7 s |
+
+Batched, the load costs about 55 µs per row, whatever the chunk size (100 to
+20,000 measured). About half of that is parsing the literals and half is
+binding them. One `CREATE` clause per pattern is no way out either: Ladybug
+(our fork of 0.19.1) crashed with SIGBUS on a statement of 493 `CREATE`
+clauses (2026-10-02, `examples/demo`).
+
+**Order and the audio.** The single clause happened to assign ids in
+reverse, so the last partial written got id 0. Batched, ids follow the model.
+The engine meets partials in id order, so a score with many partials sums
+them in a different order than before. Convergence's frames moved by at most
+2.4e-7, one float32 rounding step (author's decision, 2026-10-13, to keep
+model order). The oracle twin, the spatial twin and `examples/demo` rendered
+byte-identical frames. Relationship order does not reach the audio.
+
+**Beyond this.** At target scale (1M+ partials) about 55 µs × rows is many
+minutes of parsing literals. There, the tables of §6 go to Ladybug's
+`COPY FROM` as CSV or Parquet files instead, which the row lists already
+suit. That needs the engine to resolve the files' paths beneath the server's
+`--input-root`. It is not started.
 
 ## 8. Tests
 
@@ -270,4 +319,5 @@ not started; its trigger is a score the single clause cannot carry.
   the columns exist.
 - **Layers as an ordering**, namespaces as a dependency rule, the Ninja
   build and incremental compilation. Deliberately untouched.
-- **Columnar output** (§7).
+- **Columnar output** (§7): CSV or Parquet for `COPY FROM`, when parsing
+  literal rows (about 55 µs a row) dominates the load.

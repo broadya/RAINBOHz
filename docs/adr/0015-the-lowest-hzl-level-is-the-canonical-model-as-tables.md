@@ -47,28 +47,33 @@ choosing a compiler-owned format would mean inventing a second model of the
 same data beside the schema.
 
 The rows carry only what the schema declares, with compiler-assigned local
-keys. The Cypher emitted today is one `EngineConfig` statement and one
-statement for the score, with no `MATCH`, so loading needs no index and does
-no scan. The score statement is one `CREATE` clause of comma-separated
-patterns, because Ladybug crashed on hundreds of `CREATE` clauses in one
-statement while the same patterns in one clause load
-(`hzl-compiler/docs/design.md` §7).
+keys. The Cypher emitted today is one `EngineConfig` statement, then one
+statement per table in chunks of 1,000 rows: `UNWIND [rows] CREATE` for
+nodes, and `COPY ... FROM (UNWIND [rows] ...)` for relationships, which name
+their ends by id. The ids are the row indices, because every score loads
+into a fresh database. `COPY` finds both ends by primary-key index, so
+loading does no scan. Until 2026-10-13 the score was a single `CREATE`
+clause, whose binding cost grows faster than the square of its size: 7 s of
+binding at 800 partials, 72 s at 1,600 (`hzl-compiler/docs/design.md` §7).
 
 ### Consequences
 
 * Good, because the compiled route is proved against the hand-written route
   by the existing oracle, with no engine or schema change
   (`make test-hzl-oracle`).
-* Good, because a columnar output for `COPY FROM`, when a score outgrows one
-  statement, is a second emitter over the same tables, not a redesign.
+* Good, because a columnar output for `COPY FROM`, when parsing literal rows
+  becomes the cost, is a second emitter over the same tables, not a
+  redesign.
 * Neutral, because what is loaded is for now a `.cypher` file. `canonical-form`
   is the lowest level — the tables — and is not loaded directly; the file is
   its first serialisation. `overview.md` §10 still lists the serialisation at
   target scale as open (Parquet is a strong candidate); this decides the first
   version's answer, not the final one.
-* Bad, because the single-clause statement has a size limit that is not
-  known precisely (about 10,500 patterns, 802 partials, is known to work) and
-  a score beyond it has no path until the columnar emitter exists.
+* Bad, because literal rows cost about 55 µs each to parse and bind, which
+  is fine for thousands of partials but is many minutes at the target scale
+  (1M+), where the columnar emitter is needed.
+* Bad, because relationship ends are ids predicted by the compiler, which
+  holds only for a load into an empty database.
 
 Impact on components:
 
@@ -77,8 +82,8 @@ Impact on components:
   emitter over it, and a `COPY FROM` emitter is a second.
 * `canonical-form` — the lowest HzL level, the canonical model as tables. Its
   serialisation for loading is for now a `.cypher` file: one `EngineConfig`
-  statement, and one statement for the score as a single `CREATE` clause with
-  no `MATCH`.
+  statement, then batched `UNWIND ... CREATE` and `COPY ... FROM (UNWIND ...)`
+  statements, table by table, with no `MATCH`.
 * `rendering-engine` — loads a compiled score unchanged through `--state`,
   with no index lookups and no scans. At target scale it will need a bulk
   load path for the columnar output.
@@ -97,9 +102,9 @@ does not follow shows up as a load failure in those tests.
 ## More Information
 
 `hzl-compiler/docs/design.md` §6 and §7; `canonical/model.py` and
-`canonical/cypher.py`. To be revisited when a score exceeds what one statement
-loads, which is the trigger for the `COPY FROM` emitter, or when `overview.md`
-settles how `canonical-form` is serialised for loading.
+`canonical/cypher.py`. To be revisited when parsing literal rows becomes the
+cost of a load, which is the trigger for the `COPY FROM` emitter, or when
+`overview.md` settles how `canonical-form` is serialised for loading.
 
 ADR 0005 for how the engine loads the emitted Cypher, and
 `rendering-engine/docs/transform.md` for what the engine does with the
