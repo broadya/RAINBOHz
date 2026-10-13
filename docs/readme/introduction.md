@@ -38,7 +38,7 @@ The project is currently in an early stage, moving from a proof-of-concept to th
 In particular the following are large gaps in the current implementation.
 
 - Anti-aliasing
-- API / network approach (currently some parts are implemented) 
+- API / network approach (currently some parts are implemented)
 - Horizontal scalability
 - Build using GitHub actions
 
