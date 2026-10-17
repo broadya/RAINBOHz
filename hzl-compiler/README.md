@@ -14,8 +14,10 @@ HzL source --> hzlc --> canonical model (Cypher) --> rendering-engine --> audio
 
 The hand-written scores in `engine-db/examples/` remain the engine's test
 route. `examples/tempo-map-score/` here is the HzL twin of one of them, and
-`make test-hzl-oracle` proves the two routes give the same audio.
-`examples/spatial-score/` is the twin of `spatial-musical-score.cypher`.
+`make test-hzl-oracle` proves the two routes give the same audio, for it and
+for the polytempo twins `examples/polytempo-shift-score/` and
+`examples/polytempo-stretch-score/`. `examples/spatial-score/` is the twin of
+`spatial-musical-score.cypher`.
 
 ## Running it
 
@@ -57,6 +59,7 @@ src/hzl_compiler/
   lower/state_sets.py           L3, L2: scale, harmonic_series, flattened cartesian product
   lower/timeline.py             L1: envelope -> a partial set's musical timeline
   lower/trajectory.py           L1: trajectory -> a sound source's spatial position timeline
+  lower/tempo_maps.py           L0: every tempo map of the tree and their ties
   lower/score.py                L0: score -> canonical model
   canonical/model.py            the canonical model as tables (the lowest HzL level)
   canonical/cypher.py           ...emitted as Cypher
@@ -64,6 +67,8 @@ src/hzl_compiler/
 tests/                          pytest; tests/expected/ holds the golden scripts
 examples/tempo-map-score/       HzL twin of engine-db/examples/tempo-map-score.cypher
 examples/spatial-score/         HzL twin of engine-db/examples/spatial-musical-score.cypher (--channel-mode 1)
+examples/polytempo-shift-score/    HzL twin of engine-db/examples/polytempo-shift-score.cypher
+examples/polytempo-stretch-score/  HzL twin of engine-db/examples/polytempo-stretch-score.cypher
 examples/demo/                  every construct of this version, two sound entities
 docs/design.md                  how it works and why
 docs/hzl-reference.md           the language, this version
@@ -74,10 +79,13 @@ docs/hzl-reference.md           the language, this version
 ## Status
 
 First version, 2026-10-02; phase added 2026-10-03; spatial position
-2026-10-05. Frequency, amplitude and phase per partial; spatial position
-per sound source, as a `trajectory`; one tempo map per score; envelope
+2026-10-05; several tempo maps 2026-10-17. Frequency, amplitude and phase
+per partial; spatial position per sound source, as a `trajectory`; several
+tempo maps tied by synchronisation points, ordered by layer, one per sound
+entity and overridable per envelope; envelope
 stages apply `Update` only; `beats:ticks` time; amplitude in dB; phase in
 degrees or `free`; azimuth and elevation in degrees, distance in metres.
 Spatial position per partial, modulators, labels as selection, layers as an
-ordering, several tempo maps and the Ninja build are not in this version.
+ordering for anything but tempo-map ties, and the Ninja build are not in
+this version.
 See `docs/design.md` §9 for the list and what each needs.

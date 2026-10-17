@@ -104,8 +104,8 @@ Impact on components:
   map until the resolved maps are stored or recomputed on request.
 * `engine-db` — no schema change. The edge and its two sync points were
   already declared.
-* `hzl-compiler` — nothing yet; a syntax for synchronisation points is the
-  next step.
+* `hzl-compiler` — compiles several maps and their synchronisation points,
+  ordered by layer (ADR 0024).
 * `playback-client` — nothing; it loops in the root map's beats.
 
 ### Confirmation

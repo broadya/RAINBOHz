@@ -235,7 +235,7 @@ disagree, that one wins.
 
 | Directory | Contents | Language | Status |
 | --- | --- | --- | --- |
-| `hzl-compiler/` | `hzl-compiler` | Python 3.12 | First version: score, tempo map, sound entity/source, envelope with `Update`, trajectory (a source's spatial position), state sets, scale, harmonic series, flattened cartesian product; frequency, amplitude and phase per partial, spatial position per source; emits Cypher |
+| `hzl-compiler/` | `hzl-compiler` | Python 3.12 | First version: score, tempo maps with synchronisation points (ordered by layer), sound entity/source, envelope with `Update`, trajectory (a source's spatial position), state sets, scale, harmonic series, flattened cartesian product; frequency, amplitude and phase per partial, spatial position per source; emits Cypher |
 | `engine-db/` | `engine-db` — **the implementation** | Cypher DDL | Under construction; rendering and canonical concepts, without the modulator musical timelines or dependency information yet |
 | `canonical-db/` | Canonical model — **design artefact** | Cypher DDL | Loads cleanly; not the implementation; considerably out of date beside `engine-db` |
 | `rendering-engine/` | `rendering-engine` | C++20 | Hosts and loads `engine-db`; transforms musical time to physical time (first version: synchronised tempo maps, frequency, amplitude, phase targets and spatial position); precomputes; renders frames to multi-channel WAV files (first version: linear curves, one spatial position per SoundSource, all eight channel modes, labels ignored); `batch` and `server` (REST) modes |
@@ -270,8 +270,9 @@ commits refer to it; that is history, not a directory to restore. See ADR 0006.
 
 **`hzl-compiler/` is the compiler, and `engine-db/examples/` is the test route.**
 The hand-written scores in `engine-db/examples/` are still what the engine's
-own tests load. `hzl-compiler/examples/tempo-map-score/` is the HzL twin of
-one of them, and `make test-hzl-oracle` proves the compiled route gives the
+own tests load. `hzl-compiler/examples/tempo-map-score/`,
+`polytempo-shift-score/` and `polytempo-stretch-score/` are HzL twins of
+three of them, and `make test-hzl-oracle` proves the compiled route gives the
 same audio by the existing oracle. The compiler never edits the schema and
 emits only what the schema declares; a concept HzL needs that the schema lacks
 (labels on sound entities, provenance columns) is the author's schema edit
@@ -507,9 +508,9 @@ Python:
   changes nothing, fails on any finding. Part of `make test`.
 - `make format-hzl-compiler` — apply ruff's safe fixes, then `ruff format`,
   in place.
-- `make test-hzl-oracle` — compile the twin, render it, and check every frame
-  against `engine-db/examples/tempo-map-score.json` with the rendering
-  oracle. Needs the engine built.
+- `make test-hzl-oracle` — compile the three twins, render them, and check
+  every frame against `engine-db/examples/{tempo-map,polytempo-shift,polytempo-stretch}-score.json`
+  with the rendering oracle. Needs the engine built.
 - `make clean-hzl-compiler` — remove `hzl-compiler/build`.
 
 Aggregates: `make build`, `make test`, `make clean` (which includes

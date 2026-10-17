@@ -1,0 +1,34 @@
+# The child map, written flat at 120 BPM but with ramps (hold false) at
+# beats 0, 2, 4 and 6 and a hold from beat 8, so compensation may bend it.
+# Its beats 0, 4 and 8 are tied to beats 0, 4 and 6 of main: to 0 s, 2 s
+# and 3 s. The first region fits; the second must play twice as fast, and
+# the ramps meeting at beat 4 share 120 * sqrt(2) = 169.71 BPM there
+# (rendering-engine/docs/polytempo.md sections 5.4 and 5.6).
+#
+# A tie runs to a map in a strictly lower layer: main is in "000:Root".
+tempo_map:
+  hzl_version: "0.1.0"
+  hzl_type: tempo_map
+  name: voice
+  namespace: tempo_maps
+  layer: "001:Voices"
+  ticks_per_beat: 960
+  points:
+    - tempo_map_point: {position: "0:0", tempo: 120.0, hold: false}
+    - tempo_map_point: {position: "2:0", tempo: 120.0, hold: false}
+    - tempo_map_point: {position: "4:0", tempo: 120.0, hold: false}
+    - tempo_map_point: {position: "6:0", tempo: 120.0, hold: false}
+    - tempo_map_point: {position: "8:0", tempo: 120.0, hold: true}
+  synchronization_points:
+    - synchronization_point:
+        position: "0:0"
+        parent: {namespace: tempo_maps, name: main}
+        parent_position: "0:0"
+    - synchronization_point:
+        position: "4:0"
+        parent: {namespace: tempo_maps, name: main}
+        parent_position: "4:0"
+    - synchronization_point:
+        position: "8:0"
+        parent: {namespace: tempo_maps, name: main}
+        parent_position: "6:0"

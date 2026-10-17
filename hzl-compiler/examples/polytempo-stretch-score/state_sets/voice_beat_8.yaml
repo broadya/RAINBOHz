@@ -1,0 +1,12 @@
+# Beat 8 of voice: A at 440 Hz, -18 dB.
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: voice_beat_8
+  namespace: state_sets
+  layer: "001:Voices"
+  partial_states:
+    - partial_state:
+        identifier: A
+        frequency: 440.0
+        amplitude: -18.0

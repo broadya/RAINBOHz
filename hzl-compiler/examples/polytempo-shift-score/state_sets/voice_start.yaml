@@ -1,0 +1,11 @@
+partial_state_set:
+  hzl_version: "0.1.0"
+  hzl_type: partial_state_set
+  name: voice_start
+  namespace: state_sets
+  layer: "001:Voices"
+  partial_states:
+    - partial_state:
+        identifier: V
+        frequency: 330.0
+        amplitude: -6.0

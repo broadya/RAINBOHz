@@ -517,12 +517,14 @@ Decided with the author on 2026-10-17:
   `engine-db` as the transform's output, as the physical timelines are,
   which is a schema addition for the author. `ResolvedSegment` is shaped to
   be written out as is.
+- **Surface syntax** in HzL: synchronisation points on the child
+  `tempo_map` file, tied to a parent in a strictly lower layer; a map per
+  sound entity, overridable per envelope (ADR 0024,
+  `hzl-compiler/docs/hzl-reference.md` §4.1, §5.1).
 
 Open:
 
 - **Polyrhythm beyond this** (§1): whether anything more is needed.
-- **Surface syntax** in HzL: synchronisation points on a `tempo_map` file,
-  and several maps per score.
 - **A per-segment ramp shape**, if one piece needs both shapes (@see ADR
   0013).
 - **A joint solve across regions**, if a piece needs a correction the local

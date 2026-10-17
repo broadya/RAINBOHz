@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""`score`: the compilation root, placing sound entities on a tempo map."""
+"""`score`: the compilation root, placing sound entities on tempo maps."""
 
 from __future__ import annotations
 
@@ -31,9 +31,11 @@ class Score:
 
     Attributes:
         header: The file's header.
-        tempo_map: Reference to the one tempo map of this version.
+        tempo_map: The root tempo map: time zero, and every entity's map
+            unless its placement names another.
         tempo_ramp: The shape of every ramp in the score's tempo maps.
-        sound_entities: The entities in the score, each at its position.
+        sound_entities: The entities in the score, each at its position on
+            its map.
         where: Location of the body.
     """
 
@@ -65,7 +67,9 @@ def parse_score(node: Node) -> Score:
         header,
         node.ref("tempo_map"),
         tempo_ramp,
-        parse_placements(node, "sound_entities", "sound_entity", "position"),
+        parse_placements(
+            node, "sound_entities", "sound_entity", "position", tempo_map_time_key="position"
+        ),
         node.where,
     )
 

@@ -1,0 +1,41 @@
+# One partial, a fifth up at beat 4 and back at beat 8, fading by 3 dB a
+# point, then to silence at beat 10: points at beats 0, 2, ..., 10 of voice,
+# which land at 0, 1.1301, 2.0, 2.5500, 3.0 and 4.0 s.
+envelope:
+  hzl_version: "0.1.0"
+  hzl_type: envelope
+  name: voice
+  namespace: envelopes
+  layer: "001:Voices"
+  initial_partial_state_set: {namespace: state_sets, name: voice_beat_0}
+  envelope_stages:
+    - envelope_stage:
+        duration: "2:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: state_sets, name: voice_beat_2}
+    - envelope_stage:
+        duration: "2:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: state_sets, name: voice_beat_4}
+    - envelope_stage:
+        duration: "2:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: state_sets, name: voice_beat_6}
+    - envelope_stage:
+        duration: "2:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: state_sets, name: voice_beat_8}
+    - envelope_stage:
+        duration: "2:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: state_sets, name: voice_beat_10}

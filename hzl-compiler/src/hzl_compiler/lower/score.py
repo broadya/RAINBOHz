@@ -2,9 +2,12 @@
 
 """Lowers a score to the canonical model: level L0.
 
-The score names the tempo map and places sound entities; entities place
-sources; sources place envelopes and carry a position. Every placement is exact tick arithmetic
-on the one tempo map, and every object becomes one row with its edges.
+The score names the root tempo map and places sound entities; entities place
+sources; sources place envelopes and carry a position. Every tempo map in the
+tree is emitted with its ties (lower/tempo_maps.py). Every placement is exact
+tick arithmetic on one map: the entity's, or the map an envelope names, from
+the absolute position it gives there. Every object becomes one row with its
+edges.
 """
 
 from __future__ import annotations
@@ -36,11 +39,11 @@ from ..hzl.envelope import load_envelope
 from ..hzl.score import TempoRamp, load_score
 from ..hzl.sound_entity import load_sound_entity
 from ..hzl.sound_source import load_sound_source
-from ..hzl.tempo_map import load_tempo_map
 from ..hzl.trajectory import load_trajectory
 from ..ref import Ref
 from ..source import SourceTree
 from .state_sets import StateSetResolver
+from .tempo_maps import lower_tempo_maps
 from .timeline import PartialSetTimeline, lower_envelope
 from .trajectory import PositionPoint, default_position, lower_trajectory
 
@@ -95,7 +98,7 @@ def lower_score(tree: SourceTree, ref: Ref, options: EngineOptions = EngineOptio
             placed more than once in the score.
     """
     score = load_score(tree, ref)
-    tempo_map = load_tempo_map(tree, score.tempo_map)
+    graph = lower_tempo_maps(tree, score.tempo_map)
     resolver = StateSetResolver(tree)
     model = Model()
     model.add(EngineConfigRow(options.sample_rate, options.channel_mode))
@@ -106,17 +109,31 @@ def lower_score(tree: SourceTree, ref: Ref, options: EngineOptions = EngineOptio
     for label in score.header.labels:
         model.link("HAS_LABEL", score_key, model.label(label))
 
-    map_key = model.add(TempoMapRow(tempo_map.header.qualified_name, tempo_map.ticks_per_beat))
-    model.link("NEXT_POINT", score_key, map_key)
-    previous = map_key
-    for point in tempo_map.points:
-        point_key = model.add(TempoMapPointRow(point.position_ticks, point.tempo, point.hold))
-        model.link("NEXT_POINT", previous, point_key)
-        previous = point_key
+    map_keys: dict[Ref, NodeKey] = {}
+    for map_ref, tempo_map in graph.maps.items():
+        map_key = model.add(TempoMapRow(tempo_map.header.qualified_name, tempo_map.ticks_per_beat))
+        map_keys[map_ref] = map_key
+        if map_ref == graph.root:
+            model.link("NEXT_POINT", score_key, map_key)
+        previous = map_key
+        for point in tempo_map.points:
+            point_key = model.add(TempoMapPointRow(point.position_ticks, point.tempo, point.hold))
+            model.link("NEXT_POINT", previous, point_key)
+            previous = point_key
+    for tie in graph.ties:
+        model.link(
+            "TEMPO_MAP_SYNCHRONIZATION_POINT",
+            map_keys[tie.child],
+            map_keys[tie.parent],
+            sync_point_parent=tie.parent_ticks,
+            sync_point_child=tie.child_ticks,
+        )
 
-    tpb = tempo_map.ticks_per_beat
     placed: dict[Ref, Where] = {}
     for entity_placement in score.sound_entities:
+        entity_map = entity_placement.tempo_map or graph.root
+        tpb = graph.lookup(tree, entity_map, entity_placement.where.at("tempo_map")).ticks_per_beat
+        map_key = map_keys[entity_map]
         entity = load_sound_entity(tree, entity_placement.ref)
         entity_start = entity_placement.offset.to_ticks(tpb, entity_placement.where.at("position"))
         entity_key = model.add(SoundEntityRow(entity.header.qualified_name))
@@ -142,11 +159,21 @@ def lower_score(tree: SourceTree, ref: Ref, options: EngineOptions = EngineOptio
                     )
                 placed[envelope_placement.ref] = envelope_placement.where
                 envelope = load_envelope(tree, envelope_placement.ref)
-                start = source_start + envelope_placement.offset.to_ticks(
-                    tpb, envelope_placement.where.at("offset")
-                )
-                timeline = lower_envelope(envelope, tree, resolver, tpb)
-                _add_timeline(model, source_key, map_key, timeline, start)
+                if envelope_placement.tempo_map is None:
+                    envelope_tpb, envelope_map_key = tpb, map_key
+                    start = source_start + envelope_placement.offset.to_ticks(
+                        tpb, envelope_placement.where.at("offset")
+                    )
+                else:
+                    envelope_tpb = graph.lookup(
+                        tree, envelope_placement.tempo_map, envelope_placement.where.at("tempo_map")
+                    ).ticks_per_beat
+                    envelope_map_key = map_keys[envelope_placement.tempo_map]
+                    start = envelope_placement.offset.to_ticks(
+                        envelope_tpb, envelope_placement.where.at("position")
+                    )
+                timeline = lower_envelope(envelope, tree, resolver, envelope_tpb)
+                _add_timeline(model, source_key, envelope_map_key, timeline, start)
     return model
 
 

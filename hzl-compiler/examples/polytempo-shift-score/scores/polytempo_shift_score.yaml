@@ -1,0 +1,20 @@
+# HzL twin of engine-db/examples/polytempo-shift-score.cypher.
+#
+# Compiled, this must give a database the engine transforms into exactly
+# the physical values in engine-db/examples/polytempo-shift-score.json.
+# Two tempo maps: "main", the root, and "voice", tied to it at one
+# synchronisation point, which only shifts it. One source holds two
+# envelopes: "chord" on the entity's map, main; "voice" on the voice map.
+#
+#   hzlc compile scores/polytempo_shift_score.yaml -o build/polytempo-shift-score.cypher
+score:
+  hzl_version: "0.1.0"
+  hzl_type: score
+  name: polytempo_shift_score
+  namespace: scores
+  layer: "000:Root"
+  labels: []
+  tempo_map: {namespace: tempo_maps, name: main}
+  sound_entities:
+    - sound_entity: {namespace: entities, name: duo}
+      position: "0:0"

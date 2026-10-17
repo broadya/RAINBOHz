@@ -48,6 +48,8 @@ class SourceTree:
         """Creates a tree over `root`. Nothing is read until a load."""
         self.root = root
         self._cache: dict[Ref, tuple[str, Node]] = {}
+        # Parsed YAML by path, so a file the tree scan read is not parsed again.
+        self._documents: dict[Path, object] = {}
 
     @classmethod
     def from_file(cls, path: Path) -> tuple[SourceTree, Ref]:
@@ -106,10 +108,60 @@ class SourceTree:
         path = ref.path(self.root)
         if not path.is_file():
             raise HzlError(f"no file for reference {ref}: expected {path}")
-        hzl_type, body = _read(path)
+        hzl_type, body = _read(path, self._document(path))
         _check_header(body, hzl_type, ref)
         self._cache[ref] = (hzl_type, body)
         return hzl_type, body
+
+    def refs_of_type(self, hzl_type: str) -> list[Ref]:
+        """Every file in the tree whose type is `hzl_type`, in reference order.
+
+        Walks `<root>/<namespace>/<name>.yaml`. A file directly under the root
+        has no namespace and is not HzL (a piece's own configuration, say);
+        nor is anything under a directory whose name starts with `.`. Other
+        YAML files are read, and those whose one top-level key is not
+        `hzl_type` are left alone, so a non-HzL file in the tree does no harm.
+        A file that is not valid YAML is an error: it could be one of the
+        files looked for. A match is loaded as `load_any` loads it, header
+        checks and all.
+
+        Args:
+            hzl_type: The type to look for, such as `tempo_map`.
+
+        Returns:
+            The references, sorted.
+
+        Raises:
+            HzlError: if a file is not valid YAML, or a file of `hzl_type`
+                sits where no reference could name it, or fails `load_any`.
+        """
+        refs: list[Ref] = []
+        for path in sorted(self.root.rglob("*.yaml")):
+            parts = path.relative_to(self.root).parts
+            if len(parts) < 2 or any(part.startswith(".") for part in parts):
+                continue
+            try:
+                document = self._document(path)
+            except HzlError as error:
+                raise Where(path).error(
+                    f"{error.message}, so it cannot be told apart from a {hzl_type}"
+                ) from error
+            if not isinstance(document, Mapping) or list(document) != [hzl_type]:
+                continue
+            ref = Ref.parse("/".join(parts[:-1]), path.stem, Where(path, hzl_type))
+            self.load_any(ref)
+            refs.append(ref)
+        return sorted(refs)
+
+    def _document(self, path: Path) -> object:
+        """The YAML document at `path`, parsed once per tree.
+
+        Raises:
+            HzlError: if the file cannot be read or is not valid YAML.
+        """
+        if path not in self._documents:
+            self._documents[path] = _parse(path)
+        return self._documents[path]
 
     def load(self, ref: Ref, hzl_type: str) -> Node:
         """Reads the file `ref` names, which must be of `hzl_type`.
@@ -126,11 +178,27 @@ class SourceTree:
         return body
 
 
-def _read(path: Path) -> tuple[str, Node]:
-    """Parses one HzL file into its type and body.
+def _parse(path: Path) -> object:
+    """Parses the YAML file at `path`.
+
+    Raises:
+        HzlError: if the file cannot be read or is not valid YAML.
+    """
+    where = Where(path)
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as error:
+        raise where.error(f"not valid YAML: {error}") from error
+    except OSError as error:
+        raise where.error(f"cannot read: {error.strerror}") from error
+
+
+def _read(path: Path, document: object | None = None) -> tuple[str, Node]:
+    """Turns one HzL file into its type and body.
 
     Args:
         path: The file.
+        document: Its parsed YAML, if already to hand; parsed here otherwise.
 
     Returns:
         The top-level key and the mapping under it, located at `path`.
@@ -140,12 +208,8 @@ def _read(path: Path) -> tuple[str, Node]:
             one key naming a known HzL type whose value is a mapping.
     """
     where = Where(path)
-    try:
-        document = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as error:
-        raise where.error(f"not valid YAML: {error}") from error
-    except OSError as error:
-        raise where.error(f"cannot read: {error.strerror}") from error
+    if document is None:
+        document = _parse(path)
     if not isinstance(document, Mapping) or len(document) != 1:
         raise where.error("an HzL file is a mapping with exactly one top-level key, its type")
     ((hzl_type, body),) = document.items()

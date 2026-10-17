@@ -1,0 +1,12 @@
+# No trajectory: straight ahead at 1 m, from the entity's start on main.
+# The envelope keeps time by voice, from beat 0 of that map.
+sound_source:
+  hzl_version: "0.1.0"
+  hzl_type: sound_source
+  name: voice
+  namespace: sources
+  layer: "001:Voices"
+  envelopes:
+    - envelope: {namespace: envelopes, name: voice}
+      tempo_map: {namespace: tempo_maps, name: voice}
+      position: "0:0"

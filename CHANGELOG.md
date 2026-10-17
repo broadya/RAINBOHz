@@ -26,6 +26,11 @@ The target architecture, built from 2026-09-27 onwards.
   `--validate-db` checks the edges.
 - `hzl-compiler` (Python): first version of the HzL compiler, from HzL to
   Cypher for `engine-db`.
+- Polytempo in HzL: `synchronization_points` on a child `tempo_map`, each tied
+  to a parent in a strictly lower layer (ADR 0024); a tempo map per sound
+  entity, overridable per envelope with an absolute position; every tempo map
+  of the source tree compiled. HzL twins of the two polytempo examples join
+  `make test-hzl-oracle`.
 - Server mode for `rendering-engine`: a REST API under `/v1`, described by an
   OpenAPI 3.1.1 document, with tempo-map queries and a Postman collection.
 - `playback-client` (C++): loops a range of a score through the default

@@ -129,12 +129,13 @@ reporting that says whether they worked:
   and the run stops before the transform if a check fails; see
   [integrity.md](integrity.md);
 - every partial set and SoundSource with a musical timeline is transformed:
-  its points are placed in physical time through the Score's tempo map; each
+  its points are placed in physical time through the tempo map its
+  `POINT_AT`s lead to, one of the Score's synchronised maps; each
   partial gets a `FrequencyPhysicalTimeline`, an `AmplitudePhysicalTimeline`
   and a `PhasePhysicalTimeline`, and each source an azimuth, an elevation and
-  a distance timeline. This is the first version, covering one tempo map per
-  Score and no modulators; see [transform.md](transform.md). A set, partial
-  or source that cannot be transformed stops the run here;
+  a distance timeline. This is the first version, covering no modulators;
+  see [transform.md](transform.md). A set, partial or source that cannot be
+  transformed stops the run here;
 - with `--validate-db`, the physical timelines are checked in turn, and the
   run stops before precomputation if a check fails;
 - every partial is precomputed: its `PartialSegmentPhysicalTimeline` of integrable

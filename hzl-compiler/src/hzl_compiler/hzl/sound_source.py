@@ -29,7 +29,7 @@ class SoundSource:
         header: The file's header.
         trajectory: The source's trajectory, or None for the default position.
         envelopes: The envelopes under this source, each with its offset from
-            the source's start.
+            the source's start, or its own tempo map and its position there.
         where: Location of the body.
     """
 
@@ -59,7 +59,7 @@ def parse_sound_source(node: Node) -> SoundSource:
     return SoundSource(
         header,
         node.optional_ref("trajectory"),
-        parse_placements(node, "envelopes", "envelope", "offset"),
+        parse_placements(node, "envelopes", "envelope", "offset", tempo_map_time_key="position"),
         node.where,
     )
 

@@ -1,6 +1,7 @@
 # hzl-compiler — design
 
-**Status:** implemented, first version, 2026-10-02. The code is under
+**Status:** implemented, first version, 2026-10-02; several tempo maps
+2026-10-17. The code is under
 [src/hzl_compiler/](../src/hzl_compiler/); the language it reads is in
 [hzl-reference.md](hzl-reference.md).
 
@@ -25,7 +26,7 @@ emits is exactly what the hand-written scores already were.
 | --- | --- |
 | `score`, `sound_entity`, `sound_source`, `tempo_map`, `envelope`, `trajectory`, `partial_state_set`, `scale`, `harmonic_series`, `virtual_partial_state_set`, `partial_state_set_transformation` | Anything else |
 | Frequency (Hz), amplitude (dB) and phase (degrees, `free`) per partial; spatial position (degrees, metres) per sound source (§5.6) | Spatial position per partial, modulators: refused where written |
-| One tempo map per score | Several maps and synchronisation points |
+| Every tempo map of the tree, tied to the root by synchronisation points (§5.7); a map per sound entity, overridable per envelope | A map per stage or point |
 | `Update` in envelope stages; the flattened cartesian product in virtual sets | A product inside a stage (partials born mid-timeline) |
 | Each envelope placed once per score | Instancing, which needs an instance-qualified partial name |
 | Curves carried per stage, per property | Curves interpreted (the engine renders linear only) |
@@ -33,9 +34,10 @@ emits is exactly what the hand-written scores already were.
 | One Python CLI running every stage in process | The Ninja build; incremental compilation; provenance columns (not in the schema) |
 | Cypher output, batched by table | Columnar files for `COPY FROM` at target scale (§7) |
 
-Layers and namespaces are parsed and carried exactly as the proof of concept
-had them, and nothing is enforced about them. That area is deliberately left
-as it is.
+Layers and namespaces are parsed and carried as the proof of concept had
+them. One rule uses layers: a tempo map's synchronisation point ties it to a
+map in a strictly lower layer (ADR 0024). Nothing else is enforced about
+either, deliberately.
 
 ## 3. Levels
 
@@ -47,13 +49,15 @@ L3  generators     scale, harmonic_series             -> partial_state_set
 L2  combinators    virtual_partial_state_set          -> partial_state_set
 L1  timelines      envelope                           -> a partial set's musical timeline
                    trajectory                         -> a source's spatial position timeline
-L0  score          score + tempo_map + sound levels   -> canonical model, as tables
+L0  tempo maps     every tempo_map of the tree        -> the maps and their ties
+    score          score + sound levels               -> canonical model, as tables
     emit           canonical model                    -> .cypher
 ```
 
 L3 and L2 live in `lower/state_sets.py`, behind a `StateSetResolver` that
 dispatches on a referenced file's type, caches results, and refuses a cycle
-of references. L1 is `lower/timeline.py` and `lower/trajectory.py`, L0 `lower/score.py`, the model
+of references. L1 is `lower/timeline.py` and `lower/trajectory.py`, L0
+`lower/tempo_maps.py` and `lower/score.py`, the model
 `canonical/model.py` and the emitter `canonical/cypher.py`.
 
 Stages are separate functions, not separate processes, so that the Ninja
@@ -83,8 +87,9 @@ in HzL terms, rather than left for the engine to refuse: amplitude in
 
 | HzL | `engine-db` |
 | --- | --- |
-| `score` | `Score`, with `tempo_ramp_physical_time` from `tempo_ramp` (true unless `musical_position`, always written), `NEXT_POINT → TempoMap` |
-| `tempo_map` and its points | `TempoMap`, chain of `TempoMapPoint` |
+| `score` | `Score`, with `tempo_ramp_physical_time` from `tempo_ramp` (true unless `musical_position`, always written), `NEXT_POINT → TempoMap` to the root map only |
+| `tempo_map` and its points | `TempoMap`, chain of `TempoMapPoint`; one per file in the tree |
+| `synchronization_point` | `TEMPO_MAP_SYNCHRONIZATION_POINT` child → parent, `sync_point_child` and `sync_point_parent` in each map's ticks (§5.7) |
 | `sound_entity`, `sound_source` | `SoundEntity`, `SoundSource`, with `HAS_SOUNDENTITY`, `HAS_SOUNDSOURCE` |
 | `envelope` | `PartialSet` + `PartialSetMusicalTimeline`, `HAS_PARTIALSET`, `HAS_MUSICAL_TIMELINE` |
 | initial state set | the partials (`Partial`, `HAS_PARTIAL`) and the first `PartialSetMusicalTimelinePoint`, with a state for every partial |
@@ -98,9 +103,12 @@ in HzL terms, rather than left for the engine to refuse: amplitude in
 ### 5.1 Time
 
 Every musical position is `beats:ticks` and lowers to
-`beats * ticks_per_beat + ticks`, an integer. An envelope's start is
-`entity.position + source.offset + envelope.offset`; each point's
-`sync_point` is that plus the cumulative stage durations. Nothing on this
+`beats * ticks_per_beat + ticks`, an integer, with the `ticks_per_beat` of the
+map it is on. An envelope's start is
+`entity.position + source.offset + envelope.offset` on the entity's map, or
+the absolute `position` an envelope on its own map gives (hzl-reference.md
+§4.1); each point's `sync_point` is that plus the cumulative stage durations,
+and its `POINT_AT` leads to that map. Nothing on this
 path is a float. `offset_seconds` is passed through as written, the one
 physical time in HzL; the transform's squash rule (ADR 0014) handles any
 collision it causes, and the compiler does not check for one.
@@ -199,6 +207,26 @@ written in musical time too. Compiled with `--channel-mode 1` it rendered
 to the hand-written score's frames within 2e-12 (2026-10-05);
 `tests/expected/spatial-score.cypher` fixes its output.
 
+### 5.7 Tempo maps and their ties
+
+`lower/tempo_maps.py` runs before the score is lowered. It finds every
+`tempo_map` file in the tree (`SourceTree.refs_of_type`: every YAML file in a
+namespace directory, parsed once and cached for the later loads; a file
+whose single key is another type, or not HzL at all, is left alone; invalid
+YAML is an error, since it could be a map) and checks the ties against each
+other: the root has none, every other map has one, each parent is in a
+strictly lower layer, and ties to one parent keep their order. Since parents
+are in lower layers, sorting by layer puts every parent before its children,
+so a map with a valid tie leads to the root and no cycle is possible.
+
+Rules that need the maps in physical time stay with the transform
+(`rendering-engine/docs/polytempo.md` §6); the compiler does not resolve
+maps. That is also why an envelope on another map than its entity's gives an
+absolute position there rather than an offset.
+
+Every map is emitted, used or not. Selecting what a rendering run needs is
+a later optimisation, along with leaving out other unused objects.
+
 ## 6. The lowest level: tables
 
 `canonical/model.py` holds the canonical model as `engine-db` is shaped: one
@@ -289,9 +317,10 @@ suit. That needs the engine to resolve the files' paths beneath the server's
   is the golden output for `examples/tempo-map-score`, compared with comment
   lines stripped.
 - `make test-hzl-oracle`: compiles `examples/tempo-map-score`, the HzL twin
-  of `engine-db/examples/tempo-map-score.cypher`, renders it with the engine
-  and checks every frame against the oracle's JSON mirror of the hand-written
-  score (`rendering-engine/docs/rendering.md` §11.1). Agreement proves the
+  of `engine-db/examples/tempo-map-score.cypher`, and the polytempo twins
+  `examples/polytempo-shift-score` and `examples/polytempo-stretch-score`,
+  renders each with the engine and checks every frame against the oracle's
+  JSON mirror of the hand-written score (`rendering-engine/docs/rendering.md` §11.1). Agreement proves the
   compiled route and the test route give the same audio. The oracle runner
   takes `--state` and `--score` separately, so nothing there changed.
 - `examples/demo` compiles, loads with `--validate-db` (60 integrity checks)
@@ -305,8 +334,8 @@ suit. That needs the engine to resolve the files' paths beneath the server's
   (author, 2026-10-05); it needs the engine to stop applying gains once per
   source (ADR 0020), and is a later step.
 - **Spatial modulators.** In the schema; nothing reads them yet.
-- **Several tempo maps.** The transform converts through one map per score;
-  `TEMPO_MAP_SYNCHRONIZATION_POINT` is refused there too.
+- **A tempo map per stage or point.** Left out on purpose (author,
+  2026-10-17): a map per sound entity, overridable per envelope, is enough.
 - **A product inside a stage.** Partials born mid-timeline. The proof of
   concept sketched it; the transform's lifeline rule already allows a partial
   whose first envelope node is not at the set's first point.
@@ -317,7 +346,8 @@ suit. That needs the engine to resolve the files' paths beneath the server's
 - **Provenance** (`_source_file`, `_source_hash`, `_build_timestamp`,
   AGENTS.md). Not in the schema; the compiler has every input to hand when
   the columns exist.
-- **Layers as an ordering**, namespaces as a dependency rule, the Ninja
-  build and incremental compilation. Deliberately untouched.
+- **Layers as an ordering for other references**, namespaces as a
+  dependency rule, the Ninja build and incremental compilation. Deliberately
+  untouched; layers order tempo-map ties only.
 - **Columnar output** (§7): CSV or Parquet for `COPY FROM`, when parsing
   literal rows (about 55 µs a row) dominates the load.

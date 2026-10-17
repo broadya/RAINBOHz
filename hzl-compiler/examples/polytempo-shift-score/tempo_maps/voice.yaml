@@ -1,0 +1,20 @@
+# 90 BPM held, its beat 0 tied to beat 8 of main, which is 4 s: the map
+# plays at its own tempo from there, so its beat 3 falls at 6 s
+# (rendering-engine/docs/polytempo.md section 5.2).
+tempo_map:
+  hzl_version: "0.1.0"
+  hzl_type: tempo_map
+  name: voice
+  namespace: tempo_maps
+  layer: "001:Voices"
+  ticks_per_beat: 960
+  points:
+    - tempo_map_point:
+        position: "0:0"
+        tempo: 90.0
+        hold: true
+  synchronization_points:
+    - synchronization_point:
+        position: "0:0"
+        parent: {namespace: tempo_maps, name: main}
+        parent_position: "8:0"

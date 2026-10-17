@@ -1,0 +1,15 @@
+# V at 330 Hz, fading from -6 dB to -12 dB over 3 beats.
+envelope:
+  hzl_version: "0.1.0"
+  hzl_type: envelope
+  name: voice
+  namespace: envelopes
+  layer: "001:Voices"
+  initial_partial_state_set: {namespace: state_sets, name: voice_start}
+  envelope_stages:
+    - envelope_stage:
+        duration: "3:0"
+        envelope_transforms:
+          - envelope_transform:
+              transformation: {namespace: transformations, name: update}
+              source_partial_state_set: {namespace: state_sets, name: voice_end}

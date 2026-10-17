@@ -526,7 +526,7 @@ lint-hzl-compiler: hzl-compiler
 # JSON mirror holds. The oracle runner takes --state and --score separately,
 # so it checks the compiled route against the hand-written one unchanged.
 
-## test-hzl-oracle: compile the tempo-map twin, render it, and check it against the hand-written score's oracle
+## test-hzl-oracle: compile the tempo-map and polytempo twins, render them, and check each against its hand-written score's oracle
 test-hzl-oracle: hzl-compiler rendering-engine
 	$(VENV_PY) -m hzl_compiler compile -q \
 	    $(HZL_DIR)/examples/tempo-map-score/scores/tempo_map_score.yaml \
@@ -537,6 +537,18 @@ test-hzl-oracle: hzl-compiler rendering-engine
 	    --request $(RE_DIR)/examples/tempo-map-request.yaml \
 	    --score engine-db/examples/tempo-map-score.json \
 	    --out-dir $(HZL_DIR)/build/oracle/frames
+	@for twin in polytempo-shift polytempo-stretch; do \
+	    score=$$(echo $$twin | tr - _)_score; \
+	    $(VENV_PY) -m hzl_compiler compile -q \
+	        $(HZL_DIR)/examples/$$twin-score/scores/$$score.yaml \
+	        -o $(HZL_DIR)/build/oracle/$$twin-score.cypher || exit 1; \
+	    $(VENV_PY) $(RE_DIR)/test/oracle/run_oracle_check.py \
+	        --engine $(RE_BUILD)/bin/rendering-engine --schema $(ENGINE_SCHEMA) \
+	        --state $(HZL_DIR)/build/oracle/$$twin-score.cypher \
+	        --request $(RE_DIR)/examples/$$twin-request.yaml \
+	        --score engine-db/examples/$$twin-score.json \
+	        --out-dir $(HZL_DIR)/build/oracle/$$twin-frames || exit 1; \
+	done
 
 ## run-hzl-score: compile $(HZL_SCORE), then render it with $(RE_REQUEST) into $(RE_OUT_DIR)
 run-hzl-score: hzl-compile rendering-engine

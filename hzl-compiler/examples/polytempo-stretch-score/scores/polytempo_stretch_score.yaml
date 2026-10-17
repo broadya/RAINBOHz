@@ -1,0 +1,20 @@
+# HzL twin of engine-db/examples/polytempo-stretch-score.cypher.
+#
+# Compiled, this must give a database the engine transforms into exactly
+# the physical values in engine-db/examples/polytempo-stretch-score.json.
+# Two tempo maps: "main", the root, and "voice", tied to it at three
+# synchronisation points. The entity keeps time by main, so its source's
+# position is on main; its one envelope names voice and starts at 0:0 there.
+#
+#   hzlc compile scores/polytempo_stretch_score.yaml -o build/polytempo-stretch-score.cypher
+score:
+  hzl_version: "0.1.0"
+  hzl_type: score
+  name: polytempo_stretch_score
+  namespace: scores
+  layer: "000:Root"
+  labels: []
+  tempo_map: {namespace: tempo_maps, name: main}
+  sound_entities:
+    - sound_entity: {namespace: entities, name: voice}
+      position: "0:0"

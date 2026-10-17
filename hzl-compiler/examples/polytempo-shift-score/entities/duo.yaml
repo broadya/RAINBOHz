@@ -1,0 +1,8 @@
+sound_entity:
+  hzl_version: "0.1.0"
+  hzl_type: sound_entity
+  name: duo
+  namespace: entities
+  layer: "001:Voices"
+  sound_sources:
+    - sound_source: {namespace: sources, name: duo}

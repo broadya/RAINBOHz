@@ -164,3 +164,81 @@ def test_engine_options_are_checked() -> None:
     with pytest.raises(ValueError):
         EngineOptions(channel_mode=8)
     assert EngineOptions(channel_mode=7).channel_mode == 7
+
+
+VOICE = hzl(
+    "tempo_map",
+    "tempo_maps/voice",
+    """
+    ticks_per_beat: 4
+    points:
+      - tempo_map_point: {position: "0:0", tempo: 90.0, hold: true}
+    synchronization_points:
+      - synchronization_point:
+          position: "0:0"
+          parent: {namespace: tempo_maps, name: main}
+          parent_position: "8:0"
+    """,
+    layer="1: voices",
+)
+
+
+def point_ats(model: Model, table: str) -> list[tuple[int, int]]:
+    """(TempoMap index, sync_point) of every POINT_AT from `table`, in order."""
+    return [
+        (e.dst.index, e.properties["sync_point"])
+        for e in model.edges
+        if e.rel == "POINT_AT" and e.src.table == table
+    ]
+
+
+def test_a_placement_counts_in_its_map_s_ticks(tree: TreeBuilder) -> None:
+    score = BASE["scores/score"].replace(
+        'position: "1:0"', 'tempo_map: {namespace: tempo_maps, name: voice}\n      position: "1:0"'
+    )
+    with pytest.raises(HzlError, match="0:480 has 480 ticks but the tempo map has 4") as raised:
+        compile_(tree, {"tempo_maps/voice": VOICE, "scores/score": score})
+    assert raised.value.where.path.endswith("sound_sources[0].offset")
+    entity = BASE["entities/entity"].replace('offset: "0:480"', 'offset: "0:2"')
+    model = compile_(
+        tree, {"tempo_maps/voice": VOICE, "scores/score": score, "entities/entity": entity}
+    )
+    # entity 1:0 + source 0:2 + envelope 1:0 = 10 ticks of voice; the stage of 2:0 ends at 18
+    assert point_ats(model, "PartialSetMusicalTimelinePoint") == [(1, 10), (1, 18)]
+    assert point_ats(model, "SpatialPositionMusicalTimelinePoint") == [(1, 6)]
+
+
+def test_an_envelope_on_its_own_map_starts_at_an_absolute_position(tree: TreeBuilder) -> None:
+    source = BASE["sources/source"].replace(
+        'offset: "1:0"', 'tempo_map: {namespace: tempo_maps, name: voice}\n      position: "3:1"'
+    )
+    model = compile_(tree, {"tempo_maps/voice": VOICE, "sources/source": source})
+    # 3:1 on voice from its 0:0, whatever the entity and source placements; the
+    # stage counts on voice from there. The source stays on main at 1:480.
+    assert point_ats(model, "PartialSetMusicalTimelinePoint") == [(1, 13), (1, 21)]
+    assert point_ats(model, "SpatialPositionMusicalTimelinePoint") == [(0, 1440)]
+
+
+def test_an_override_and_an_offset_do_not_mix(tree: TreeBuilder) -> None:
+    both = BASE["sources/source"].replace(
+        'offset: "1:0"', 'tempo_map: {namespace: tempo_maps, name: voice}\n      offset: "1:0"'
+    )
+    with pytest.raises(HzlError, match="starts at an absolute 'position' on that map"):
+        compile_(tree, {"tempo_maps/voice": VOICE, "sources/source": both})
+    neither = BASE["sources/source"].replace(
+        'offset: "1:0"', "tempo_map: {namespace: tempo_maps, name: voice}"
+    )
+    with pytest.raises(HzlError, match="missing required key 'position'"):
+        compile_(tree, {"tempo_maps/voice": VOICE, "sources/source": neither})
+    alone = BASE["sources/source"].replace('offset: "1:0"', 'position: "1:0"')
+    with pytest.raises(HzlError, match="without 'tempo_map', write 'offset'"):
+        compile_(tree, {"sources/source": alone})
+
+
+def test_a_placement_s_map_must_be_a_tempo_map(tree: TreeBuilder) -> None:
+    source = BASE["sources/source"].replace(
+        'offset: "1:0"',
+        'tempo_map: {namespace: transformations, name: update}\n      position: "0:0"',
+    )
+    with pytest.raises(HzlError, match="is a partial_state_set_transformation, but a tempo_map"):
+        compile_(tree, {"sources/source": source})

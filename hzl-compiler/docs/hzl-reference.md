@@ -31,7 +31,7 @@ The body begins with the common header:
   hzl_type: <type>         # must equal the top-level key
   name: <name>             # must equal the file name without .yaml
   namespace: <namespace>   # must equal the directories under the root
-  layer: "0: base"         # any string; carried, not enforced (§9)
+  layer: "000:Root"        # any string; orders tempo-map ties (§9)
   labels: [a, b]           # optional; strings, each once
 ```
 
@@ -86,17 +86,21 @@ mode makes the stereo image.
 ## 4. The hierarchy: `score`, `sound_entity`, `sound_source`
 
 These three mirror `engine-db`'s `Score → SoundEntity → SoundSource → PartialSet`.
-Each level lists the next with a musical time; the times add.
+Each level lists the next with a musical time; the times add, in ticks of
+one tempo map.
 
 ```yaml
 # scores/demo.yaml
 score:
   ...header...
-  tempo_map: {namespace: tempo_maps, name: main}
+  tempo_map: {namespace: tempo_maps, name: main}   # the root map (§5)
   tempo_ramp: physical_time      # or musical_position; default physical_time (§5)
   sound_entities:
     - sound_entity: {namespace: entities, name: pad}
       position: "0:0"            # where the entity starts; default 0:0
+    - sound_entity: {namespace: entities, name: voice}
+      tempo_map: {namespace: tempo_maps, name: voice}   # optional; default the root
+      position: "2:0"            # on that map
 
 # entities/pad.yaml
 sound_entity:
@@ -112,12 +116,34 @@ sound_source:
   envelopes:
     - envelope: {namespace: envelopes, name: swell}
       offset: "0:0"              # after the source's start; default 0:0
+    - envelope: {namespace: envelopes, name: melody}
+      tempo_map: {namespace: tempo_maps, name: main}   # its own map (§4.1)
+      position: "8:0"            # required with tempo_map: absolute on that map
 ```
 
 An envelope starts at `entity.position + source.offset + envelope.offset`,
 in ticks. Each envelope may be placed once in a score; a second placement is
 an error. A `sound_source` has one spatial position, shared by every partial
 of every envelope under it: its trajectory (§8).
+
+### 4.1 Which tempo map
+
+Every placement counts in ticks of one tempo map, and every point of a
+timeline is on that map:
+
+- A **sound entity** keeps time by the map its placement in the score names,
+  or the score's root map when it names none. Its `position` is in that
+  map's `beats:ticks`, and its sources, their trajectories and its envelopes
+  count on it too.
+- An **envelope** may name a map of its own on its placement. It then gives
+  an absolute `position` on that map, from the map's `0:0`, instead of an
+  `offset`: where the entity's start falls in another map's ticks is only
+  known once the maps are resolved, which is the engine's work. Its stages
+  count on that map from there. `offset` with `tempo_map`, and `position`
+  without, are refused.
+
+That is the whole choice: no map per stage or per point. A map named here
+must be a `tempo_map` in the source tree, tied to the root (§5.1).
 
 Every file at these levels becomes one node, named `namespace/name`.
 
@@ -149,7 +175,51 @@ A ramp's shape is set once for the whole score, by the score's optional
 
 A held tempo is the same in either shape. The compiler always writes the
 choice to `Score.tempo_ramp_physical_time`, so the database never relies on
-its NULL default. A score has one tempo map in this version.
+its NULL default. The shape is one for every map of the score.
+
+### 5.1 Several maps: synchronisation points
+
+The score's `tempo_map` is the **root**: time zero, played as written. Any
+other map ties itself to one or more **parent** maps with synchronisation
+points, written on the child:
+
+```yaml
+# tempo_maps/voice.yaml
+tempo_map:
+  ...header...
+  layer: "001:Voices"
+  ticks_per_beat: 960
+  points: [...]
+  synchronization_points:
+    - synchronization_point:
+        position: "4:0"          # on this map; must be one of its points
+        parent: {namespace: tempo_maps, name: main}
+        parent_position: "4:0"   # in the parent's beats:ticks
+```
+
+The point at `position` of this map sounds at the same instant as
+`parent_position` of the parent. One point shifts the map; two or more
+stretch it between them, and the engine compensates where ramps meet
+(`rendering-engine/docs/polytempo.md` §5, ADR 0023). Points may tie to
+different parents.
+
+The compiler checks, in HzL terms:
+
+- the root has no `synchronization_points`;
+- every other map has at least one, so that it leads to the root;
+- a `parent` is a `tempo_map` in a **strictly lower layer** than this map's
+  (§9), which also rules out a cycle;
+- `position` is at one of this map's `tempo_map_point`s, and no two points
+  share one;
+- `parent_position` has fewer ticks than the parent's `ticks_per_beat`;
+- ties to the same parent are in the same order on both maps.
+
+**Every** `tempo_map` file in the source tree is compiled, used or not, so
+every one must lead to the root, and a tree holds one score's maps. What
+needs the maps in physical time is the engine's to refuse, as a fatal error
+naming the map: anchors of different parents out of order, a region the
+anchors cannot fit, a tempo outside [1, 1000] BPM after compensation
+(polytempo.md §6).
 
 ## 6. State sets
 
@@ -411,23 +481,40 @@ elevation 0, distance 1, from its start.
 
 ## 9. Layers and namespaces
 
-Both are parsed and carried on every file and nothing is enforced about
-them: there is no layer ordering, and a reference may lead anywhere in the
-tree. The idea of layers in lexicographic order as a guard against circular
-dependencies is on the table and deliberately untouched by this version.
-What the compiler does refuse is a cycle of state-set references (§6.4),
+Every file has a `layer`, any string. Layers are ordered as strings, by code
+point, and nothing in the string is interpreted. By convention a layer
+starts with three digits, so that the order reads at a glance:
+
+```yaml
+layer: "000:Root tempo map"
+layer: "001:First layer tempo maps"
+layer: "099:Second layer tempo maps"
+```
+
+The digits mean nothing; they only sort. Without them, `"10:x"` sorts
+before `"9:x"`.
+
+One rule uses the order: a tempo map's synchronisation point ties it to a
+map in a strictly lower layer (§5.1), never the same one (ADR 0024). No
+other reference is checked against layers yet, and a reference may lead
+anywhere in the tree. Namespaces are carried and nothing is enforced about
+them. The compiler also refuses a cycle of state-set references (§6.4),
 which it detects directly.
 
 ## 10. What is emitted
 
-One `EngineConfig` statement from the compiler's options, then one
-statement for the score: a `Score`, its `TempoMap` and points; `Label`s;
+One `EngineConfig` statement from the compiler's options, then the score: a
+`Score`; every `TempoMap` of the tree and its points, the root first and
+reached from the `Score` by `NEXT_POINT`, then by layer and name; a
+`TEMPO_MAP_SYNCHRONIZATION_POINT` from child to parent per synchronisation
+point, with `sync_point_child` and `sync_point_parent` in ticks; `Label`s;
 the `SoundEntity`/`SoundSource`/`PartialSet`/`Partial` hierarchy; per
 source a `SpatialPositionMusicalTimeline`, its points each with a
 `POINT_AT` and a `SpatialPositionState`, from the trajectory or the
 default (§8); per
 envelope a `PartialSetMusicalTimeline`, its points each with a `POINT_AT`
-(`sync_point` in ticks, `offset_seconds`), and at each point with states a
+(`sync_point` in ticks of the timeline's map, §4.1, and `offset_seconds`),
+and at each point with states a
 `PartialStateSet` of `PartialState`s. `HAS_LABEL` is emitted for partials
 and the score only, which is what the schema declares. Each state's phase is
 written as `phase` and `phase_free_run` (§7.7). See `docs/design.md`.
