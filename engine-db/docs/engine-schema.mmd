@@ -689,36 +689,6 @@ classDiagram
     }
     PartialSet "1" -- HAS_MODULATOR_PHYSICAL_TIMELINE__PartialSet__PhaseModulatorPhysicalTimeline
     HAS_MODULATOR_PHYSICAL_TIMELINE__PartialSet__PhaseModulatorPhysicalTimeline -- "*" PhaseModulatorPhysicalTimeline
-    class HAS_MODULATOR_MUSICAL_TIMELINE__SoundSource__AzimuthModulatorMusicalTimeline["HAS_MODULATOR_MUSICAL_TIMELINE"] {
-        <<REL>>
-    }
-    SoundSource "1" -- HAS_MODULATOR_MUSICAL_TIMELINE__SoundSource__AzimuthModulatorMusicalTimeline
-    HAS_MODULATOR_MUSICAL_TIMELINE__SoundSource__AzimuthModulatorMusicalTimeline -- "*" AzimuthModulatorMusicalTimeline
-    class HAS_MODULATOR_MUSICAL_TIMELINE__SoundSource__ElevationModulatorMusicalTimeline["HAS_MODULATOR_MUSICAL_TIMELINE"] {
-        <<REL>>
-    }
-    SoundSource "1" -- HAS_MODULATOR_MUSICAL_TIMELINE__SoundSource__ElevationModulatorMusicalTimeline
-    HAS_MODULATOR_MUSICAL_TIMELINE__SoundSource__ElevationModulatorMusicalTimeline -- "*" ElevationModulatorMusicalTimeline
-    class HAS_MODULATOR_MUSICAL_TIMELINE__SoundSource__DistanceModulatorMusicalTimeline["HAS_MODULATOR_MUSICAL_TIMELINE"] {
-        <<REL>>
-    }
-    SoundSource "1" -- HAS_MODULATOR_MUSICAL_TIMELINE__SoundSource__DistanceModulatorMusicalTimeline
-    HAS_MODULATOR_MUSICAL_TIMELINE__SoundSource__DistanceModulatorMusicalTimeline -- "*" DistanceModulatorMusicalTimeline
-    class HAS_MODULATOR_MUSICAL_TIMELINE__PartialSet__FrequencyModulatorMusicalTimeline["HAS_MODULATOR_MUSICAL_TIMELINE"] {
-        <<REL>>
-    }
-    PartialSet "1" -- HAS_MODULATOR_MUSICAL_TIMELINE__PartialSet__FrequencyModulatorMusicalTimeline
-    HAS_MODULATOR_MUSICAL_TIMELINE__PartialSet__FrequencyModulatorMusicalTimeline -- "*" FrequencyModulatorMusicalTimeline
-    class HAS_MODULATOR_MUSICAL_TIMELINE__PartialSet__AmplitudeModulatorMusicalTimeline["HAS_MODULATOR_MUSICAL_TIMELINE"] {
-        <<REL>>
-    }
-    PartialSet "1" -- HAS_MODULATOR_MUSICAL_TIMELINE__PartialSet__AmplitudeModulatorMusicalTimeline
-    HAS_MODULATOR_MUSICAL_TIMELINE__PartialSet__AmplitudeModulatorMusicalTimeline -- "*" AmplitudeModulatorMusicalTimeline
-    class HAS_MODULATOR_MUSICAL_TIMELINE__PartialSet__PhaseModulatorMusicalTimeline["HAS_MODULATOR_MUSICAL_TIMELINE"] {
-        <<REL>>
-    }
-    PartialSet "1" -- HAS_MODULATOR_MUSICAL_TIMELINE__PartialSet__PhaseModulatorMusicalTimeline
-    HAS_MODULATOR_MUSICAL_TIMELINE__PartialSet__PhaseModulatorMusicalTimeline -- "*" PhaseModulatorMusicalTimeline
     class FRAME_ENTRY {
         <<REL>>
     }
@@ -761,43 +731,15 @@ classDiagram
     FRAME_ENTRY_PARTIAL -- "1" Partial
     class POINT_AT__PartialSetMusicalTimelinePoint__TempoMap["POINT_AT"] {
         <<REL>>
+        +INT64 sync_point
         +FLOAT offset_seconds
     }
     PartialSetMusicalTimelinePoint "*" -- POINT_AT__PartialSetMusicalTimelinePoint__TempoMap
     POINT_AT__PartialSetMusicalTimelinePoint__TempoMap -- "1" TempoMap
     class POINT_AT__SpatialPositionMusicalTimelinePoint__TempoMap["POINT_AT"] {
         <<REL>>
+        +INT64 sync_point
         +FLOAT offset_seconds
     }
     SpatialPositionMusicalTimelinePoint "*" -- POINT_AT__SpatialPositionMusicalTimelinePoint__TempoMap
     POINT_AT__SpatialPositionMusicalTimelinePoint__TempoMap -- "1" TempoMap
-    class POINT_AT__AmplitudeModulatorMusicalTimelinePoint__TempoMap["POINT_AT"] {
-        <<REL>>
-        +FLOAT offset_seconds
-    }
-    AmplitudeModulatorMusicalTimelinePoint "*" -- POINT_AT__AmplitudeModulatorMusicalTimelinePoint__TempoMap
-    POINT_AT__AmplitudeModulatorMusicalTimelinePoint__TempoMap -- "1" TempoMap
-    class POINT_AT__PhaseModulatorMusicalTimelinePoint__TempoMap["POINT_AT"] {
-        <<REL>>
-        +FLOAT offset_seconds
-    }
-    PhaseModulatorMusicalTimelinePoint "*" -- POINT_AT__PhaseModulatorMusicalTimelinePoint__TempoMap
-    POINT_AT__PhaseModulatorMusicalTimelinePoint__TempoMap -- "1" TempoMap
-    class POINT_AT__AzimuthModulatorMusicalTimelinePoint__TempoMap["POINT_AT"] {
-        <<REL>>
-        +FLOAT offset_seconds
-    }
-    AzimuthModulatorMusicalTimelinePoint "*" -- POINT_AT__AzimuthModulatorMusicalTimelinePoint__TempoMap
-    POINT_AT__AzimuthModulatorMusicalTimelinePoint__TempoMap -- "1" TempoMap
-    class POINT_AT__ElevationModulatorMusicalTimelinePoint__TempoMap["POINT_AT"] {
-        <<REL>>
-        +FLOAT offset_seconds
-    }
-    ElevationModulatorMusicalTimelinePoint "*" -- POINT_AT__ElevationModulatorMusicalTimelinePoint__TempoMap
-    POINT_AT__ElevationModulatorMusicalTimelinePoint__TempoMap -- "1" TempoMap
-    class POINT_AT__DistanceModulatorMusicalTimelinePoint__TempoMap["POINT_AT"] {
-        <<REL>>
-        +FLOAT offset_seconds
-    }
-    DistanceModulatorMusicalTimelinePoint "*" -- POINT_AT__DistanceModulatorMusicalTimelinePoint__TempoMap
-    POINT_AT__DistanceModulatorMusicalTimelinePoint__TempoMap -- "1" TempoMap
