@@ -95,6 +95,24 @@ std::string describeFailedPartial(const PartialFailure& failure) {
            ")";
 }
 
+/// Writes one line about a tempo map the transform resolved.
+///
+/// @param[in,out] out  Receives the line.
+/// @param map          The map.
+void reportTempoMap(std::ostream& out, const TempoMapSummary& map) {
+    out << "    Score " << map.scoreId << " keeps time by TempoMap "
+        << map.name.value_or("(unnamed)") << " (id " << map.tempoMapId << "): " << map.ticksPerBeat
+        << " ticks per beat, " << map.pointCount << " point(s), ramps linear in "
+        << (map.rampPhysicalTime ? "physical time" : "musical position");
+    if (!map.parentIds.empty()) {
+        out << ", synchronised at " << map.syncPointCount << " point(s) to TempoMap";
+        for (std::size_t i = 0; i < map.parentIds.size(); ++i) {
+            out << (i == 0 ? " " : ", ") << map.parentIds[i];
+        }
+    }
+    out << '\n';
+}
+
 } // namespace
 
 void narrateStatement(std::ostream& out, bool verbose, const std::filesystem::path& file,
@@ -186,11 +204,7 @@ void reportIntegrity(std::ostream& out, const IntegrityReport& report, bool verb
 void reportTransform(std::ostream& out, const TransformReport& report, bool verbose) {
     out << "  transform: sample rate " << report.sampleRate.value() << '\n';
     for (const TempoMapSummary& map : report.tempoMaps) {
-        out << "    Score " << map.scoreId << " keeps time by TempoMap "
-            << map.name.value_or("(unnamed)") << " (id " << map.tempoMapId
-            << "): " << map.ticksPerBeat << " ticks per beat, " << map.pointCount
-            << " point(s), ramps linear in "
-            << (map.rampPhysicalTime ? "physical time" : "musical position") << '\n';
+        reportTempoMap(out, map);
     }
     if (report.sets.empty()) {
         out << "    no PartialSet has a musical timeline; nothing to transform\n";

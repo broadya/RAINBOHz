@@ -3,6 +3,7 @@
 #include "rainbohz/rendering_engine/transform/transform.hpp"
 
 #include "rainbohz/rendering_engine/transform/musical_units.hpp"
+#include "rainbohz/rendering_engine/transform/polytempo.hpp"
 #include "rainbohz/rendering_engine/transform/squash.hpp"
 #include "rainbohz/rendering_engine/transform/tempo_map.hpp"
 #include "rainbohz/rendering_engine/write_batch.hpp"
@@ -14,7 +15,6 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
-#include <map>
 #include <optional>
 #include <span>
 #include <sstream>
@@ -35,7 +35,8 @@
 ///   - fixed Cypher queries, prepared once by EngineDb and bound with
 ///     parameters;
 ///   - a bulk read of everything the run needs before anything is written;
-///   - the tempo maps, built and validated once per Score;
+///   - the tempo maps, built and validated once each, then resolved to
+///     physical time through their synchronisation edges (docs/polytempo.md);
 ///   - the per-set stage: validation of the timeline, its POINT_AT edges and
 ///     its states, and the physical time of each point;
 ///   - the per-partial stage: envelope nodes, placement, lifeline fit, unit
@@ -71,7 +72,11 @@ constexpr std::string_view kReadConfig = "MATCH (c:EngineConfig) RETURN c.sample
 /// per Score.
 constexpr std::string_view kReadScores =
     "MATCH (s:Score) OPTIONAL MATCH (s)-[:NEXT_POINT]->(m:TempoMap) "
-    "RETURN s.id, m.id, m.name, m.ticks_per_beat, s.tempo_ramp_physical_time ORDER BY s.id;";
+    "RETURN s.id, m.id, s.tempo_ramp_physical_time ORDER BY s.id;";
+
+/// Every TempoMap's own fields.
+constexpr std::string_view kReadTempoMaps =
+    "MATCH (m:TempoMap) RETURN m.id, m.name, m.ticks_per_beat ORDER BY m.id;";
 
 /// Each TempoMap's point-list head, by TempoMap.id.
 constexpr std::string_view kReadTempoMapHeads =
@@ -86,9 +91,11 @@ constexpr std::string_view kReadTempoMapPoints =
 constexpr std::string_view kReadTempoMapLinks =
     "MATCH (a:TempoMapPoint)-[:NEXT_POINT]->(b:TempoMapPoint) RETURN a.id, b.id;";
 
-/// Counts TEMPO_MAP_SYNCHRONIZATION_POINT edges in the database.
-constexpr std::string_view kCountSyncEdges =
-    "MATCH ()-[r:TEMPO_MAP_SYNCHRONIZATION_POINT]->() RETURN count(r);";
+/// Reads every TEMPO_MAP_SYNCHRONIZATION_POINT edge, child to parent, with
+/// its two sync points.
+constexpr std::string_view kReadSyncEdges =
+    "MATCH (c:TempoMap)-[r:TEMPO_MAP_SYNCHRONIZATION_POINT]->(p:TempoMap) "
+    "RETURN c.id, p.id, r.sync_point_child, r.sync_point_parent ORDER BY c.id, p.id;";
 
 /// Every PartialSet with a musical timeline, with the head of the timeline's
 /// point list, or NULL when it has no points.
@@ -408,15 +415,20 @@ constexpr double kMaxDistanceMetres = 16384.0; ///< Highest valid distance, metr
 // Inputs, as read in bulk before anything is written
 // ---------------------------------------------------------------------------
 
-/// A Score and its TempoMap, as read.
+/// A Score and its root TempoMap, as read.
 struct ScoreRecord {
-    std::int64_t scoreId = 0;                 ///< The Score.
-    std::optional<std::int64_t> tempoMapId;   ///< Its TempoMap; nullopt if it has none.
-    std::optional<std::string> tempoMapName;  ///< That TempoMap's name.
-    std::optional<std::int64_t> ticksPerBeat; ///< That TempoMap's ticks_per_beat.
+    std::int64_t scoreId = 0;               ///< The Score.
+    std::optional<std::int64_t> tempoMapId; ///< Its own TempoMap; nullopt if it has none.
 
     /// Score.tempo_ramp_physical_time; nullopt for NULL, which means true.
     std::optional<bool> tempoRampPhysicalTime;
+};
+
+/// A TempoMap's own fields, as read.
+struct TempoMapRecord {
+    std::int64_t id = 0;                      ///< The TempoMap.
+    std::optional<std::string> name;          ///< Its name.
+    std::optional<std::int64_t> ticksPerBeat; ///< Its ticks_per_beat.
 };
 
 /// A PartialSet with a musical timeline, as read.
@@ -498,8 +510,10 @@ struct ExistingTimeline {
 
 /// Everything the run reads, for every set at once.
 struct Inputs {
-    /// Every Score, with its TempoMap if it has one.
+    /// Every Score, with its root TempoMap if it has one.
     std::vector<ScoreRecord> scores;
+    /// Every TempoMap, in id order.
+    std::vector<TempoMapRecord> tempoMaps;
     /// Each TempoMap's point-list heads, by TempoMap.id (more than one is a
     /// validation error raised later).
     std::unordered_map<std::int64_t, std::vector<std::optional<std::int64_t>>> tempoMapHeads;
@@ -507,8 +521,8 @@ struct Inputs {
     std::unordered_map<std::int64_t, TempoMapPointRecord> tempoMapPoints;
     /// The NEXT_POINT links between TempoMapPoints.
     IdMap tempoMapNext;
-    /// The number of TEMPO_MAP_SYNCHRONIZATION_POINT edges in the database.
-    std::int64_t syncEdges = 0;
+    /// Every TEMPO_MAP_SYNCHRONIZATION_POINT edge.
+    std::vector<SyncEdgeRecord> syncEdges;
 
     /// Every PartialSet with a musical timeline.
     std::vector<MusicalSetRecord> sets;
@@ -652,10 +666,13 @@ Inputs readInputs(EngineDb& db) {
         inputs.scores.push_back(ScoreRecord{
             .scoreId = requireInt64(row.at(0)),
             .tempoMapId = optionalInt64(row.at(1)),
-            .tempoMapName = optionalString(row.at(2)),
-            .ticksPerBeat = optionalInt64(row.at(3)),
-            .tempoRampPhysicalTime = optionalBool(row.at(4)),
+            .tempoRampPhysicalTime = optionalBool(row.at(2)),
         });
+    }
+    for (const DbRow& row : db.query(kReadTempoMaps)) {
+        inputs.tempoMaps.push_back(TempoMapRecord{.id = requireInt64(row.at(0)),
+            .name = optionalString(row.at(1)),
+            .ticksPerBeat = optionalInt64(row.at(2))});
     }
     for (const DbRow& row : db.query(kReadTempoMapHeads)) {
         inputs.tempoMapHeads[requireInt64(row.at(0))].push_back(optionalInt64(row.at(1)));
@@ -670,7 +687,12 @@ Inputs readInputs(EngineDb& db) {
         inputs.tempoMapPoints.emplace(point.id, point);
     }
     inputs.tempoMapNext = readLinks(db, kReadTempoMapLinks);
-    inputs.syncEdges = requireInt64(db.query(kCountSyncEdges).at(0).at(0));
+    for (const DbRow& row : db.query(kReadSyncEdges)) {
+        inputs.syncEdges.push_back(SyncEdgeRecord{.childId = requireInt64(row.at(0)),
+            .parentId = requireInt64(row.at(1)),
+            .syncPointChild = optionalInt64(row.at(2)),
+            .syncPointParent = optionalInt64(row.at(3))});
+    }
 
     for (const DbRow& row : db.query(kReadMusicalSets)) {
         const std::int64_t setId = requireInt64(row.at(0));
@@ -789,60 +811,104 @@ std::string describePoint(std::size_t index, std::int64_t id) {
 // Tempo maps
 // ---------------------------------------------------------------------------
 
-/// A Score's validated TempoMap, with its id.
-struct ScoreTempoMap {
-    std::int64_t mapId = 0; ///< The TempoMap.
-    TempoMap map;           ///< Its validated, in-memory form.
+/// Every Score's tempo maps, resolved to physical time (docs/polytempo.md).
+struct ResolvedMaps {
+    /// Each map's resolved form, by TempoMap.id.
+    std::unordered_map<std::int64_t, ResolvedTempoMap> maps;
+
+    /// Score.id of the Score whose graph each map belongs to, by TempoMap.id.
+    std::unordered_map<std::int64_t, std::int64_t> scoreOfMap;
+
+    /// Each Score's own TempoMap, the root of its graph, by Score.id. A Score
+    /// without one is absent.
+    std::unordered_map<std::int64_t, std::int64_t> rootOfScore;
 };
 
-/// Builds and validates the TempoMap of every Score that has one (§6.1).
+/// Builds, validates and resolves every TempoMap (§6.1; docs/polytempo.md
+/// §7).
+///
+/// The maps are ordered parents first from the Scores' roots, each is built
+/// as a TempoMap in its Score's ramp shape, and each is then resolved against
+/// its synchronisation edges, so that a child's anchors come from parents
+/// already in physical time.
 ///
 /// @param inputs       Everything read for the run.
-/// @param[out] report  Receives one TempoMapSummary per map, in Score order.
-/// @return Each Score's map, by Score.id. Scores without one are absent.
-/// @throws TransformError  If any map is invalid, or any synchronisation edge
-///         exists.
-std::map<std::int64_t, ScoreTempoMap> buildTempoMaps(
-    const Inputs& inputs, TransformReport& report) {
-    if (inputs.syncEdges != 0) {
-        throw TransformError{"engine-db holds " + std::to_string(inputs.syncEdges) +
-                             " TEMPO_MAP_SYNCHRONIZATION_POINT edge(s); synchronised tempo "
-                             "maps are not supported by this version, which converts through "
-                             "one TempoMap per Score"};
+/// @param[out] report  Receives one TempoMapSummary per map, in resolution
+///                     order.
+/// @return The resolved maps, and whose Score each belongs to.
+/// @throws TransformError  If any map is invalid, or the synchronisation
+///         edges cannot be resolved (docs/polytempo.md §6).
+ResolvedMaps buildTempoMaps(const Inputs& inputs, TransformReport& report) {
+    std::vector<std::int64_t> mapIds;
+    mapIds.reserve(inputs.tempoMaps.size());
+    for (const TempoMapRecord& record : inputs.tempoMaps) {
+        mapIds.push_back(record.id);
     }
-    std::map<std::int64_t, ScoreTempoMap> maps;
+    std::vector<std::pair<std::int64_t, std::int64_t>> roots;
+    std::unordered_map<std::int64_t, TempoRamp> rampOfScore;
+    ResolvedMaps result;
     for (const ScoreRecord& score : inputs.scores) {
-        if (!score.tempoMapId.has_value()) {
-            continue;
+        rampOfScore.emplace(score.scoreId, tempoRampFromScore(score.tempoRampPhysicalTime));
+        if (score.tempoMapId.has_value()) {
+            roots.emplace_back(*score.tempoMapId, score.scoreId);
+            result.rootOfScore.emplace(score.scoreId, *score.tempoMapId);
         }
-        const std::int64_t mapId = *score.tempoMapId;
-        const std::string what =
-            "TempoMap " + std::to_string(mapId) + " of Score " + std::to_string(score.scoreId);
-        const auto heads = inputs.tempoMapHeads.find(mapId);
-        const std::optional<std::int64_t> head =
-            heads == inputs.tempoMapHeads.end() || heads->second.empty() ? std::nullopt
-                                                                         : heads->second.front();
-        std::vector<TempoMapPointRecord> records;
-        try {
-            for (const std::int64_t id : walkList<TempoMapError>(head, inputs.tempoMapNext, what)) {
-                records.push_back(inputs.tempoMapPoints.at(id));
+    }
+    try {
+        TempoMapOrder order = orderTempoMaps(mapIds, inputs.syncEdges, roots);
+        std::unordered_map<std::int64_t, TempoMap> nominal;
+        for (const std::int64_t mapId : order.order) {
+            const std::string what = "TempoMap " + std::to_string(mapId);
+            const TempoMapRecord& record =
+                *std::ranges::find(inputs.tempoMaps, mapId, &TempoMapRecord::id);
+            const auto heads = inputs.tempoMapHeads.find(mapId);
+            const std::optional<std::int64_t> head =
+                heads == inputs.tempoMapHeads.end() || heads->second.empty()
+                    ? std::nullopt
+                    : heads->second.front();
+            try {
+                std::vector<TempoMapPointRecord> records;
+                for (const std::int64_t id :
+                    walkList<TempoMapError>(head, inputs.tempoMapNext, what)) {
+                    records.push_back(inputs.tempoMapPoints.at(id));
+                }
+                nominal.emplace(mapId, TempoMap::fromRecords(record.ticksPerBeat, records,
+                                           rampOfScore.at(order.scoreOfMap.at(mapId))));
+            } catch (const TempoMapError& e) {
+                throw TempoMapError{what + ": " + e.what()};
             }
-            TempoMap map = TempoMap::fromRecords(
-                score.ticksPerBeat, records, tempoRampFromScore(score.tempoRampPhysicalTime));
-            report.tempoMaps.push_back(TempoMapSummary{
-                .scoreId = score.scoreId,
+        }
+        result.maps = resolveTempoMapGraph(nominal, inputs.syncEdges, order);
+        for (const std::int64_t mapId : order.order) {
+            const TempoMap& map = nominal.at(mapId);
+            TempoMapSummary summary{
+                .scoreId = order.scoreOfMap.at(mapId),
                 .tempoMapId = mapId,
-                .name = score.tempoMapName,
+                .name = std::ranges::find(inputs.tempoMaps, mapId, &TempoMapRecord::id)->name,
                 .ticksPerBeat = map.ticksPerBeat().value(),
                 .pointCount = map.points().size(),
                 .rampPhysicalTime = map.ramp() == TempoRamp::PhysicalTime,
-            });
-            maps.emplace(score.scoreId, ScoreTempoMap{.mapId = mapId, .map = std::move(map)});
-        } catch (const TempoMapError& e) {
-            throw TransformError{what + ": " + e.what()};
+                .parentIds = {},
+                .syncPointCount = 0,
+            };
+            for (const SyncEdgeRecord& edge : inputs.syncEdges) {
+                if (edge.childId != mapId) {
+                    continue;
+                }
+                ++summary.syncPointCount;
+                if (std::ranges::find(summary.parentIds, edge.parentId) ==
+                    summary.parentIds.end()) {
+                    summary.parentIds.push_back(edge.parentId);
+                }
+            }
+            std::ranges::sort(summary.parentIds);
+            report.tempoMaps.push_back(std::move(summary));
         }
+        result.scoreOfMap = std::move(order.scoreOfMap);
+    } catch (const TempoMapError& e) {
+        throw TransformError{e.what()};
     }
-    return maps;
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -893,35 +959,53 @@ void requireCurve(std::size_t index, std::int64_t id, std::string_view property,
     }
 }
 
+/// What pointTime() carries from one point of a timeline to the next.
+struct PreviousPoint {
+    std::optional<std::int64_t> sync; ///< The previous point's sync_point.
+    std::optional<std::int64_t> map;  ///< The TempoMap its POINT_AT leads to.
+};
+
 /// Validates one point's POINT_AT against its predecessor and the Score's
-/// map, and returns its physical time.
+/// maps, and returns its physical time.
 ///
 /// @tparam Error  The exception of the timeline's scope: PartialSetTransformError
 ///                or SoundSourceTransformError.
 /// @param index         Position of the point in the timeline, from 0.
 /// @param id            Its id.
 /// @param at            Its POINT_AT as read.
-/// @param mapId         The TempoMap every POINT_AT must lead to.
-/// @param map           That map.
+/// @param scoreId       The Score the timeline's owner hangs from. Every
+///                      POINT_AT must lead to one of its maps.
+/// @param maps          Every Score's resolved maps.
 /// @param rate          Sample rate for the conversion to samples.
-/// @param[in,out] previousSync  The previous point's sync_point; updated to
-///                      this point's on return.
-/// @return `toSampleTime(toSeconds(sync_point) + offset_seconds)`.
-/// @throws Error  If the point has no POINT_AT, or one to another map, or a
-///         NULL or negative sync_point, or a sync_point before the previous
-///         point's, or a non-finite offset.
+/// @param[in,out] previous  The previous point's sync_point and TempoMap;
+///                      updated to this point's on return. Both unset for
+///                      the first point.
+/// @return `toSampleTime(toSeconds(sync_point) + offset_seconds)` on the map
+///         the POINT_AT leads to.
+/// @throws Error  If the point has no POINT_AT, or one to a map outside the
+///         Score's graph, or to a different map from the previous point's
+///         (ticks on different maps cannot be ordered), or a NULL or
+///         negative sync_point, or a sync_point before the previous point's,
+///         or a non-finite offset.
 template <typename Error>
 SampleTime pointTime(std::size_t index, std::int64_t id, const PointAtRecord& at,
-    std::int64_t mapId, const TempoMap& map, SampleRate rate,
-    std::optional<std::int64_t>& previousSync) {
+    std::int64_t scoreId, const ResolvedMaps& maps, SampleRate rate, PreviousPoint& previous) {
     const std::string where = describePoint(index, id);
     if (!at.tempoMapId.has_value()) {
         throw Error{where + " has no POINT_AT"};
     }
-    if (*at.tempoMapId != mapId) {
+    const auto owner = maps.scoreOfMap.find(*at.tempoMapId);
+    if (owner == maps.scoreOfMap.end() || owner->second != scoreId) {
         throw Error{where + ": POINT_AT leads to TempoMap " + std::to_string(*at.tempoMapId) +
-                    ", not the Score's TempoMap " + std::to_string(mapId)};
+                    ", which is not a TempoMap of Score " + std::to_string(scoreId)};
     }
+    if (previous.map.has_value() && *previous.map != *at.tempoMapId) {
+        throw Error{where + ": POINT_AT leads to TempoMap " + std::to_string(*at.tempoMapId) +
+                    " but the earlier points lead to TempoMap " + std::to_string(*previous.map) +
+                    "; a timeline keeps time by one TempoMap"};
+    }
+    previous.map = at.tempoMapId;
+    std::optional<std::int64_t>& previousSync = previous.sync;
     if (!at.syncPoint.has_value() || *at.syncPoint < 0) {
         throw Error{where + ": sync_point is " +
                     (at.syncPoint.has_value() ? std::to_string(*at.syncPoint) : "NULL") +
@@ -940,7 +1024,8 @@ SampleTime pointTime(std::size_t index, std::int64_t id, const PointAtRecord& at
             where + ": offset_seconds is " + formatNumber(offset) + ", which is not finite"};
     }
 
-    const SecondsTime seconds = map.toSeconds(MusicalTime{sync}) + SecondsDuration{offset};
+    const SecondsTime seconds =
+        maps.maps.at(*at.tempoMapId).toSeconds(MusicalTime{sync}) + SecondsDuration{offset};
     return toSampleTime(seconds, rate);
 }
 
@@ -993,21 +1078,24 @@ void gatherStates(std::size_t index, const MusicalPointRecord& point,
 /// Validates a set's timeline, POINT_AT edges and states, and computes the
 /// physical time of every point and the envelope nodes of every member (§6.2).
 ///
-/// @param inputs  Everything read for the run.
-/// @param set     The set.
-/// @param map     The TempoMap of the set's Score.
-/// @param mapId   That map's id, which every POINT_AT must lead to.
-/// @param rate    Sample rate for the conversion to samples.
+/// @param inputs   Everything read for the run.
+/// @param set      The set.
+/// @param scoreId  The set's Score, one of whose maps every POINT_AT must
+///                 lead to.
+/// @param maps     Every Score's resolved maps.
+/// @param rate     Sample rate for the conversion to samples.
 /// @return The point times and the members' envelope nodes.
 /// @throws PartialSetTransformError  If the set has no, or more than one,
 ///         timeline; the timeline has no points or loops; a point has no
-///         POINT_AT, or one to another map, or a NULL or negative sync_point,
+///         POINT_AT, or one to a map outside the Score's graph or to a
+///         different map from the previous point's, or a NULL or negative
+///         sync_point,
 ///         or a sync_point before the previous point's, or a non-finite
 ///         offset, or a curve field out of range; or a state belongs to a
 ///         partial outside the set, or two states at one point belong to the
 ///         same partial.
-SetEnvelopes gatherSet(const Inputs& inputs, const MusicalSetRecord& set, const TempoMap& map,
-    std::int64_t mapId, SampleRate rate) {
+SetEnvelopes gatherSet(const Inputs& inputs, const MusicalSetRecord& set, std::int64_t scoreId,
+    const ResolvedMaps& maps, SampleRate rate) {
     if (set.timelines.size() != 1) {
         throw PartialSetTransformError{"it has " + std::to_string(set.timelines.size()) +
                                        " PartialSetMusicalTimelines; exactly one is required"};
@@ -1028,12 +1116,12 @@ SetEnvelopes gatherSet(const Inputs& inputs, const MusicalSetRecord& set, const 
 
     SetEnvelopes envelopes;
     envelopes.pointTimes.reserve(pointIds.size());
-    std::optional<std::int64_t> previousSync;
+    PreviousPoint previous;
     static const std::vector<StateRecord> kNoStates;
     for (std::size_t i = 0; i < pointIds.size(); ++i) {
         const MusicalPointRecord& point = inputs.musicalPoints.at(pointIds[i]);
         envelopes.pointTimes.push_back(pointTime<PartialSetTransformError>(
-            i, point.id, point.at, mapId, map, rate, previousSync));
+            i, point.id, point.at, scoreId, maps, rate, previous));
         requireCurve<PartialSetTransformError>(
             i, point.id, "frequency", point.frequencyCurveType, point.frequencyCurveAmount);
         requireCurve<PartialSetTransformError>(
@@ -1202,7 +1290,7 @@ void transformPartial(WriteBatch& batch, const Writes& writes, const Inputs& inp
 /// @param writes          The batch's registered operations.
 /// @param inputs          Everything read for the run.
 /// @param set             The set.
-/// @param maps            Every Score's TempoMap, by Score.id.
+/// @param maps            Every Score's resolved tempo maps.
 /// @param rate            Sample rate.
 /// @param[out] outcome    Receives the set's error, or its partials'
 ///                        outcomes.
@@ -1210,7 +1298,7 @@ void transformPartial(WriteBatch& batch, const Writes& writes, const Inputs& inp
 ///                        partial staged, after its outcome is recorded; it
 ///                        may flush the batch.
 void transformSet(WriteBatch& batch, const Writes& writes, const Inputs& inputs,
-    const MusicalSetRecord& set, const std::map<std::int64_t, ScoreTempoMap>& maps, SampleRate rate,
+    const MusicalSetRecord& set, const ResolvedMaps& maps, SampleRate rate,
     PartialSetTransformOutcome& outcome, const std::function<void(std::size_t)>& staged) {
     SetEnvelopes envelopes;
     try {
@@ -1219,12 +1307,11 @@ void transformSet(WriteBatch& batch, const Writes& writes, const Inputs& inputs,
             throw PartialSetTransformError{
                 "it is not reached from any Score through SoundEntity and SoundSource"};
         }
-        const auto map = maps.find(score->second);
-        if (map == maps.end()) {
+        if (!maps.rootOfScore.contains(score->second)) {
             throw PartialSetTransformError{"its Score " + std::to_string(score->second) +
                                            " has no TempoMap, so its musical time is undefined"};
         }
-        envelopes = gatherSet(inputs, set, map->second.map, map->second.mapId, rate);
+        envelopes = gatherSet(inputs, set, score->second, maps, rate);
     } catch (const PartialSetTransformError& e) {
         outcome.error = e.what();
         return;
@@ -1277,11 +1364,12 @@ struct SourceEnvelopes {
 /// Validates a source's spatial timeline, POINT_AT edges and states, and
 /// computes the physical time of every point and its three envelopes.
 ///
-/// @param inputs  Everything read for the run.
-/// @param source  The source.
-/// @param map     The TempoMap of the source's Score.
-/// @param mapId   That map's id, which every POINT_AT must lead to.
-/// @param rate    Sample rate for the conversion to samples.
+/// @param inputs   Everything read for the run.
+/// @param source   The source.
+/// @param scoreId  The source's Score, one of whose maps every POINT_AT must
+///                 lead to.
+/// @param maps     Every Score's resolved maps.
+/// @param rate     Sample rate for the conversion to samples.
 /// @return The point times and the envelopes.
 /// @throws SoundSourceTransformError  If the source has no, or more than one,
 ///         timeline; the timeline has no points or loops; a point's POINT_AT
@@ -1289,7 +1377,7 @@ struct SourceEnvelopes {
 ///         one state; the first point does not define all three properties;
 ///         or a value is out of range.
 SourceEnvelopes gatherSource(const Inputs& inputs, const SpatialSourceRecord& source,
-    const TempoMap& map, std::int64_t mapId, SampleRate rate) {
+    std::int64_t scoreId, const ResolvedMaps& maps, SampleRate rate) {
     if (source.timelines.size() != 1) {
         throw SoundSourceTransformError{
             "it has " + std::to_string(source.timelines.size()) +
@@ -1306,11 +1394,11 @@ SourceEnvelopes gatherSource(const Inputs& inputs, const SpatialSourceRecord& so
     result.pointTimes.reserve(pointIds.size());
     std::vector<SpatialState> states;
     std::vector<SpatialCurves> curves;
-    std::optional<std::int64_t> previousSync;
+    PreviousPoint previous;
     for (std::size_t i = 0; i < pointIds.size(); ++i) {
         const SpatialMusicalPointRecord& point = inputs.spatialPoints.at(pointIds[i]);
         result.pointTimes.push_back(pointTime<SoundSourceTransformError>(
-            i, point.id, point.at, mapId, map, rate, previousSync));
+            i, point.id, point.at, scoreId, maps, rate, previous));
         SpatialCurves pointCurves;
         for (std::size_t k = 0; k < kSpatialKinds.size(); ++k) {
             requireCurve<SoundSourceTransformError>(i, point.id, kSpatialProperties.at(k),
@@ -1372,27 +1460,25 @@ void stageSource(WriteBatch& batch, const Writes& writes, std::int64_t sourceId,
 /// @param writes          The batch's registered operations.
 /// @param inputs          Everything read for the run.
 /// @param source          The source.
-/// @param maps            Every Score's TempoMap, by Score.id.
+/// @param maps            Every Score's resolved tempo maps.
 /// @param rate            Sample rate.
 /// @param[out] outcome    Receives the source's error, or its point counts,
 ///                        which stand unless the batch then fails to write
 ///                        the unit.
 /// @return True when the source's output was staged.
 bool transformSource(WriteBatch& batch, const Writes& writes, const Inputs& inputs,
-    const SpatialSourceRecord& source, const std::map<std::int64_t, ScoreTempoMap>& maps,
-    SampleRate rate, SoundSourceTransformOutcome& outcome) {
+    const SpatialSourceRecord& source, const ResolvedMaps& maps, SampleRate rate,
+    SoundSourceTransformOutcome& outcome) {
     try {
         const auto score = inputs.scoreOfSource.find(source.sourceId);
         if (score == inputs.scoreOfSource.end()) {
             throw SoundSourceTransformError{"it is not reached from any Score through SoundEntity"};
         }
-        const auto map = maps.find(score->second);
-        if (map == maps.end()) {
+        if (!maps.rootOfScore.contains(score->second)) {
             throw SoundSourceTransformError{"its Score " + std::to_string(score->second) +
                                             " has no TempoMap, so its musical time is undefined"};
         }
-        const SourceEnvelopes envelopes =
-            gatherSource(inputs, source, map->second.map, map->second.mapId, rate);
+        const SourceEnvelopes envelopes = gatherSource(inputs, source, score->second, maps, rate);
         const SpatialTriple<PhysicalPoint> points =
             placeSpatialNodes(envelopes.envelopes, envelopes.pointTimes);
 
@@ -1705,7 +1791,7 @@ TransformReport transformAll(EngineDb& db) {
     report.sampleRate = SampleRate{static_cast<std::int32_t>(*sampleRate)};
 
     const Inputs inputs = readInputs(db);
-    const std::map<std::int64_t, ScoreTempoMap> maps = buildTempoMaps(inputs, report);
+    const ResolvedMaps maps = buildTempoMaps(inputs, report);
     WriteBatch batch{db};
     const Writes writes = registerWrites(batch);
 

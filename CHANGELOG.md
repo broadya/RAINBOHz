@@ -20,6 +20,10 @@ The target architecture, built from 2026-09-27 onwards.
 - `rendering-engine` (C++20): loads a score into `engine-db`, precomputes
   and renders it to WAV in batch mode.
 - Transform stage: converts a score from musical time to physical time.
+- Polytempo: several tempo maps per score, synchronised by
+  `TEMPO_MAP_SYNCHRONIZATION_POINT`, resolved to physical time by the transform
+  with exact anchors, uniform stretch and local compensation (ADR 0023);
+  `--validate-db` checks the edges.
 - `hzl-compiler` (Python): first version of the HzL compiler, from HzL to
   Cypher for `engine-db`.
 - Server mode for `rendering-engine`: a REST API under `/v1`, described by an

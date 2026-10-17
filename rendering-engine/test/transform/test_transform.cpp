@@ -291,11 +291,13 @@ std::string stateProperties(const std::optional<double>& frequency,
 /// @param partials     Partial names, created in this order so that their ids
 ///                     ascend.
 /// @param points       The timeline's points, in order. Every POINT_AT leads
-///                     to the Score's TempoMap.
+///                     to the TempoMap named `mapName`.
 /// @param withTimeline Whether to give the set a musical timeline at all.
+/// @param mapName      TempoMap.name of the map the points keep time by; the
+///                     Score's own map by default.
 void addMusicalSet(EngineDb& db, const std::string& setName,
     const std::vector<std::string>& partials, const std::vector<MusicalPoint>& points,
-    bool withTimeline = true) {
+    bool withTimeline = true, const std::string& mapName = "M") {
     const std::string set = "MATCH (ps:PartialSet {name: '" + setName + "'}) ";
     db.execute("MATCH (ss:SoundSource {name: 'SS'}) CREATE (ss)-[:HAS_PARTIALSET]->(:PartialSet "
                "{name: '" +
@@ -329,7 +331,8 @@ void addMusicalSet(EngineDb& db, const std::string& setName,
         if (i == 0) {
             create += "MATCH (ps)-[:HAS_MUSICAL_TIMELINE]->(prev:PartialSetMusicalTimeline) ";
         }
-        create += "MATCH (m:TempoMap {name: 'M'}) CREATE (prev)-[:NEXT_POINT]->"
+        create += "MATCH (m:TempoMap {name: '" + mapName +
+                  "'}) CREATE (prev)-[:NEXT_POINT]->"
                   "(q:PartialSetMusicalTimelinePoint)-[:POINT_AT {sync_point: ";
         create += std::to_string(point.sync);
         if (point.offset.has_value()) {
@@ -1216,24 +1219,99 @@ TEST_F(TransformDb, AnInvalidTempoMapIsFatal) {
     EXPECT_EQ(count(db, "MATCH (:FrequencyPhysicalTimeline) RETURN count(*);"), 0);
 }
 
-TEST_F(TransformDb, ASynchronisationEdgeIsRefused) {
+/// Adds a child TempoMap "C" held at `tempo` BPM, 960 ticks per beat, with
+/// one synchronisation point: its tick 0 at tick `atParent` of the Score's
+/// map (docs/polytempo.md section 5.2).
+///
+/// @param[in,out] db  Database with addScore() applied.
+/// @param tempo       The child's held tempo, BPM.
+/// @param atParent    sync_point_parent, ticks of the Score's map.
+void addShiftedChild(EngineDb& db, double tempo, std::int64_t atParent) {
+    db.execute("MATCH (m:TempoMap {name: 'M'}) "
+               "CREATE (c:TempoMap {name: 'C', ticks_per_beat: 960})-[:NEXT_POINT]->"
+               "(:TempoMapPoint {position: 0, start_tempo: " +
+               literal(tempo) +
+               ", hold: true}) CREATE (c)-[:TEMPO_MAP_SYNCHRONIZATION_POINT {sync_point_parent: " +
+               std::to_string(atParent) + ", sync_point_child: 0}]->(m);");
+}
+
+TEST_F(TransformDb, ASetOnASynchronisedChildMapConvertsThroughTheShift) {
+    // The Score's map holds 120 BPM; the child holds 90 and its tick 0 is
+    // tied to beat 8 of the Score's map, 4 s (docs/polytempo.md §5.2).
     addScore(db);
-    db.execute("MATCH (m:TempoMap) CREATE (child:TempoMap {name: 'child', ticks_per_beat: 960})"
-               "-[:TEMPO_MAP_SYNCHRONIZATION_POINT {sync_point_parent: 960, sync_point_child: 0}]"
-               "->(m);");
+    addShiftedChild(db, 90.0, 7680);
+    addMusicalSet(db, "P", {"A"},
+        {
+            MusicalPoint{.sync = 0, .states = {state("A", 440.0, -6.0)}},
+            MusicalPoint{.sync = 2880, .states = {state("A", 440.0, -12.0)}},
+        },
+        /*withTimeline=*/true, "C");
+    const TransformReport report = transformAll(db);
+    EXPECT_TRUE(report.ok());
+    ASSERT_EQ(report.tempoMaps.size(), 2U);
+    EXPECT_TRUE(report.tempoMaps[0].parentIds.empty());
+    EXPECT_EQ(report.tempoMaps[1].name, std::optional<std::string>{"C"});
+    EXPECT_EQ(
+        report.tempoMaps[1].parentIds, std::vector<std::int64_t>{report.tempoMaps[0].tempoMapId});
+    EXPECT_EQ(report.tempoMaps[1].syncPointCount, 1U);
+    EXPECT_EQ(report.tempoMaps[1].scoreId, report.tempoMaps[0].scoreId);
+    const auto points = physicalPoints(db, "A", "FrequencyPhysicalTimeline", "frequency");
+    ASSERT_EQ(points.size(), 2U);
+    EXPECT_DOUBLE_EQ(std::get<0>(points[0]), 4.0 * 48000.0);
+    EXPECT_DOUBLE_EQ(std::get<0>(points[1]), 6.0 * 48000.0);
+}
+
+TEST_F(TransformDb, AnUnresolvableSynchronisationIsFatal) {
+    addScore(db);
+    // A sync point that is not one of the child's points.
+    db.execute("MATCH (m:TempoMap {name: 'M'}) "
+               "CREATE (c:TempoMap {name: 'C', ticks_per_beat: 960})-[:NEXT_POINT]->"
+               "(:TempoMapPoint {position: 0, start_tempo: 90.0, hold: true}) "
+               "CREATE (c)-[:TEMPO_MAP_SYNCHRONIZATION_POINT {sync_point_parent: 960, "
+               "sync_point_child: 10}]->(m);");
     try {
         static_cast<void>(transformAll(db));
-        FAIL() << "accepted a synchronisation edge";
+        FAIL() << "accepted a sync point off the child's points";
     } catch (const TransformError& e) {
-        EXPECT_NE(std::string{e.what()}.find("TEMPO_MAP_SYNCHRONIZATION_POINT"), std::string::npos);
+        EXPECT_NE(std::string{e.what()}.find("not the position"), std::string::npos) << e.what();
     }
+    EXPECT_EQ(count(db, "MATCH (:FrequencyPhysicalTimeline) RETURN count(*);"), 0);
+}
+
+TEST_F(TransformDb, ATempoMapNoScoreReachesIsFatal) {
+    addScore(db);
+    db.execute("CREATE (:TempoMap {name: 'Orphan', ticks_per_beat: 960})-[:NEXT_POINT]->"
+               "(:TempoMapPoint {position: 0, start_tempo: 120.0, hold: true});");
+    try {
+        static_cast<void>(transformAll(db));
+        FAIL() << "accepted an orphan TempoMap";
+    } catch (const TransformError& e) {
+        EXPECT_NE(std::string{e.what()}.find("not the TempoMap of any Score"), std::string::npos)
+            << e.what();
+    }
+}
+
+TEST_F(TransformDb, APointAtToAnotherScoresMapFailsTheSet) {
+    addScore(db);
+    db.execute("CREATE (:Score {name: 'Other'})-[:NEXT_POINT]->(:TempoMap {name: 'O', "
+               "ticks_per_beat: 960})-[:NEXT_POINT]->(:TempoMapPoint {position: 0, start_tempo: "
+               "120.0, hold: true});");
+    addMusicalSet(db, "P", {"A"},
+        {
+            MusicalPoint{.sync = 0, .states = {state("A", 440.0, -6.0)}},
+            MusicalPoint{.sync = 1920, .states = {state("A", 440.0, -12.0)}},
+        },
+        /*withTimeline=*/true, "O");
+    const TransformReport report = transformAll(db);
+    ASSERT_EQ(report.sets.size(), 1U);
+    ASSERT_TRUE(report.sets[0].error.has_value());
+    EXPECT_NE(report.sets[0].error->find("not a TempoMap of Score"), std::string::npos)
+        << *report.sets[0].error;
 }
 
 TEST_F(TransformDb, ASetWhoseScoreHasNoTempoMapFails) {
     db.execute("CREATE (s:Score {name: 'S'})-[:HAS_SOUNDENTITY]->(:SoundEntity {name: 'E'})"
                "-[:HAS_SOUNDSOURCE]->(:SoundSource {name: 'SS'});");
-    db.execute("CREATE (:TempoMap {name: 'M', ticks_per_beat: 960})-[:NEXT_POINT]->"
-               "(:TempoMapPoint {position: 0, start_tempo: 120.0, hold: true});");
     addMusicalSet(db, "P", {"A"},
         {
             MusicalPoint{.sync = 0, .states = {state("A", 440.0, -6.0)}},

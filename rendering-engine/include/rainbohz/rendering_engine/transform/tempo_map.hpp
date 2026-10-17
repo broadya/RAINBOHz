@@ -121,6 +121,28 @@ struct TempoMapPoint {
 SecondsDuration secondsThrough(Tempo from, Tempo to, MusicalDuration length,
     MusicalDuration elapsed, TicksPerBeat resolution, TempoRamp ramp) noexcept;
 
+/// The seconds elapsed from the start of a segment to a point inside it, for
+/// a segment whose bounds need not fall on whole ticks.
+///
+/// This is the form every conversion runs on: the unit-typed overload casts
+/// its ticks and calls it, and so does a resolved synchronised map
+/// (polytempo.hpp), whose change points fall at fractional ticks. The
+/// arithmetic is the same expression by expression, so a map that is not
+/// synchronised converts to the same bits through either.
+///
+/// @param from          Tempo at the segment's start, BPM. Positive.
+/// @param to            Tempo at the segment's end, BPM. Positive.
+/// @param lengthTicks   The segment's full length in ticks. Positive and
+///                      finite when `from ≠ to`; unused otherwise.
+/// @param elapsedTicks  Ticks from the segment's start to the point asked
+///                      about, in [0, lengthTicks] for a ramp; any
+///                      non-negative value for a held tempo.
+/// @param resolution    Ticks per beat of the map. Positive.
+/// @param ramp          The shape of the ramp.
+/// @return The elapsed seconds.
+SecondsDuration secondsThrough(Tempo from, Tempo to, double lengthTicks, double elapsedTicks,
+    TicksPerBeat resolution, TempoRamp ramp) noexcept;
+
 /// A validated tempo map that converts musical time to seconds.
 class TempoMap {
 public:

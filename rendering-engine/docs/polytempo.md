@@ -1,10 +1,10 @@
 # rendering-engine — polytempo design
 
-**Status:** designed on 2026-10-17, not implemented. The transform still
-refuses any `TEMPO_MAP_SYNCHRONIZATION_POINT` edge
-([transform.md](transform.md) §2). Ramp shapes follow the Score setting
-`tempo_ramp_physical_time` ([transform.md](transform.md) §6.1, @see ADR
-0013).
+**Status:** designed and implemented on 2026-10-17 in the transform
+(`transform/polytempo.{hpp,cpp}`, §12; @see ADR 0023). Ramp shapes follow the
+Score setting `tempo_ramp_physical_time` ([transform.md](transform.md) §6.1,
+@see ADR 0013). The server's `frame-position` call does not yet convert
+through synchronisation, and HzL has no syntax for it yet (§10).
 
 This document describes how several tempo maps in one Score are
 synchronised and converted to physical time. It extends the transform
@@ -216,12 +216,17 @@ be removed:
 Step 1 uses the uncompensated factors, so the regions do not couple: each
 region's solve in step 4 depends only on its own boundary tempi.
 
-The solve in step 4 always has exactly one answer. As k rises, every
-segment of the region gets shorter: the interior ones as 1/k, and the
-boundary ramps because one of their ends speeds up. Their total falls
-steadily from ∞ (as k → 0) to 0 (as k → ∞). There is no closed form, since
-it is a polynomial in k, so it takes one bracketed Newton solve per region,
-to machine precision.
+The solve in step 4 has at most one answer. As k rises, every segment of
+the region gets shorter: the interior ones as 1/k, and the boundary ramps
+because one of their ends speeds up. Their total falls steadily to 0 as
+k → ∞. As k → 0 it rises to ∞ when any segment has both ends scaled by k,
+and by musical position always, since a ramp to a vanishing tempo takes
+unbounded time. By physical time a region whose *both* boundary ramps are
+pinned to shared tempi, and which has only those two segments, keeps a
+finite duration as k → 0 (120·B/U for each), so anchors further apart than
+that cannot be met: the region is rejected (§6). There is no closed form,
+since it is a polynomial in k, so it takes one bracketed bisection per
+region, to adjacent doubles.
 
 *Example.* The same child as §5.5, but with every segment a ramp
 (`hold = false`, flat at 120) and interior points at beats 2 and 6.
@@ -344,16 +349,23 @@ example, 20 → 60 BPM over 2 s needing 1 beat, with g_L = −1000 BPM/s:
 h = 0.0196 s, but the virtual point would be at 0.39 BPM, so that candidate
 is invalid. The fixed-tempo period (h = 1.0 s) is chosen.
 
-When the extended period is a hold (g = 0), the musical-position shape is
-closed form too. The ramp covers c = (U_b − U_a) / (60·ln(U_b/U_a)) beats
-per second whatever its length, so h = (D·c − B) / (c − U_held/60). In the
-example, a fixed tempo at the slow end gives h = 1.4704 s. With a non-zero
-gradient, the position shape is transcendental and needs a bracketed
-Newton solve.
+By musical position a gradient is in BPM per beat, so the extension is
+measured in beats: it continues the neighbour's per-beat gradient for β
+beats, and the ramp takes the remaining B − β. The duration is
+transcendental in β and is solved by bracketed bisection on (0, B), with β
+bounded so that the virtual tempo stays in range. Its h, for the "smallest
+h" rule, is the extension's duration in seconds, so the rule reads the same
+in both shapes. When the extended period is a hold (g = 0) the position
+shape is closed form too: the ramp covers c = (U_b − U_a) / (60·ln(U_b/U_a))
+beats per second whatever its length, so h = (D·c − B) / (c − U_held/60),
+which in the example gives 1.4704 s at the slow end; the implementation uses
+the bisection for every position-shape candidate.
 
-If both ends have the same tempo and both neighbours are holds, nothing can
-move. The region fits only if 60·B/D equals that tempo, within a tolerance
-still to be chosen (§10). Otherwise it is rejected.
+If both ends have the same tempo and no gradient is available to continue
+(both neighbours are holds), nothing can move. The region fits only if the
+plain ramp covers exactly B beats in D seconds, bit for bit; there is **no
+tolerance** (author, 2026-10-17: a fit that depends on floating-point luck
+is not repeatable). Otherwise it is rejected.
 
 ### 5.11 Adjacent single-ramp regions
 
@@ -384,10 +396,14 @@ A failure stops the load before rendering, as a fatal error that names the
 map, the segment or sync point, and the value. All of these are the same
 class of error as playback going backwards in time:
 
-- an edge that makes the graph cyclic;
+- an edge that makes the graph cyclic, a map no Score reaches, a map
+  reached from two Scores, or a Score's own map with a parent;
+- an edge with a NULL tick, or `sync_point_parent` negative;
 - `sync_point_child` not on one of the child's `TempoMapPoint`s;
 - two sync points of one child at the same tick, or anchored times that do
   not strictly increase in tick order;
+- a stretch region whose pinned ends cannot fill its anchored duration
+  (§5.6);
 - **any instantaneous tempo outside [1, 1000] BPM** after resolution. This
   includes zero and negative tempi, and covers both ends of every segment
   and every virtual point. On a linear ramp, the extremes are at the ends.
@@ -395,6 +411,13 @@ class of error as playback going backwards in time:
 
 There is no silent fallback: the engine never turns a ramp into a hold or
 misses an anchor to get round an impossible request.
+
+The structural rules, everything above the stretch region, are also
+`--validate-db` checks ([integrity.md](integrity.md) §3, "Tempo map
+synchronisation"); the rest need the maps in physical time and are the
+transform's alone. A musical timeline's `POINT_AT`s may lead to any map of
+its Score's graph, but all to the same one: ticks on different maps cannot be
+ordered.
 
 ## 7. Order of computation
 
@@ -419,7 +442,8 @@ For each map, parents first:
    sync points coincide bit for bit.
 
 Every later conversion of a tick to seconds on that map works from these
-segments, as `TempoMap::toSeconds` does today.
+segments (`ResolvedTempoMap::toSeconds`), as `TempoMap::toSeconds` does for
+the nominal map.
 
 ## 8. Computation, accuracy and performance
 
@@ -430,8 +454,9 @@ segments, as `TempoMap::toSeconds` does today.
   By musical position, the edge single ramp and any gradient extension need
   a solve.
 - **Root finds:** one 1-D solve per region, always bracketed and monotone,
-  to machine precision. None of these is an approximation (the author
-  values accuracy).
+  by plain bisection until the bracket closes to two adjacent doubles: at
+  most about 64 evaluations, no derivative, and exact to the arithmetic.
+  None of these is an approximation (the author values accuracy).
 - **Performance:** linear in the number of points and edges, with a small
   constant per region. It runs once per load, before precomputation, and
   nothing on the render path changes. Converting a tick stays a lookup plus
@@ -470,21 +495,38 @@ Where RAINBOHz sits:
   performer. Everything is known in advance, so exact anchors and
   machine-precision solves are possible.
 
-## 10. Open questions
+## 10. Decided and open
 
-- **Material before time zero.** A child shifted or stretched early can
-  place ticks before 0 s, and so can the edge adaptation in §5.4. The
-  squash rule (@see ADR 0014) handles points before zero for states, but
-  not for a tempo map itself.
-- **Equal-tempo tolerance** (§5.10): how close 60·B/D must be to the
-  common tempo when nothing can move.
-- **Maps with no path to the root**: reject, or treat as a separate root?
+Decided with the author on 2026-10-17:
+
+- **Material before time zero** is allowed. A child shifted or stretched
+  early, or the edge adaptation of §5.4, may place ticks before 0 s, and the
+  resolved map returns negative seconds for them. The transform knows every
+  point's physical time; the squash rule (@see ADR 0014) places the
+  timelines' points at 0 s as it already did. No new rule, no new error.
+- **Equal-tempo tolerance** (§5.10): none. The region fits only if it fits
+  exactly; otherwise it is rejected.
+- **Maps with no path to the root** are rejected at the transform, as are
+  cycles and maps reached from two Scores.
+- **The server** will convert positions on a child map, and nothing more,
+  once the resolved maps can be read back. **Storing the resolved maps** is
+  what that needs: the whole resolved form of every map, its segments with
+  absolute start seconds, resolved start and end tempi and any virtual
+  points, not a time per `TempoMapPoint`, since a resolved segment's end
+  tempo is no longer the next point's `start_tempo`. Most likely in
+  `engine-db` as the transform's output, as the physical timelines are,
+  which is a schema addition for the author. `ResolvedSegment` is shaped to
+  be written out as is.
+
+Open:
+
 - **Polyrhythm beyond this** (§1): whether anything more is needed.
-- **Surface syntax** in HzL, and how the server API exposes the resolved
-  maps (today `/tempo-maps` returns the stored points; see
-  [server.md](server.md) §3.4).
+- **Surface syntax** in HzL: synchronisation points on a `tempo_map` file,
+  and several maps per score.
 - **A per-segment ramp shape**, if one piece needs both shapes (@see ADR
   0013).
+- **A joint solve across regions**, if a piece needs a correction the local
+  rules cannot give (@see ADR 0023).
 
 ## 11. References
 
@@ -506,3 +548,35 @@ Where RAINBOHz sits:
   [source](https://github.com/philippekocher/polytempo)
 - IRCAM, Antescofo reference, "Synchronization Strategies".
   [antescofo-doc.ircam.fr](https://antescofo-doc.ircam.fr/Reference/time_synchro/)
+
+## 12. Code structure
+
+Everything lives in `transform/polytempo.{hpp,cpp}`, inside the namespace
+`rainbohz::rendering_engine::transform`, and is pure: records in, values out.
+`transform.cpp` reads the graph from `engine-db` and converts every `POINT_AT`
+through the result.
+
+- `SyncAnchor`: one sync point of a child, its tick and the anchor it must
+  land on.
+- `ResolvedSegment` and `ResolvedTempoMap`: the result of §7 step 8. A
+  segment's bounds are doubles, so a virtual point can sit at a fractional
+  tick; a segment that starts at a sync point has its start time assigned
+  from the anchor. `ResolvedTempoMap::nominal()` is a map with no sync
+  points, bit for bit as `TempoMap::toSeconds` converts it.
+- `resolveSynchronised()`: one child against its anchors, §5 and §7 steps 1
+  to 9. Its `Resolver` works region by region: `makeRegions`, `compensate`
+  (§5.6), `resolveStretches` (§5.3, §5.5 to §5.8, holds before the ramps that
+  meet them), `resolveSingleRamps` (§5.9 to §5.11) and `assemble` (§5.4 and
+  the range check of §6).
+- `orderTempoMaps()`: the parents-first order from the Scores' roots, and
+  whose Score each map belongs to; it rejects cycles, orphans, shared maps
+  and roots with parents (§4).
+- `resolveTempoMapGraph()`: the roots to their nominal form, each child to
+  `resolveSynchronised()` with anchors read off its resolved parents (§5.12).
+- The closed forms of §5.1 stay in `tempo_map.cpp`, in `secondsThrough()`,
+  which gained an overload on double ticks for the virtual points.
+
+Tests: `test/transform/test_polytempo.cpp` for every case of §5 with the
+numbers above, and the oracle examples `polytempo-shift-score` (§5.2) and
+`polytempo-stretch-score` (§5.4, §5.6), whose JSON mirrors were computed by an
+independent script from these formulas ([transform.md](transform.md) §11).

@@ -11,9 +11,10 @@
 // FrequencyPhysicalTimeline, one AmplitudePhysicalTimeline and one
 // PhasePhysicalTimeline per partial, and each SoundSource's
 // SpatialPositionMusicalTimeline into one AzimuthPhysicalTimeline,
-// ElevationPhysicalTimeline and DistancePhysicalTimeline, through one
-// TempoMap per Score. Modulators and synchronised tempo maps are not yet
-// converted (§2).
+// ElevationPhysicalTimeline and DistancePhysicalTimeline, through the
+// Score's tempo maps: its own, and any synchronised to it by
+// TEMPO_MAP_SYNCHRONIZATION_POINT, resolved to physical time first
+// (docs/polytempo.md). Modulators are not yet converted (§2).
 //
 // The stage is a module of the engine library, not a separate target: the
 // namespace rainbohz::rendering_engine::transform is the boundary between
@@ -457,9 +458,9 @@ struct SoundSourceTransformOutcome {
     bool ok() const noexcept { return !error.has_value(); }
 };
 
-/// A Score's tempo map, as the run found it.
+/// One tempo map of a Score, as the run found and resolved it.
 struct TempoMapSummary {
-    /// Score.id.
+    /// Score.id of the Score whose graph the map belongs to.
     std::int64_t scoreId = 0;
 
     /// TempoMap.id.
@@ -478,6 +479,13 @@ struct TempoMapSummary {
     /// position (false): Score.tempo_ramp_physical_time, with NULL resolved
     /// to true (@see ADR 0013).
     bool rampPhysicalTime = true;
+
+    /// TempoMap.id of each parent it is synchronised to, in id order, each
+    /// once. Empty for a Score's own map, the root (docs/polytempo.md §4).
+    std::vector<std::int64_t> parentIds;
+
+    /// How many synchronisation points it has, over all its parents.
+    std::size_t syncPointCount = 0;
 };
 
 /// The result of a transform run.
@@ -485,8 +493,9 @@ struct TransformReport {
     /// The sample rate every time was converted at.
     SampleRate sampleRate{0};
 
-    /// Every Score's tempo map, in Score.id order. A Score without one is
-    /// absent.
+    /// Every tempo map, in the order they were resolved: parents before
+    /// children, each Score's root first (docs/polytempo.md §7). A Score
+    /// without a map is absent.
     std::vector<TempoMapSummary> tempoMaps;
 
     /// One outcome per PartialSet with a musical timeline, in PartialSet.id
@@ -519,9 +528,11 @@ struct TransformReport {
 /// Transforms every PartialSet and SoundSource with a musical timeline in
 /// `db` (§6).
 ///
-/// Reads the EngineConfig, every Score's TempoMap, every musical set's
-/// timeline, points, POINT_AT edges and states, and every spatial musical
-/// timeline with the same; then transforms the sets one at a time in
+/// Reads the EngineConfig, every TempoMap with its points and
+/// synchronisation edges, every musical set's timeline, points, POINT_AT
+/// edges and states, and every spatial musical timeline with the same;
+/// resolves the tempo maps to physical time, parents first
+/// (docs/polytempo.md); then transforms the sets one at a time in
 /// PartialSet.id order, and within a set the partials in Partial.id order;
 /// then the sources in SoundSource.id order. Each partial's and each source's
 /// output is staged as one unit of a WriteBatch, which writes 64 units per
@@ -544,9 +555,12 @@ struct TransformReport {
 ///                    replaced, and so does every source that succeeds.
 /// @return What was found and what happened to each set, partial and source.
 /// @throws TransformError  If there is not exactly one EngineConfig or its
-///         sampleRate is unusable; if any TempoMap is invalid; or if any
-///         TEMPO_MAP_SYNCHRONIZATION_POINT edge exists, which this version
-///         does not support. Nothing has been written.
+///         sampleRate is unusable; if any TempoMap is invalid; or if the
+///         synchronisation edges cannot be resolved: a map no Score reaches,
+///         a map reached from two Scores, a cycle, a NULL or misplaced sync
+///         point, anchors out of order, a region that cannot be fitted, or a
+///         resolved tempo outside [1, 1000] BPM (docs/polytempo.md §6).
+///         Nothing has been written.
 /// @throws EngineDbError  If reading the inputs fails. Nothing has been
 ///         written. A database failure while writing one partial or source
 ///         is recorded against it instead.

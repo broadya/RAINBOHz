@@ -155,9 +155,9 @@ A score's tempo maps form a graph. Its root is the TempoMap of the Score
 are the maps with a `TEMPO_MAP_SYNCHRONIZATION_POINT` edge to it (the edge runs
 from child to parent). The API lists children everywhere, so a child that has
 several parents, in a DAG, needs no change to it. Such a child is listed under
-each parent, each time with that edge's synchronisation points. In this version
-the transform refuses any synchronisation edge, so a loaded score's root has no
-children. The calls already read them.
+each parent, each time with that edge's synchronisation points. The transform
+resolves the graph to physical time (`rendering-engine/docs/polytempo.md`);
+only `frame-position` has yet to follow it (§8).
 
 Every call in this section answers 409 when no score is loaded, and 400 for
 an `{id}` that is not a non-negative integer or for an unknown query
@@ -374,9 +374,10 @@ PyYAML) whenever the document changes. It is not part of CTest.
   is comparing a new score with the one held and recomputing only what
   changed, which is the dirty-flag work of [design.md](design.md) §4.
 - **No conversion through synchronisation.** `frame-position` converts only a
-  root map. Converting a child needs the relative scaling between
-  synchronisation points that the schema describes, which the transform does
-  not implement yet ([transform.md](transform.md) §13).
+  root map. The transform resolves every child to physical time
+  (`rendering-engine/docs/polytempo.md`), but the resolved maps exist only
+  for the transform run; this call will convert a child once they are stored
+  or resolved again on request (polytempo.md §10).
 - **Children are not paged.** When a map can have many children, they will be
   ordered by a SERIAL key on a junction node and paged on it.
 - **Paging points walks the list.** Each page walks from the head of the list,

@@ -199,9 +199,9 @@ TEST_F(IntegrityDb, ASoundScorePasses) {
     const IntegrityReport report = checkIntegrity(db);
     EXPECT_TRUE(report.ok()) << failures(report);
     // One EngineConfig check, 44 range rules, set membership, lifeline
-    // equality, source timelines, nine musical-time checks, and two per
+    // equality, source timelines, ten musical-time checks, and two per
     // NEXT_POINT list type.
-    EXPECT_EQ(report.checks.size(), 1U + 44U + 3U + 9U + (2U * 17U));
+    EXPECT_EQ(report.checks.size(), 1U + 44U + 3U + 10U + (2U * 17U));
 }
 
 // The two passes divide the checks between them; checkIntegrity() is both.
@@ -535,6 +535,9 @@ TEST(Integrity, TheOffsetCollisionExamplePasses) {
 constexpr std::string_view kSpatialFirstStateCheck =
     "the first point of every SpatialPositionMusicalTimeline sets azimuth, elevation and distance";
 
+/// The start of the name of checkTempoMapSynchronisation().
+constexpr std::string_view kSyncCheck = "TEMPO_MAP_SYNCHRONIZATION_POINT edges form a DAG";
+
 TEST_F(MusicalIntegrityDb, TheFirstSpatialPointMustSetAllThreeProperties) {
     db.execute("MATCH (s:SpatialPositionState) SET s.elevation = NULL, s.distance = NULL;");
     const IntegrityCheck check = find(checkCanonicalIntegrity(db), kSpatialFirstStateCheck);
@@ -695,7 +698,133 @@ TEST_F(MusicalIntegrityDb, PointAtMustLeadToTheScoresTempoMap) {
     const IntegrityCheck check =
         find(report, "PartialSetMusicalTimeline points are in non-decreasing");
     ASSERT_EQ(check.violationCount, 1U);
-    EXPECT_NE(check.violations[0].find("not TempoMap"), std::string::npos) << check.violations[0];
+    EXPECT_NE(check.violations[0].find("not a TempoMap of Score"), std::string::npos)
+        << check.violations[0];
+    // The stray map is also an orphan.
+    EXPECT_EQ(find(report, kSyncCheck).violationCount, 1U);
+}
+
+/// Adds a child TempoMap "C", held at 90 BPM with points at ticks 0 and 960,
+/// synchronised to the example's map at tick `atParent` from its tick
+/// `atChild`.
+///
+/// @param[in,out] db  Database holding the tempo-map example.
+/// @param atParent    sync_point_parent.
+/// @param atChild     sync_point_child.
+void addChildMap(EngineDb& db, std::int64_t atParent, std::int64_t atChild) {
+    db.execute("MATCH (m:TempoMap {name: 'Main'}) "
+               "CREATE (c:TempoMap {name: 'C', ticks_per_beat: 960})-[:NEXT_POINT]->"
+               "(:TempoMapPoint {position: 0, start_tempo: 90.0, hold: true})-[:NEXT_POINT]->"
+               "(:TempoMapPoint {position: 960, start_tempo: 90.0, hold: true}) "
+               "CREATE (c)-[:TEMPO_MAP_SYNCHRONIZATION_POINT {sync_point_parent: " +
+               std::to_string(atParent) + ", sync_point_child: " + std::to_string(atChild) +
+               "}]->(m);");
+}
+
+TEST_F(MusicalIntegrityDb, PointAtMayLeadToASynchronisedMapOfTheScore) {
+    // The whole set timeline moves to the child map, keeping its ticks.
+    // POINT_AT is MANY_ONE, so each old edge goes before its replacement.
+    addChildMap(db, 7680, 0);
+    for (const std::string tick : {"0", "1920", "3840", "7680"}) {
+        db.execute("MATCH (:PartialSetMusicalTimelinePoint)-[a:POINT_AT {sync_point: " + tick +
+                   "}]->() DELETE a;");
+        db.execute("MATCH (p:PartialSetMusicalTimelinePoint) "
+                   "WHERE NOT EXISTS { MATCH (p)-[:POINT_AT]->() } "
+                   "MATCH (c:TempoMap {name: 'C'}) "
+                   "CREATE (p)-[:POINT_AT {sync_point: " +
+                   tick + ", offset_seconds: 0.0}]->(c);");
+    }
+    const IntegrityReport report = checkCanonicalIntegrity(db);
+    EXPECT_TRUE(report.ok()) << failures(report);
+}
+
+TEST_F(MusicalIntegrityDb, ATimelineKeepsTimeByOneTempoMap) {
+    // One point moved to the child map, the rest left on the Score's map:
+    // ticks on different maps cannot be ordered.
+    addChildMap(db, 7680, 0);
+    db.execute("MATCH (:PartialSetMusicalTimelinePoint)-[a:POINT_AT {sync_point: 7680}]->() "
+               "DELETE a;");
+    db.execute("MATCH (p:PartialSetMusicalTimelinePoint) "
+               "WHERE NOT EXISTS { MATCH (p)-[:POINT_AT]->() } "
+               "MATCH (c:TempoMap {name: 'C'}) "
+               "CREATE (p)-[:POINT_AT {sync_point: 7680, offset_seconds: 0.0}]->(c);");
+    const IntegrityCheck check =
+        find(checkCanonicalIntegrity(db), "PartialSetMusicalTimeline points are in non-decreasing");
+    ASSERT_EQ(check.violationCount, 1U);
+    EXPECT_NE(check.violations[0].find("one TempoMap"), std::string::npos) << check.violations[0];
+}
+
+TEST_F(MusicalIntegrityDb, AWellFormedSynchronisationPasses) {
+    addChildMap(db, 7680, 960);
+    const IntegrityReport report = checkCanonicalIntegrity(db);
+    EXPECT_TRUE(report.ok()) << failures(report);
+}
+
+TEST_F(MusicalIntegrityDb, ASyncPointMustBeAPointOfTheChild) {
+    addChildMap(db, 7680, 500);
+    const IntegrityCheck check = find(checkCanonicalIntegrity(db), kSyncCheck);
+    ASSERT_EQ(check.violationCount, 1U);
+    EXPECT_NE(check.violations[0].find("not the position"), std::string::npos)
+        << check.violations[0];
+}
+
+TEST_F(MusicalIntegrityDb, SyncPointTicksMustBeSetAndTheParentsNonNegative) {
+    addChildMap(db, -1, 0);
+    db.execute("MATCH (c:TempoMap {name: 'C'}) CREATE (c)-[:TEMPO_MAP_SYNCHRONIZATION_POINT "
+               "{sync_point_parent: 960}]->(c);");
+    db.execute("MATCH (c:TempoMap {name: 'C'})-[r:TEMPO_MAP_SYNCHRONIZATION_POINT]->(c) "
+               "MATCH (m:TempoMap {name: 'Main'}) DELETE r "
+               "CREATE (c)-[:TEMPO_MAP_SYNCHRONIZATION_POINT {sync_point_parent: 960}]->(m);");
+    const IntegrityCheck check = find(checkCanonicalIntegrity(db), kSyncCheck);
+    EXPECT_EQ(check.violationCount, 2U) << failures(checkCanonicalIntegrity(db));
+    EXPECT_NE(check.violations[0].find("must be >= 0"), std::string::npos) << check.violations[0];
+    EXPECT_NE(check.violations[1].find("NULL sync_point_child"), std::string::npos)
+        << check.violations[1];
+}
+
+TEST_F(MusicalIntegrityDb, TwoSyncPointsOfAChildMustNotShareATick) {
+    addChildMap(db, 3840, 0);
+    db.execute("MATCH (c:TempoMap {name: 'C'}), (m:TempoMap {name: 'Main'}) "
+               "CREATE (c)-[:TEMPO_MAP_SYNCHRONIZATION_POINT {sync_point_parent: 7680, "
+               "sync_point_child: 0}]->(m);");
+    const IntegrityCheck check = find(checkCanonicalIntegrity(db), kSyncCheck);
+    ASSERT_EQ(check.violationCount, 1U);
+    EXPECT_NE(check.violations[0].find("same tick"), std::string::npos) << check.violations[0];
+}
+
+TEST_F(MusicalIntegrityDb, TheGraphMustReachEveryMapFromOneScoreWithoutCycles) {
+    // An orphan, and a two-map cycle that no Score reaches.
+    db.execute("CREATE (:TempoMap {name: 'Orphan', ticks_per_beat: 960});");
+    db.execute("CREATE (a:TempoMap {name: 'A', ticks_per_beat: 960}), "
+               "(b:TempoMap {name: 'B', ticks_per_beat: 960}) "
+               "CREATE (a)-[:TEMPO_MAP_SYNCHRONIZATION_POINT {sync_point_parent: 0, "
+               "sync_point_child: 0}]->(b) "
+               "CREATE (b)-[:TEMPO_MAP_SYNCHRONIZATION_POINT {sync_point_parent: 0, "
+               "sync_point_child: 0}]->(a);");
+    const IntegrityCheck check = find(checkCanonicalIntegrity(db), kSyncCheck);
+    // The orphan, the two maps of the cycle, and the cycle's two sync points
+    // that are not points (the maps have none).
+    EXPECT_EQ(check.violationCount, 5U) << failures(checkCanonicalIntegrity(db));
+    std::size_t orphans = 0;
+    std::size_t cycles = 0;
+    for (const std::string& violation : check.violations) {
+        orphans += violation.find("not the TempoMap of any Score") != std::string::npos ? 1 : 0;
+        cycles += violation.find("cycle") != std::string::npos ? 1 : 0;
+    }
+    EXPECT_EQ(orphans, 1U);
+    EXPECT_EQ(cycles, 2U);
+}
+
+TEST_F(MusicalIntegrityDb, AScoresMapMustNotHaveAParent) {
+    db.execute("MATCH (m:TempoMap {name: 'Main'}) "
+               "CREATE (p:TempoMap {name: 'P', ticks_per_beat: 960})-[:NEXT_POINT]->"
+               "(:TempoMapPoint {position: 0, start_tempo: 90.0, hold: true}) "
+               "CREATE (m)-[:TEMPO_MAP_SYNCHRONIZATION_POINT {sync_point_parent: 0, "
+               "sync_point_child: 0}]->(p);");
+    const IntegrityCheck check = find(checkCanonicalIntegrity(db), kSyncCheck);
+    // The root with a parent, and P which no Score reaches.
+    EXPECT_EQ(check.violationCount, 2U) << failures(checkCanonicalIntegrity(db));
+    EXPECT_NE(check.violations[0].find("root"), std::string::npos) << check.violations[0];
 }
 
 TEST_F(MusicalIntegrityDb, ASetInMusicalTimeNeedsAScoreWithATempoMap) {

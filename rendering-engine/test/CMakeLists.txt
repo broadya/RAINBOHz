@@ -49,6 +49,7 @@ add_executable(rendering_engine_tests
     test_wav_writer.cpp
     test_write_batch.cpp
     transform/test_musical_units.cpp
+    transform/test_polytempo.cpp
     transform/test_squash.cpp
     transform/test_tempo_map.cpp
     transform/test_timing_query.cpp
@@ -125,6 +126,8 @@ re_add_oracle_test(tempo-map-position-score tempo-map-position-score tempo-map-p
 re_add_oracle_test(offset-collision-score offset-collision-score offset-collision-request.yaml)
 re_add_oracle_test(phase-target-score phase-target-score phase-target-request.yaml)
 re_add_oracle_test(phase-musical-score phase-musical-score phase-musical-request.yaml)
+re_add_oracle_test(polytempo-shift-score polytempo-shift-score polytempo-shift-request.yaml)
+re_add_oracle_test(polytempo-stretch-score polytempo-stretch-score polytempo-stretch-request.yaml)
 
 # Server mode, end to end over HTTP (docs/server.md): the same score and
 # request as an oracle test, served instead of run as a batch, and the

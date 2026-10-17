@@ -118,6 +118,8 @@ the schema documents a range for it.
 | `TempoMap.ticks_per_beat` | no | > 0 | schema |
 | `TempoMapPoint.position` | no | ≥ 0 | ticks from the map's start ([transform.md](transform.md) §6.1) |
 | `TempoMapPoint.start_tempo` | no | 1 to 1000 | schema's tempo range |
+| `TEMPO_MAP_SYNCHRONIZATION_POINT.sync_point_child` | no | the position of one of the child's points | [polytempo.md](polytempo.md) §4; checked by "Tempo map synchronisation" below, not a range rule |
+| `TEMPO_MAP_SYNCHRONIZATION_POINT.sync_point_parent` | no | ≥ 0 | ticks of the parent; likewise |
 | `PartialSetMusicalTimelinePoint.frequency_curve_type`, `amplitude_curve_type` | no | 0 to 4 | schema's enumeration |
 | `PartialSetMusicalTimelinePoint.frequency_curve_amount`, `amplitude_curve_amount` | no | 0 to 1 | schema |
 | `PartialState.frequency` | **allowed**: no envelope node here | any finite value | transform.md §6.2 (author, 2026-10-02) |
@@ -172,9 +174,10 @@ Four further checks cover what no single column can:
   precomputation's and rendering's to check, as it is for the other physical
   timelines.
 
-Seven more arrived with the transform, covering the musical-time tables it
-reads (transform.md §9; decided by the author on 2026-10-02, and extended to
-spatial timelines on 2026-10-05). All are in the canonical pass:
+Eight more arrived with the transform, covering the musical-time tables it
+reads (transform.md §9; decided by the author on 2026-10-02, extended to
+spatial timelines on 2026-10-05 and to synchronised tempo maps on
+2026-10-17). All are in the canonical pass:
 
 - **Tempo map shape.** Every `TempoMap` has at least one point; the first is
   at position 0; positions strictly increase; `hold` is set on every point
@@ -183,11 +186,23 @@ spatial timelines on 2026-10-05). All are in the canonical pass:
   `SpatialPositionMusicalTimelinePoint` has a `POINT_AT` (the schema enforces
   at most one) with `sync_point` ≥ 0 and `offset_seconds` NULL or finite.
   One check per kind of timeline.
+- **Tempo map synchronisation.** Every `TEMPO_MAP_SYNCHRONIZATION_POINT`
+  edge has both ticks set, `sync_point_parent` ≥ 0 and `sync_point_child`
+  the position of one of the child's `TempoMapPoint`s, and no two edges of
+  one child share a `sync_point_child`; and the edges form a DAG that
+  reaches every `TempoMap` from exactly one Score's own map: a Score's map
+  with a parent, a map reached from two Scores, a map no Score reaches (an
+  orphan) and a cycle are each a violation ([polytempo.md](polytempo.md)
+  §4, §6; author, 2026-10-17). The rules that need the maps in physical
+  time, that anchors strictly increase and that every resolved tempo is in
+  [1, 1000], are the transform's.
 - **Musical order.** Along each `PartialSetMusicalTimeline` and
   `SpatialPositionMusicalTimeline`, `sync_point` is non-decreasing (equal
   ticks with different offsets are how a fixed-length attack is written),
-  and every `POINT_AT` leads to the `TempoMap` of the Score the set or source
-  hangs from, which must exist. One check per kind of timeline.
+  every `POINT_AT` leads to a `TempoMap` of the Score the set or source
+  hangs from (its own map, or one synchronised to it), and all of a
+  timeline's points lead to the same map, since ticks on different maps
+  cannot be ordered. One check per kind of timeline.
 - **PartialState links.** Every `PartialState` is in exactly one
   `PartialStateSet` and is the state of exactly one `Partial`; the schema
   enforces at most one of each.
@@ -204,10 +219,6 @@ spatial timelines on 2026-10-05). All are in the canonical pass:
   first point a NULL is "no envelope node here"; on the first there is
   nothing to continue from. Supplying a default position is the compiler's
   job (author, 2026-10-05; transform.md §6.8).
-
-That there is one `TempoMap` per Score and no synchronisation edge is a limit
-of the transform's first version, not of the model, so the transform checks
-it itself and these checks do not.
 
 **Decided and not yet a check** (rendering.md §9): **frame entries**. Every
 `FrameEntry` has exactly one `FRAME_ENTRY`, one `FRAME_ENTRY_PARTIAL` and one

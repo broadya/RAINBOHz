@@ -1,0 +1,62 @@
+{
+  "_comment": "Mirror of polytempo-shift-score.cypher for rendering-engine/test/oracle/render_oracle.py: the physical values the transform must produce, computed independently from rendering-engine/docs/polytempo.md section 5.2 (a scratchpad script, not the engine). Times in samples, frequencies in radians per sample, amplitudes in dB. Set and partial ids are the SERIAL ids the score gets when loaded alone. Set 0 is on the Score's map (120 BPM held): beats 0 and 4 at 0 s and 2 s. Set 1 is on the child map (90 BPM held), whose tick 0 is synchronised to beat 8 of the Score's map, 4 s: a pure shift, so its beats 0 and 3 fall at 4 s and 6 s.",
+  "sample_rate": 48000,
+  "partial_sets": [
+    {
+      "id": 0,
+      "partials": [
+        {
+          "id": 0,
+          "frequency": [
+            [
+              0.0,
+              0.05759586531581288
+            ],
+            [
+              96000.0,
+              0.05759586531581288
+            ]
+          ],
+          "amplitude": [
+            [
+              0.0,
+              -6.0
+            ],
+            [
+              96000.0,
+              -12.0
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "partials": [
+        {
+          "id": 1,
+          "frequency": [
+            [
+              192000.0,
+              0.043196898986859654
+            ],
+            [
+              288000.0,
+              0.043196898986859654
+            ]
+          ],
+          "amplitude": [
+            [
+              192000.0,
+              -6.0
+            ],
+            [
+              288000.0,
+              -12.0
+            ]
+          ]
+        }
+      ]
+    }
+  ]
+}

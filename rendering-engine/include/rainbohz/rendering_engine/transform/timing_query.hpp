@@ -246,9 +246,10 @@ EngineParameters readEngineParameters(EngineDb& db);
 /// which can land one sample early. That sample is then split into a frame
 /// and an offset within it.
 ///
-/// Only a map that is the root of some Score converts in this version:
-/// the time of any other map depends on synchronisation, which the transform
-/// does not implement yet.
+/// Only a map that is the root of some Score converts in this version: the
+/// time of any other map depends on its synchronisation to its parents, which
+/// the transform resolves (docs/polytempo.md) but this call does not read
+/// back yet.
 ///
 /// @param db     The loaded score. Not modified.
 /// @param mapId  TempoMap.id.

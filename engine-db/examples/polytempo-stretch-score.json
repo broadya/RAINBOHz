@@ -1,0 +1,66 @@
+{
+  "_comment": "Mirror of polytempo-stretch-score.cypher for rendering-engine/test/oracle/render_oracle.py: the physical values the transform must produce, computed independently from rendering-engine/docs/polytempo.md sections 5.4 and 5.6 (a scratchpad script with its own bisection for k, not the engine). Times in samples, frequencies in radians per sample, amplitudes in dB. Set and partial ids are the SERIAL ids the score gets when loaded alone. The child map is flat at 120 BPM with ramps (hold false) at beats 0, 2, 4 and 6 and holds from beat 8; its beats 0, 4 and 8 are synchronised to beats 0, 4 and 6 of the Score's 120 BPM map, so to 0, 2 and 3 s. Uncompensated that is a step from 120 to 240 BPM at beat 4; with ramps on both sides the shared tempo there is 120*sqrt(2) = 169.71 BPM, region 1 plays flat at 106.19 BPM to beat 2 then ramps to 169.71, and region 2 ramps to 266.66 BPM at beat 6 then holds it to beat 8. After the last sync point the map is nominal: beat 10 is one second after beat 8. Ramps are linear in physical time, the default.",
+  "sample_rate": 48000,
+  "partial_sets": [
+    {
+      "id": 0,
+      "partials": [
+        {
+          "id": 0,
+          "frequency": [
+            [
+              0.0,
+              0.05759586531581288
+            ],
+            [
+              54244.46607014684,
+              0.05759586531581288
+            ],
+            [
+              96000.0,
+              0.08639379797371931
+            ],
+            [
+              122399.70015925734,
+              0.08639379797371931
+            ],
+            [
+              144000.0,
+              0.05759586531581288
+            ],
+            [
+              192000.0,
+              0.05759586531581288
+            ]
+          ],
+          "amplitude": [
+            [
+              0.0,
+              -6.0
+            ],
+            [
+              54244.46607014684,
+              -9.0
+            ],
+            [
+              96000.0,
+              -12.0
+            ],
+            [
+              122399.70015925734,
+              -15.0
+            ],
+            [
+              144000.0,
+              -18.0
+            ],
+            [
+              192000.0,
+              -144.0
+            ]
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -342,6 +342,8 @@ paths:
         that frame, so that sample = frame × frame_size + offset.
 
         Only a root map, the TempoMap of a Score, converts in this version.
+        A map synchronised to it is resolved by the transform but not yet
+        read back by this call.
       parameters:
         - $ref: "#/components/parameters/TempoMapId"
         - name: at

@@ -52,12 +52,19 @@ std::string formatNumber(double value) {
 
 SecondsDuration secondsThrough(Tempo from, Tempo to, MusicalDuration length,
     MusicalDuration elapsed, TicksPerBeat resolution, TempoRamp ramp) noexcept {
+    return secondsThrough(from, to, static_cast<double>(length.value()),
+        static_cast<double>(elapsed.value()), resolution, ramp);
+}
+
+SecondsDuration secondsThrough(Tempo from, Tempo to, double lengthTicks, double elapsedTicks,
+    TicksPerBeat resolution, TempoRamp ramp) noexcept {
     constexpr double kSecondsPerMinute = 60.0;
+    const auto ticksPerBeat = static_cast<double>(resolution.value());
+    const double elapsedBeats = elapsedTicks / ticksPerBeat;
     if (from == to) {
-        return SecondsDuration{kSecondsPerMinute * beats(elapsed, resolution) / from.value()};
+        return SecondsDuration{kSecondsPerMinute * elapsedBeats / from.value()};
     }
-    const double fraction =
-        static_cast<double>(elapsed.value()) / static_cast<double>(length.value());
+    const double fraction = elapsedTicks / lengthTicks;
     const double start = from.value();
     const double end = to.value();
     if (ramp == TempoRamp::PhysicalTime) {
@@ -66,12 +73,11 @@ SecondsDuration secondsThrough(Tempo from, Tempo to, MusicalDuration length,
         // cancellation as the ramp flattens.
         const double tempoAt =
             std::sqrt((start * start) + (((end * end) - (start * start)) * fraction));
-        return SecondsDuration{
-            2.0 * kSecondsPerMinute * beats(elapsed, resolution) / (start + tempoAt)};
+        return SecondsDuration{2.0 * kSecondsPerMinute * elapsedBeats / (start + tempoAt)};
     }
     const double tempoAt = start + ((end - start) * fraction);
-    return SecondsDuration{
-        kSecondsPerMinute * beats(length, resolution) * std::log(tempoAt / start) / (end - start)};
+    return SecondsDuration{kSecondsPerMinute * (lengthTicks / ticksPerBeat) *
+                           std::log(tempoAt / start) / (end - start)};
 }
 
 TempoMap::TempoMap(TicksPerBeat resolution, std::vector<TempoMapPoint> points, TempoRamp ramp)

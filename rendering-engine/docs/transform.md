@@ -46,7 +46,7 @@ Two things make the step more than a change of units:
 
 | In this version | Not yet |
 | --- | --- |
-| One `TempoMap` per `Score`, reached by `Score → NEXT_POINT → TempoMap` | Several tempo maps and `TEMPO_MAP_SYNCHRONIZATION_POINT`, designed in [polytempo.md](polytempo.md); any such edge is refused |
+| Several tempo maps per `Score`: its own, reached by `Score → NEXT_POINT → TempoMap`, and any synchronised to it by `TEMPO_MAP_SYNCHRONIZATION_POINT`, resolved to physical time as [polytempo.md](polytempo.md) describes | HzL syntax for synchronisation; `frame-position` on a map that is not a Score's own (server.md §3.4) |
 | Held tempi, and ramps in the Score's one shape, `tempo_ramp_physical_time`: linear in physical time (the default) or in musical position (§6.1, @see ADR 0013) | A shape per segment |
 | `PartialSetMusicalTimeline` → one `FrequencyPhysicalTimeline`, one `AmplitudePhysicalTimeline` and one `PhasePhysicalTimeline` per partial | |
 | `SpatialPositionMusicalTimeline` → one `AzimuthPhysicalTimeline`, one `ElevationPhysicalTimeline` and one `DistancePhysicalTimeline` per SoundSource (§6.8) | |
@@ -118,10 +118,12 @@ rounding where they do not.
 Once per run:
 
 - the singleton `EngineConfig`, for `sampleRate`;
-- every `Score`, with its `tempo_ramp_physical_time` and its `TempoMap` by
-  `NEXT_POINT`, the map's `ticks_per_beat` and its `TempoMapPoint`s in
+- every `Score`, with its `tempo_ramp_physical_time` and its own `TempoMap`
+  by `NEXT_POINT`;
+- every `TempoMap`, with its `ticks_per_beat` and its `TempoMapPoint`s in
   `NEXT_POINT` order (`position`, `start_tempo`, `hold`);
-- the number of `TEMPO_MAP_SYNCHRONIZATION_POINT` edges, which must be zero.
+- every `TEMPO_MAP_SYNCHRONIZATION_POINT` edge: child, parent,
+  `sync_point_child` and `sync_point_parent`.
 
 Per `PartialSet` that has a `PartialSetMusicalTimeline` by
 `HAS_MUSICAL_TIMELINE`:
@@ -283,12 +285,24 @@ which is what REAPER measures. This is `secondsThrough()` in
 `tempo_map.cpp`, which takes the shape as a `TempoRamp`, and the only place a
 square root or a logarithm is taken.
 
-The `TempoMap` class is built once per Score. Its constructor validates the
-rules above and accumulates the seconds at every point, so that
-`toSeconds(MusicalTime)` is a binary search for the segment plus one
-`secondsThrough()` for the part of it before the position. After the last
-point the last tempo holds; the first point is at 0, so every non-negative
-position is in some segment.
+The `TempoMap` class is built once per map, in its Score's shape. Its
+constructor validates the rules above and accumulates the seconds at every
+point, so that `toSeconds(MusicalTime)` is a binary search for the segment
+plus one `secondsThrough()` for the part of it before the position. After the
+last point the last tempo holds; the first point is at 0, so every
+non-negative position is in some segment.
+
+**Several maps.** A `TempoMap` as written is the *nominal* map. What a
+`POINT_AT` converts through is its *resolved* form, a `ResolvedTempoMap`
+(`polytempo.hpp`): a list of segments in physical time, each with its own
+start time and its start and end tempo, built by resolving the Score's graph
+of maps parents first through the synchronisation edges. The rules are
+[polytempo.md](polytempo.md). A Score's own map has no sync points and
+resolves to its nominal segments, converting bit for bit as `TempoMap` does;
+a synchronised map is shifted, stretched and compensated so that each of its
+sync points lands exactly on the parent's time. A resolved time may be
+negative when a child is shifted before time zero; the squash rule (§6.3)
+then places the material at 0 s.
 
 ### 6.2 Envelope nodes and envelopes
 
@@ -501,10 +515,12 @@ existed.
 
 1. Read `EngineConfig.sampleRate`. Not exactly one config, or an unusable
    rate, is fatal.
-2. Read everything of §4. Any `TEMPO_MAP_SYNCHRONIZATION_POINT` edge is
-   fatal: this version converts through one map per Score.
-3. Build each Score's `TempoMap`. An invalid map is fatal: every set on it
-   would fail the same way.
+2. Read everything of §4.
+3. Order every `TempoMap` parents first from the Scores' own maps, build
+   each as a `TempoMap` and resolve it to physical time through its
+   synchronisation edges ([polytempo.md](polytempo.md) §7). An invalid map,
+   a map no Score reaches, a cycle, or a synchronisation that cannot be
+   resolved is fatal: every set on it would fail the same way.
 4. For each set with a musical timeline, in `PartialSet.id` order: validate
    the set (§8), compute τ per point, build each member's envelope nodes. A
    set that fails is recorded, with none of its partials attempted.
@@ -517,8 +533,9 @@ existed.
    its three envelopes, and write (§6.8, §7). A source that fails is
    recorded and the run continues. Sources do not depend on sets, nor sets
    on sources.
-7. Return the report: the tempo maps found, per set and per partial what
-   happened, and per source what happened.
+7. Return the report: the tempo maps found, in resolution order with their
+   parents and sync points, per set and per partial what happened, and per
+   source what happened.
 
 `score_pipeline.cpp` runs the transform after the state has loaded whole and
 after the canonical pass of `--validate-db` if asked, and before its physical
@@ -618,11 +635,12 @@ Partials are flushed before any source is staged.
 | Check | Scope | On failure |
 | --- | --- | --- |
 | Exactly one `EngineConfig`; `sampleRate` non-NULL, positive, fits INT32 | run | run fails |
-| No `TEMPO_MAP_SYNCHRONIZATION_POINT` edge | run | run fails: not supported by this version |
-| Every Score's `TempoMap` is valid (§6.1): `ticks_per_beat` non-NULL and positive; at least one point; positions, tempi and holds non-NULL; first position 0; positions strictly increasing; tempi finite in [1, 1000]; last point holds; list has no cycle | run | run fails |
+| Every `TempoMap` is valid (§6.1): `ticks_per_beat` non-NULL and positive; at least one point; positions, tempi and holds non-NULL; first position 0; positions strictly increasing; tempi finite in [1, 1000]; last point holds; list has no cycle | run | run fails |
+| The synchronisation edges form a DAG that reaches every `TempoMap` from exactly one Score's own map; no Score's own map has a parent; both ticks of every edge are non-NULL and `sync_point_parent` ≥ 0 | run | run fails |
+| Every child resolves ([polytempo.md](polytempo.md) §6): each `sync_point_child` is one of the child's points and no two coincide; anchors strictly increase along the child; every region can be fitted; every resolved tempo, virtual points included, is finite and in [1, 1000] | run | run fails |
 | The set has exactly one `PartialSetMusicalTimeline`, with at least one point and no cycle | set | set fails |
 | The set is reached from a Score, and that Score has a `TempoMap` | set | set fails |
-| Every point has a `POINT_AT`, leading to that Score's `TempoMap`, with `sync_point` non-NULL and ≥ 0, non-decreasing along the list, and `offset_seconds` NULL or finite | set | set fails |
+| Every point has a `POINT_AT`, leading to a `TempoMap` of that Score's graph, the same map for every point of the timeline, with `sync_point` non-NULL and ≥ 0, non-decreasing along the list, and `offset_seconds` NULL or finite | set | set fails |
 | Every point's four curve fields are non-NULL, types in 0..4, amounts in [0, 1] | set | set fails |
 | Every `PartialState` reached from a point is the state of a partial of this set, and no two states at one point are of the same partial | set | set fails |
 | Frequency and amplitude each have at least two envelope nodes, and share the first and last point (§6.2) | partial | partial fails |
@@ -658,9 +676,9 @@ rules for the columns the transform reads, and the shapes it relies on:
   (cycles and merges), with the `FrequencyModulatorPhysicalTimeline` pair that
   the table had been missing;
 - the shape of every `TempoMap` (§6.1); every musical point's `POINT_AT`;
-  the musical order of every timeline and that it leads to its Score's map;
-  and that every `PartialState` has one set and one partial, of the right
-  `PartialSet`, at most once per point.
+  the musical order of every timeline and that it leads to one map of its
+  Score's graph; and that every `PartialState` has one set and one partial,
+  of the right `PartialSet`, at most once per point.
 
 With spatial position (2026-10-05) it gains the range rules for the six curve
 fields of `SpatialPositionMusicalTimelinePoint` and for
@@ -671,13 +689,16 @@ also split into two passes around the transform (integrity.md §2), so that
 the coverage of a source's partials by its position is checked on the
 physical timelines the transform wrote.
 
-The one-map-per-Score and no-synchronisation rules are limits of this
-version, not of the model, so they stay in the transform's own validation
-(integrity.md §1).
+With polytempo (2026-10-17) it gains the structural rules of the
+synchronisation edges (integrity.md §3, "Tempo map synchronisation"): both
+ticks set, the child's on one of its points and distinct, the graph a DAG
+reaching every map from one Score. The rules that need the maps in physical
+time, that anchors increase and that every resolved tempo is in range, stay
+the transform's.
 
 ## 10. Code structure
 
-Four pieces under `transform/`, each depending only on the ones above it,
+Five pieces under `transform/`, each depending only on the ones above it,
 alongside `units`, `EngineDb` and the existing modules:
 
 1. **`musical_units`** — `MusicalTime`, `MusicalDuration`, `TicksPerBeat`,
@@ -685,9 +706,15 @@ alongside `units`, `EngineDb` and the existing modules:
    `SecondsDuration`, `toSampleTime` and `toSampleDuration`, which are
    physical and may be used anywhere.
 2. **`tempo_map`** — `TempoMapPointRecord` (as read), `TempoMapPoint`,
-   `secondsThrough()` and the `TempoMap` class. No database dependency.
-3. **`squash`** — `Placement` and `squash()`. No dependencies but `units`.
-4. **`transform`** — `EnvelopeNode`, `PhysicalPoint`, `StatePhase`,
+   `secondsThrough()` in its unit-typed and double-tick forms, and the
+   `TempoMap` class. No database dependency.
+3. **`polytempo`** — `SyncAnchor`, `ResolvedSegment`, the `ResolvedTempoMap`
+   class, `resolveSynchronised()` for one child against its anchors, and
+   `SyncEdgeRecord`, `TempoMapOrder`, `orderTempoMaps()` and
+   `resolveTempoMapGraph()` for the graph ([polytempo.md](polytempo.md) §7).
+   Pure; no database dependency.
+4. **`squash`** — `Placement` and `squash()`. No dependencies but `units`.
+5. **`transform`** — `EnvelopeNode`, `PhysicalPoint`, `StatePhase`,
    `PhaseEnvelopeNode`, `PhasePoint`, `SpatialState`, `SpatialCurves`; the
    pure stages `requireSharedEndPoints()`, `placeNodes()`, `fitToLifeline()`,
    `requireStatesWithinLifeline()`, `requireValidPhase()`, `phaseNodesOf()`,
@@ -705,7 +732,21 @@ classDiagram
         +TicksPerBeat ticksPerBeat()
         +vector~TempoMapPoint~ points()
         +toSeconds(MusicalTime) SecondsTime
-        +fromRecords(ticksPerBeat, records)$ TempoMap
+        +fromRecords(ticksPerBeat, records, ramp)$ TempoMap
+    }
+
+    class ResolvedTempoMap {
+        <<polytempo>>
+        +vector~ResolvedSegment~ segments()
+        +toSeconds(MusicalTime) SecondsTime
+        +nominal(TempoMap)$ ResolvedTempoMap
+    }
+
+    class Polytempo {
+        <<free functions — polytempo>>
+        +resolveSynchronised(TempoMap, anchors) ResolvedTempoMap
+        +orderTempoMaps(mapIds, edges, roots) TempoMapOrder
+        +resolveTempoMapGraph(maps, edges, order) map~id, ResolvedTempoMap~
     }
 
     class Squash {
@@ -748,7 +789,11 @@ classDiagram
         +ok() bool
     }
 
-    Transform ..> TempoMap : per Score
+    Transform ..> TempoMap : per map
+    Transform ..> Polytempo : once per run
+    Polytempo ..> TempoMap
+    Polytempo ..> ResolvedTempoMap
+    Transform ..> ResolvedTempoMap : per POINT_AT
     Transform ..> Squash : per envelope
     Transform ..> EnvelopeNode
     Transform ..> PhysicalPoint
@@ -756,8 +801,8 @@ classDiagram
 ```
 
 **The boundary.** The namespace `rainbohz::rendering_engine::transform` is
-where musical time lives. `musical_units.hpp` and `tempo_map.hpp` are
-included only from inside it; `main.cpp` includes `transform.hpp` for
+where musical time lives. `musical_units.hpp`, `tempo_map.hpp` and
+`polytempo.hpp` are included only from inside it; `main.cpp` includes `transform.hpp` for
 `transformAll()` and the report, which carry no musical type. design.md §7
 records that the boundary is kept by convention and review; a musical type
 appearing in precomputation or rendering is a defect of the same severity as
@@ -770,11 +815,12 @@ the others become entries in the report.
 
 ## 11. Worked examples
 
-The first four are example scores with JSON mirrors for the oracle
+All but the last are example scores with JSON mirrors for the oracle
 (rendering.md §11.1), whose values were computed by an independent Python
-implementation of this document, not by the engine. Each gives its source a
-one-point spatial timeline: straight ahead, level and 1 m away, where the
-mono gain is exactly 1, so that the oracle, which is mono, still applies.
+implementation of this document and of polytempo.md, not by the engine. Each
+gives its source a one-point spatial timeline: straight ahead, level and 1 m
+away, where the mono gain is exactly 1, so that the oracle, which is mono,
+still applies.
 
 **`tempo-map-score.cypher`.** 960 ticks per beat; 120 BPM at tick 0 ramping
 to 60 BPM at tick 3840, then held, with `tempo_ramp_physical_time` left NULL,
@@ -815,6 +861,21 @@ the 45° at 128000; it ends at 120°. Partial C has default states at beats
 ramp spans beats 2 to 4 across the default state, and it runs free from beat
 4 to its end.
 
+**`polytempo-shift-score.cypher`.** Two maps: the Score's, held at 120 BPM,
+and a child held at 90 BPM whose tick 0 is synchronised to tick 7680 of the
+Score's map, 4 s (polytempo.md §5.2). One set keeps time by each. The
+child's beats 0 and 3 land at 4 s and 6 s: 192000 and 288000 samples.
+
+**`polytempo-stretch-score.cypher`.** The child is flat at 120 BPM with ramps
+at beats 0, 2, 4 and 6 and a hold from beat 8, and its beats 0, 4 and 8 are
+synchronised to 0, 2 and 3 s of the Score's 120 BPM map (polytempo.md §5.6).
+Uncompensated that is 120 then 240 BPM, a step; with ramps on both sides of
+beat 4 the shared tempo is 120·√2 = 169.71, region 1 plays flat at 106.19 to
+beat 2 then ramps to 169.71, and region 2 ramps to 266.66 at beat 6 then
+holds it to beat 8. Beat 10, after the last sync point, is nominal: one
+second after beat 8. The set's points at beats 0, 2, 4, 6, 8 and 10 land at
+0, 1.130093, 2, 2.549994, 3 and 4 s.
+
 **`spatial-musical-score.cypher`.** `spatial-score.cypher` with the source's
 position written in the canonical model, and the partials left in physical
 time. 60 BPM held, so every point falls on a whole second. Nine points at
@@ -846,9 +907,12 @@ score is written, not here.
   start time, with a pointer to the partial that defines it, so that the
   check, and other work, need not search (author, 2026-10-05). An
   optimisation for later.
-- **Several tempo maps**, synchronised by `TEMPO_MAP_SYNCHRONIZATION_POINT`:
-  a DAG of maps with relative scaling between synchronisation points,
-  designed in [polytempo.md](polytempo.md).
+- **Storing the resolved tempo maps.** The resolved segments exist only for
+  the transform run. The server's `frame-position` call, and any client that
+  wants to show a map in physical time, needs them after it: either stored
+  in `engine-db` as the transform's output, as the physical timelines are
+  (a schema addition, the author's), or resolved again per call
+  (polytempo.md §10).
 - **Dirty flags**, so that only the sets whose canonical input changed are
   transformed again.
 - **Curves.** When precomputation and rendering interpret curve types, the

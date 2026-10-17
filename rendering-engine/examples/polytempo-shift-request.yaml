@@ -1,0 +1,18 @@
+# Render request for engine-db/examples/polytempo-shift-score.cypher.
+#
+#   make run-rendering-engine RE_STATE=engine-db/examples/polytempo-shift-score.cypher \
+#       RE_REQUEST=rendering-engine/examples/polytempo-shift-request.yaml
+#
+# The Score's map places the chord at 0 s and 2 s; the shifted child map
+# places the voice at 4 s and 6 s. Frames 0 to 6 cover every point; frame 7
+# is past the end and renders as silence.
+
+frames:
+  - frame: 0
+  - frame: 1
+  - frame: 2
+  - frame: 3
+  - frame: 4
+  - frame: 5
+  - frame: 6
+  - frame: 7

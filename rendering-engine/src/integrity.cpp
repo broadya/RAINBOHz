@@ -8,10 +8,12 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <iterator>
 #include <map>
 #include <numbers>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -955,6 +957,225 @@ IntegrityCheck checkTempoMapShape(EngineDb& db) {
     return check;
 }
 
+/// One TEMPO_MAP_SYNCHRONIZATION_POINT edge, as read.
+struct SyncEdge {
+    std::int64_t childId = 0;                    ///< The child TempoMap, the edge's FROM.
+    std::int64_t parentId = 0;                   ///< The parent TempoMap, the edge's TO.
+    std::optional<std::int64_t> syncPointChild;  ///< sync_point_child, ticks of the child.
+    std::optional<std::int64_t> syncPointParent; ///< sync_point_parent, ticks of the parent.
+};
+
+/// The synchronisation graph of the TempoMaps, as read.
+struct TempoMapGraph {
+    std::vector<std::int64_t> mapIds; ///< Every TempoMap, in id order.
+    std::vector<SyncEdge> edges;      ///< Every edge.
+    std::vector<std::pair<std::int64_t, std::int64_t>>
+        roots; ///< (TempoMap.id, Score.id) per Score with a map.
+};
+
+/// Reads every TempoMap, every synchronisation edge and every Score's map.
+///
+/// @param db  Database to read.
+/// @return The graph.
+/// @throws EngineDbError  If a query fails.
+TempoMapGraph readTempoMapGraph(EngineDb& db) {
+    TempoMapGraph graph;
+    for (const DbRow& row : db.query("MATCH (m:TempoMap) RETURN m.id ORDER BY m.id;")) {
+        graph.mapIds.push_back(requireInt64(row.at(0)));
+    }
+    for (const DbRow& row : db.query(
+             "MATCH (c:TempoMap)-[r:TEMPO_MAP_SYNCHRONIZATION_POINT]->(p:TempoMap) "
+             "RETURN c.id, p.id, r.sync_point_child, r.sync_point_parent ORDER BY c.id, p.id;")) {
+        graph.edges.push_back(SyncEdge{.childId = requireInt64(row.at(0)),
+            .parentId = requireInt64(row.at(1)),
+            .syncPointChild = optionalInt64(row.at(2)),
+            .syncPointParent = optionalInt64(row.at(3))});
+    }
+    for (const DbRow& row :
+        db.query("MATCH (s:Score)-[:NEXT_POINT]->(m:TempoMap) RETURN m.id, s.id ORDER BY s.id;")) {
+        graph.roots.emplace_back(requireInt64(row.at(0)), requireInt64(row.at(1)));
+    }
+    return graph;
+}
+
+/// The synchronisation edges as adjacency sets.
+struct SyncAdjacency {
+    std::map<std::int64_t, std::set<std::int64_t>> parentsOf;  ///< Each child's distinct parents.
+    std::map<std::int64_t, std::set<std::int64_t>> childrenOf; ///< Each parent's distinct children.
+};
+
+/// The adjacency of a graph's edges.
+///
+/// @param graph  The graph as read.
+/// @return Its adjacency.
+SyncAdjacency adjacencyOf(const TempoMapGraph& graph) {
+    SyncAdjacency adjacency;
+    for (const SyncEdge& edge : graph.edges) {
+        adjacency.parentsOf[edge.childId].insert(edge.parentId);
+        adjacency.childrenOf[edge.parentId].insert(edge.childId);
+    }
+    return adjacency;
+}
+
+/// Records a violation for every map the walk did not reach, and forgets
+/// any Score it may have been given.
+///
+/// @param graph            The graph as read.
+/// @param adjacency        Its adjacency.
+/// @param reached          The maps the walk reached.
+/// @param[in,out] scoreOf  Each map's Score; unreached maps are erased.
+/// @param[in,out] check    Receives the violations.
+void reportUnreachedMaps(const TempoMapGraph& graph, const SyncAdjacency& adjacency,
+    const std::vector<std::int64_t>& reached,
+    std::unordered_map<std::int64_t, std::int64_t>& scoreOf, IntegrityCheck& check) {
+    for (const std::int64_t id : graph.mapIds) {
+        if (std::ranges::find(reached, id) != reached.end()) {
+            continue;
+        }
+        scoreOf.erase(id);
+        if (!adjacency.parentsOf.contains(id)) {
+            check.add("TempoMap " + std::to_string(id) +
+                      ": is not the TempoMap of any Score and has no synchronisation edge "
+                      "to a parent");
+        } else {
+            check.add("TempoMap " + std::to_string(id) +
+                      ": is not reached from any Score; its synchronisation edges form a "
+                      "cycle, or lead only to maps that no Score reaches");
+        }
+    }
+}
+
+/// Walks the graph from the Scores' roots, parents first, recording whose
+/// Score each map belongs to (docs/polytempo.md §4).
+///
+/// @param graph       The graph as read.
+/// @param[out] check  If given, receives a violation for a root with a parent,
+///                    a map reached from two Scores, and a map no Score
+///                    reaches (an orphan, or part of a cycle).
+/// @return Score.id by TempoMap.id, for every map reached from a Score.
+std::unordered_map<std::int64_t, std::int64_t> scoreOfMaps(
+    const TempoMapGraph& graph, IntegrityCheck* check) {
+    const SyncAdjacency adjacency = adjacencyOf(graph);
+    std::unordered_map<std::int64_t, std::int64_t> scoreOf;
+    std::deque<std::int64_t> ready;
+    for (const auto& [mapId, scoreId] : graph.roots) {
+        const auto parents = adjacency.parentsOf.find(mapId);
+        if (check != nullptr && parents != adjacency.parentsOf.end()) {
+            check->add("TempoMap " + std::to_string(mapId) + ": is the TempoMap of Score " +
+                       std::to_string(scoreId) + " and has a synchronisation edge to TempoMap " +
+                       std::to_string(*parents->second.begin()) +
+                       "; a Score's map is the root of its graph");
+        }
+        if (scoreOf.emplace(mapId, scoreId).second) {
+            ready.push_back(mapId);
+        }
+    }
+    std::unordered_map<std::int64_t, std::size_t> remaining;
+    for (const auto& [child, parents] : adjacency.parentsOf) {
+        remaining[child] = parents.size();
+    }
+    std::vector<std::int64_t> reached;
+    while (!ready.empty()) {
+        const std::int64_t mapId = ready.front();
+        ready.pop_front();
+        reached.push_back(mapId);
+        const std::int64_t scoreId = scoreOf.at(mapId);
+        const auto children = adjacency.childrenOf.find(mapId);
+        if (children == adjacency.childrenOf.end()) {
+            continue;
+        }
+        for (const std::int64_t child : children->second) {
+            const auto seen = scoreOf.find(child);
+            if (seen == scoreOf.end()) {
+                scoreOf.emplace(child, scoreId);
+            } else if (seen->second != scoreId && check != nullptr) {
+                check->add("TempoMap " + std::to_string(child) + ": is reached from both Score " +
+                           std::to_string(std::min(seen->second, scoreId)) + " and Score " +
+                           std::to_string(std::max(seen->second, scoreId)));
+            }
+            if (--remaining.at(child) == 0) {
+                ready.push_back(child);
+            }
+        }
+    }
+    if (check != nullptr) {
+        reportUnreachedMaps(graph, adjacency, reached, scoreOf, *check);
+    }
+    return scoreOf;
+}
+
+/// Checks the synchronisation edges between TempoMaps (docs/polytempo.md §4,
+/// §6): every sync point is set, the parent's is not negative, the child's
+/// is the position of one of the child's TempoMapPoints and no two of a
+/// child's coincide; and the edges form a DAG that reaches every TempoMap
+/// from exactly one Score's map.
+///
+/// The rules that need the maps resolved to physical time, that anchors
+/// strictly increase and that every resolved tempo is in range, are the
+/// transform's.
+///
+/// @param db  Database to check.
+/// @return The check's outcome.
+/// @throws EngineDbError  If a query fails.
+IntegrityCheck checkTempoMapSynchronisation(EngineDb& db) {
+    IntegrityCheck check{.name = "TEMPO_MAP_SYNCHRONIZATION_POINT edges form a DAG from each "
+                                 "Score's TempoMap, with each sync point on a TempoMapPoint of "
+                                 "the child",
+        .violationCount = 0,
+        .violations = {}};
+    const TempoMapGraph graph = readTempoMapGraph(db);
+
+    // Each map's point positions, to find the child's sync points on.
+    std::unordered_map<std::int64_t, std::optional<std::int64_t>> positionOf;
+    for (const DbRow& row : db.query("MATCH (p:TempoMapPoint) RETURN p.id, p.position;")) {
+        positionOf.emplace(requireInt64(row.at(0)), optionalInt64(row.at(1)));
+    }
+    const auto next = readIdMap(
+        db, "MATCH (a:TempoMapPoint)-[:NEXT_POINT]->(b:TempoMapPoint) RETURN a.id, b.id;");
+    std::unordered_map<std::int64_t, std::unordered_set<std::int64_t>> positionsOfMap;
+    for (const DbRow& row : db.query("MATCH (m:TempoMap)-[:NEXT_POINT]->(p:TempoMapPoint) "
+                                     "RETURN m.id, p.id;")) {
+        for (const std::int64_t pointId : walkQuietly(requireInt64(row.at(1)), next)) {
+            const auto found = positionOf.find(pointId);
+            if (found == positionOf.end()) {
+                continue;
+            }
+            const std::optional<std::int64_t> position = found->second;
+            if (position.has_value()) {
+                positionsOfMap[requireInt64(row.at(0))].insert(*position);
+            }
+        }
+    }
+
+    std::map<std::int64_t, std::unordered_set<std::int64_t>> ticksOfChild;
+    for (const SyncEdge& edge : graph.edges) {
+        const std::string where = "TempoMap " + std::to_string(edge.childId) +
+                                  ": its synchronisation edge to TempoMap " +
+                                  std::to_string(edge.parentId);
+        if (!edge.syncPointParent.has_value()) {
+            check.add(where + " has a NULL sync_point_parent");
+        } else if (*edge.syncPointParent < 0) {
+            check.add(where + " has sync_point_parent " + std::to_string(*edge.syncPointParent) +
+                      "; it must be >= 0");
+        }
+        if (!edge.syncPointChild.has_value()) {
+            check.add(where + " has a NULL sync_point_child");
+            continue;
+        }
+        const std::int64_t tick = *edge.syncPointChild;
+        if (!positionsOfMap[edge.childId].contains(tick)) {
+            check.add(where + " has sync_point_child " + std::to_string(tick) +
+                      ", which is not the position of one of its TempoMapPoints");
+        }
+        if (!ticksOfChild[edge.childId].insert(tick).second) {
+            check.add(where + " has sync_point_child " + std::to_string(tick) +
+                      ", the same tick as another of its sync points");
+        }
+    }
+    static_cast<void>(scoreOfMaps(graph, &check));
+    return check;
+}
+
 /// One kind of musical timeline: the table that owns it, and its timeline
 /// and point tables. Both kinds hang from a Score through SoundEntity and
 /// SoundSource and keep time by that Score's TempoMap.
@@ -1103,9 +1324,35 @@ std::vector<MusicalList> readMusicalLists(EngineDb& db, const MusicalTimelineKin
     return lists;
 }
 
+/// Why a point's POINT_AT leads to the wrong map, if it does.
+///
+/// @param scoreOfMap   Each map's Score, from scoreOfMaps().
+/// @param scoreId      The Score the timeline's owner hangs from.
+/// @param previousMap  The map the timeline's earlier points lead to, if any.
+/// @param target       The map this point's POINT_AT leads to.
+/// @param set          The owner, for the message.
+/// @return The reason, or nullopt when the map is acceptable.
+std::optional<std::string> pointAtMapViolation(
+    const std::unordered_map<std::int64_t, std::int64_t>& scoreOfMap, std::int64_t scoreId,
+    std::optional<std::int64_t> previousMap, std::int64_t target, const std::string& set) {
+    if (const auto owner = scoreOfMap.find(target);
+        owner == scoreOfMap.end() || owner->second != scoreId) {
+        return "POINT_AT leads to TempoMap " + std::to_string(target) +
+               ", which is not a TempoMap of Score " + std::to_string(scoreId);
+    }
+    if (previousMap.has_value() && *previousMap != target) {
+        return "POINT_AT leads to TempoMap " + std::to_string(target) +
+               " but the earlier points of " + set + "'s timeline lead to TempoMap " +
+               std::to_string(*previousMap) + "; a timeline keeps time by one TempoMap";
+    }
+    return std::nullopt;
+}
+
 /// Checks that the points of every musical timeline of one kind are in
-/// non-decreasing sync_point order, and that each leads to the TempoMap of
-/// the Score the timeline's owner hangs from.
+/// non-decreasing sync_point order, that each leads to a TempoMap of the
+/// Score the timeline's owner hangs from (its own map, or one synchronised
+/// to it, docs/polytempo.md §4), and that they all lead to the same one:
+/// ticks on different maps cannot be ordered.
 ///
 /// Points without a POINT_AT, or with a NULL sync_point, are checkPointAt()'s
 /// business and are skipped here.
@@ -1116,11 +1363,13 @@ std::vector<MusicalList> readMusicalLists(EngineDb& db, const MusicalTimelineKin
 /// @throws EngineDbError  If a query fails.
 IntegrityCheck checkMusicalOrder(EngineDb& db, const MusicalTimelineKind& kind) {
     IntegrityCheck check{.name = std::string{kind.timeline} +
-                                 " points are in non-decreasing sync_point order on the TempoMap "
+                                 " points are in non-decreasing sync_point order on a TempoMap "
                                  "of their Score",
         .violationCount = 0,
         .violations = {}};
     const std::map<std::int64_t, PointAt> pointAts = readPointAts(db, kind);
+    const std::unordered_map<std::int64_t, std::int64_t> scoreOfMap =
+        scoreOfMaps(readTempoMapGraph(db), nullptr);
     for (const MusicalList& list : readMusicalLists(db, kind)) {
         const std::string set = std::string{kind.owner} + " " + std::to_string(list.ownerId);
         if (!list.scoreId.has_value()) {
@@ -1133,8 +1382,8 @@ IntegrityCheck checkMusicalOrder(EngineDb& db, const MusicalTimelineKind& kind) 
             continue;
         }
         const std::int64_t scoreId = *list.scoreId;
-        const std::int64_t mapId = *list.tempoMapId;
         std::optional<std::int64_t> previous;
+        std::optional<std::int64_t> previousMap;
         for (const std::int64_t pointId : list.points) {
             const auto found = pointAts.find(pointId);
             if (found == pointAts.end()) {
@@ -1148,10 +1397,12 @@ IntegrityCheck checkMusicalOrder(EngineDb& db, const MusicalTimelineKind& kind) 
             const auto describe = [pointId, &kind](const std::string& reason) {
                 return std::string{kind.point} + " " + std::to_string(pointId) + ": " + reason;
             };
-            if (target != mapId) {
-                check.add(describe("POINT_AT leads to TempoMap " + std::to_string(target) +
-                                   ", not TempoMap " + std::to_string(mapId) + " of Score " +
-                                   std::to_string(scoreId)));
+            if (const std::optional<std::string> wrongMap =
+                    pointAtMapViolation(scoreOfMap, scoreId, previousMap, target, set);
+                wrongMap.has_value()) {
+                check.add(describe(*wrongMap));
+            } else {
+                previousMap = target;
             }
             if (!at.syncPoint.has_value()) {
                 continue;
@@ -1487,6 +1738,7 @@ IntegrityReport checkCanonicalIntegrity(EngineDb& db) {
     addRangeChecks(db, false, report);
     report.checks.push_back(checkSetMembership(db));
     report.checks.push_back(checkTempoMapShape(db));
+    report.checks.push_back(checkTempoMapSynchronisation(db));
     for (const MusicalTimelineKind& kind : kMusicalTimelines) {
         report.checks.push_back(checkPointAt(db, kind));
         report.checks.push_back(checkMusicalOrder(db, kind));

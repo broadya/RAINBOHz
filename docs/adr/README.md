@@ -55,6 +55,7 @@ Non-obvious design choices are recorded here, per AGENTS.md, using the
 | [0020](0020-spatial-gains-are-applied-per-sound-source-after-summing.md) | Apply spatial gains once per SoundSource, after summing its partials in mono | Accepted |
 | [0021](0021-lock-python-dependencies-with-hashes.md) | Install Python dependencies from a hash-checked lock, made with uv | Accepted |
 | [0022](0022-batch-engine-db-writes-as-row-lists.md) | Batch engine-db writes as row lists: one statement per table, nodes before relationships | Accepted |
+| [0023](0023-synchronise-tempo-maps-by-exact-anchors-and-local-compensation.md) | Synchronise tempo maps by exact anchors, uniform stretch and local compensation, keeping the tempo map primary | Accepted |
 
 ## A note on the renames
 

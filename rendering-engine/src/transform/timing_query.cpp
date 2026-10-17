@@ -328,7 +328,8 @@ FramePosition framePosition(EngineDb& db, std::int64_t mapId, BeatsTicks at) {
         throw TimingQueryError{Kind::Unprocessable,
             describeMap(mapId) +
                 " is not the TempoMap of a Score; only a root map converts to samples in this "
-                "version, since synchronised maps are not implemented"};
+                "version. Conversion through synchronisation edges, which the transform "
+                "resolves (docs/polytempo.md), is the next step for this call"};
     }
     // The ramp shape belongs to the Score. NEXT_POINT is ONE_ONE, so the map
     // has exactly one.

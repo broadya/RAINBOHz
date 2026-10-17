@@ -195,8 +195,8 @@ Impact on components:
   `rendering-engine/src/transform/tempo_map.cpp`.
 * ADR 0012 for the distinction between musical and physical time this
   conversion crosses.
-* `rendering-engine/docs/polytempo.md`, the polytempo design, which works in
-  both shapes.
+* `rendering-engine/docs/polytempo.md` and ADR 0023, the polytempo design,
+  which works in both shapes.
 * Revisit with a shape per segment if one piece needs both.
 * `engine-db/schema/engine-schema.cypher`, the `Score`, `TempoMap` and
   `TempoMapPoint` definitions.
