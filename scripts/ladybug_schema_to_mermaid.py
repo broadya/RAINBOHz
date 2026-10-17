@@ -107,9 +107,13 @@ _CARDINALITY: dict[str, tuple[str, str]] = {
 }
 
 
+# One left-to-right pass, so a // inside a /* */ block (or a /* after a //)
+# is treated as part of whichever comment opened first.
+_COMMENT_RE = re.compile(r"/\*.*?\*/|//[^\n]*|--[^\n]*", re.DOTALL)
+
+
 def _strip_comments(text: str) -> str:
-    text = re.sub(r"//[^\n]*", "", text)
-    return re.sub(r"--[^\n]*", "", text)
+    return _COMMENT_RE.sub("", text)
 
 
 def _extract_body(text: str, after_open_paren: int) -> tuple[str, int]:
