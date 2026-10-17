@@ -188,7 +188,9 @@ void reportTransform(std::ostream& out, const TransformReport& report, bool verb
     for (const TempoMapSummary& map : report.tempoMaps) {
         out << "    Score " << map.scoreId << " keeps time by TempoMap "
             << map.name.value_or("(unnamed)") << " (id " << map.tempoMapId
-            << "): " << map.ticksPerBeat << " ticks per beat, " << map.pointCount << " point(s)\n";
+            << "): " << map.ticksPerBeat << " ticks per beat, " << map.pointCount
+            << " point(s), ramps linear in "
+            << (map.rampPhysicalTime ? "physical time" : "musical position") << '\n';
     }
     if (report.sets.empty()) {
         out << "    no PartialSet has a musical timeline; nothing to transform\n";

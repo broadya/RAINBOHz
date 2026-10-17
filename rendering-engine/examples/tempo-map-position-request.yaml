@@ -1,0 +1,18 @@
+# Render request for engine-db/examples/tempo-map-position-score.cypher.
+#
+#   make run-rendering-engine RE_STATE=engine-db/examples/tempo-map-position-score.cypher \
+#       RE_REQUEST=rendering-engine/examples/tempo-map-position-request.yaml
+#
+# The score is in musical time, its ramp linear in musical position, and
+# the transform places its points at 0, 1.1507, 2.7726 and 6.7726 s. Frames 0 to 6 cover every point;
+# frame 7 is past the end and renders as silence.
+
+frames:
+  - frame: 0
+  - frame: 1
+  - frame: 2
+  - frame: 3
+  - frame: 4
+  - frame: 5
+  - frame: 6
+  - frame: 7

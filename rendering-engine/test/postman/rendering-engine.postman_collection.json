@@ -73,7 +73,7 @@
     },
     {
       "key": "schemas",
-      "value": "{\"EngineConfig\": {\"properties\": {\"channel_mode\": {\"description\": \"EngineConfig.channelMode 0 to 7, in that order: mono; stereo,\\ndecoded from an M/S pair; stereo from an X/Y cardioid pair; M/S,\\nundecoded; Blumlein figure-8s at \\u00b145\\u00b0; Blumlein rotated by 45\\u00b0\\n(M and S figure-8s); first-order ambisonics in A-format; and in\\nAmbiX B-format. A frame's WAV file has as many channels as the\\nmode has outputs.\\n\", \"enum\": [\"mono\", \"stereo-from-mid-side\", \"stereo-from-xy\", \"mid-side\", \"blumlein-classic\", \"blumlein-rotated\", \"foa-a-format\", \"foa-b-format\"], \"type\": \"string\"}, \"frame_size\": {\"description\": \"Samples per frame; one second's worth when EngineConfig.frameSize is NULL.\", \"minimum\": 1, \"type\": \"integer\"}, \"sample_rate\": {\"description\": \"Samples per second.\", \"minimum\": 1, \"type\": \"integer\"}}, \"required\": [\"sample_rate\", \"frame_size\", \"channel_mode\"], \"type\": \"object\"}, \"FramePosition\": {\"properties\": {\"at\": {\"description\": \"The position asked about, written in full as beats:ticks.\", \"pattern\": \"^[0-9]+:[0-9]+$\", \"type\": \"string\"}, \"frame\": {\"description\": \"The frame holding the sample.\", \"minimum\": 0, \"type\": \"integer\"}, \"offset\": {\"description\": \"The sample's index within the frame, below frame_size.\", \"minimum\": 0, \"type\": \"integer\"}, \"tempo_map_id\": {\"type\": \"integer\"}}, \"required\": [\"tempo_map_id\", \"at\", \"frame\", \"offset\"], \"type\": \"object\"}, \"LoadResult\": {\"properties\": {\"nodes\": {\"description\": \"Total node rows in engine-db.\", \"minimum\": 0, \"type\": \"integer\"}, \"partials\": {\"description\": \"The number of Partials.\", \"minimum\": 0, \"type\": \"integer\"}, \"relationships\": {\"description\": \"Total relationship rows in engine-db.\", \"minimum\": 0, \"type\": \"integer\"}, \"uri\": {\"description\": \"The file loaded, resolved.\", \"type\": \"string\"}}, \"required\": [\"uri\", \"nodes\", \"relationships\", \"partials\"], \"type\": \"object\"}, \"Problem\": {\"description\": \"An RFC 9457 problem document.\", \"properties\": {\"detail\": {\"description\": \"What went wrong, in one line.\", \"type\": \"string\"}, \"errors\": {\"description\": \"Each thing wrong with the request, when there are several.\", \"items\": {\"type\": \"string\"}, \"type\": \"array\"}, \"status\": {\"maximum\": 599, \"minimum\": 400, \"type\": \"integer\"}, \"title\": {\"description\": \"The reason phrase of the status.\", \"type\": \"string\"}, \"type\": {\"const\": \"about:blank\", \"type\": \"string\"}}, \"required\": [\"type\", \"title\", \"status\", \"detail\"], \"type\": \"object\"}, \"RenderResult\": {\"properties\": {\"frame\": {\"minimum\": 0, \"type\": \"integer\"}, \"set_uris\": {\"description\": \"Each contributing partial set's WAV file; present only under --per-set-wav.\", \"items\": {\"type\": \"string\"}, \"type\": \"array\"}, \"uri\": {\"description\": \"The frame's WAV file.\", \"type\": \"string\"}}, \"required\": [\"frame\", \"uri\"], \"type\": \"object\"}, \"ShutdownResult\": {\"properties\": {\"message\": {\"type\": \"string\"}}, \"required\": [\"message\"], \"type\": \"object\"}, \"TempoMapChildren\": {\"properties\": {\"children\": {\"items\": {\"allOf\": [{\"properties\": {\"id\": {\"description\": \"TempoMap.id, valid for the loaded score.\", \"minimum\": 0, \"type\": \"integer\"}, \"name\": {\"type\": [\"string\", \"null\"]}, \"ticks_per_beat\": {\"type\": [\"integer\", \"null\"]}}, \"required\": [\"id\", \"name\", \"ticks_per_beat\"], \"type\": \"object\"}, {\"properties\": {\"sync_point_child\": {\"description\": \"The alignment point, in the child's own ticks.\", \"type\": [\"integer\", \"null\"]}, \"sync_point_parent\": {\"description\": \"Where, in the parent's ticks, the child is rooted.\", \"type\": [\"integer\", \"null\"]}}, \"required\": [\"sync_point_parent\", \"sync_point_child\"], \"type\": \"object\"}], \"description\": \"A child map, with the synchronisation points of the edge that joins it to its parent.\"}, \"type\": \"array\"}, \"tempo_map_id\": {\"type\": \"integer\"}}, \"required\": [\"tempo_map_id\", \"children\"], \"type\": \"object\"}, \"TempoMapPointPage\": {\"properties\": {\"next\": {\"description\": \"The next page, relative to the server's origin; null on the last page.\", \"type\": [\"string\", \"null\"]}, \"points\": {\"items\": {\"properties\": {\"hold\": {\"description\": \"True when the tempo holds to the next point; false when it ramps linearly to it.\", \"type\": [\"boolean\", \"null\"]}, \"position\": {\"description\": \"Where the segment this point opens starts, in ticks.\", \"minimum\": 0, \"type\": \"integer\"}, \"start_tempo\": {\"description\": \"The tempo at the position, BPM.\", \"type\": [\"number\", \"null\"]}}, \"required\": [\"position\", \"start_tempo\", \"hold\"], \"type\": \"object\"}, \"type\": \"array\"}, \"tempo_map_id\": {\"type\": \"integer\"}, \"ticks_per_beat\": {\"type\": [\"integer\", \"null\"]}}, \"required\": [\"tempo_map_id\", \"ticks_per_beat\", \"points\", \"next\"], \"type\": \"object\"}, \"TempoMapWithChildren\": {\"allOf\": [{\"properties\": {\"id\": {\"description\": \"TempoMap.id, valid for the loaded score.\", \"minimum\": 0, \"type\": \"integer\"}, \"name\": {\"type\": [\"string\", \"null\"]}, \"ticks_per_beat\": {\"type\": [\"integer\", \"null\"]}}, \"required\": [\"id\", \"name\", \"ticks_per_beat\"], \"type\": \"object\"}, {\"properties\": {\"children\": {\"items\": {\"allOf\": [{\"properties\": {\"id\": {\"description\": \"TempoMap.id, valid for the loaded score.\", \"minimum\": 0, \"type\": \"integer\"}, \"name\": {\"type\": [\"string\", \"null\"]}, \"ticks_per_beat\": {\"type\": [\"integer\", \"null\"]}}, \"required\": [\"id\", \"name\", \"ticks_per_beat\"], \"type\": \"object\"}, {\"properties\": {\"sync_point_child\": {\"description\": \"The alignment point, in the child's own ticks.\", \"type\": [\"integer\", \"null\"]}, \"sync_point_parent\": {\"description\": \"Where, in the parent's ticks, the child is rooted.\", \"type\": [\"integer\", \"null\"]}}, \"required\": [\"sync_point_parent\", \"sync_point_child\"], \"type\": \"object\"}], \"description\": \"A child map, with the synchronisation points of the edge that joins it to its parent.\"}, \"type\": \"array\"}}, \"required\": [\"children\"], \"type\": \"object\"}]}}",
+      "value": "{\"EngineConfig\": {\"properties\": {\"channel_mode\": {\"description\": \"EngineConfig.channelMode 0 to 7, in that order: mono; stereo,\\ndecoded from an M/S pair; stereo from an X/Y cardioid pair; M/S,\\nundecoded; Blumlein figure-8s at \\u00b145\\u00b0; Blumlein rotated by 45\\u00b0\\n(M and S figure-8s); first-order ambisonics in A-format; and in\\nAmbiX B-format. A frame's WAV file has as many channels as the\\nmode has outputs.\\n\", \"enum\": [\"mono\", \"stereo-from-mid-side\", \"stereo-from-xy\", \"mid-side\", \"blumlein-classic\", \"blumlein-rotated\", \"foa-a-format\", \"foa-b-format\"], \"type\": \"string\"}, \"frame_size\": {\"description\": \"Samples per frame; one second's worth when EngineConfig.frameSize is NULL.\", \"minimum\": 1, \"type\": \"integer\"}, \"sample_rate\": {\"description\": \"Samples per second.\", \"minimum\": 1, \"type\": \"integer\"}}, \"required\": [\"sample_rate\", \"frame_size\", \"channel_mode\"], \"type\": \"object\"}, \"FramePosition\": {\"properties\": {\"at\": {\"description\": \"The position asked about, written in full as beats:ticks.\", \"pattern\": \"^[0-9]+:[0-9]+$\", \"type\": \"string\"}, \"frame\": {\"description\": \"The frame holding the sample.\", \"minimum\": 0, \"type\": \"integer\"}, \"offset\": {\"description\": \"The sample's index within the frame, below frame_size.\", \"minimum\": 0, \"type\": \"integer\"}, \"tempo_map_id\": {\"type\": \"integer\"}}, \"required\": [\"tempo_map_id\", \"at\", \"frame\", \"offset\"], \"type\": \"object\"}, \"LoadResult\": {\"properties\": {\"nodes\": {\"description\": \"Total node rows in engine-db.\", \"minimum\": 0, \"type\": \"integer\"}, \"partials\": {\"description\": \"The number of Partials.\", \"minimum\": 0, \"type\": \"integer\"}, \"relationships\": {\"description\": \"Total relationship rows in engine-db.\", \"minimum\": 0, \"type\": \"integer\"}, \"uri\": {\"description\": \"The file loaded, resolved.\", \"type\": \"string\"}}, \"required\": [\"uri\", \"nodes\", \"relationships\", \"partials\"], \"type\": \"object\"}, \"Problem\": {\"description\": \"An RFC 9457 problem document.\", \"properties\": {\"detail\": {\"description\": \"What went wrong, in one line.\", \"type\": \"string\"}, \"errors\": {\"description\": \"Each thing wrong with the request, when there are several.\", \"items\": {\"type\": \"string\"}, \"type\": \"array\"}, \"status\": {\"maximum\": 599, \"minimum\": 400, \"type\": \"integer\"}, \"title\": {\"description\": \"The reason phrase of the status.\", \"type\": \"string\"}, \"type\": {\"const\": \"about:blank\", \"type\": \"string\"}}, \"required\": [\"type\", \"title\", \"status\", \"detail\"], \"type\": \"object\"}, \"RenderResult\": {\"properties\": {\"frame\": {\"minimum\": 0, \"type\": \"integer\"}, \"set_uris\": {\"description\": \"Each contributing partial set's WAV file; present only under --per-set-wav.\", \"items\": {\"type\": \"string\"}, \"type\": \"array\"}, \"uri\": {\"description\": \"The frame's WAV file.\", \"type\": \"string\"}}, \"required\": [\"frame\", \"uri\"], \"type\": \"object\"}, \"ShutdownResult\": {\"properties\": {\"message\": {\"type\": \"string\"}}, \"required\": [\"message\"], \"type\": \"object\"}, \"TempoMapChildren\": {\"properties\": {\"children\": {\"items\": {\"allOf\": [{\"properties\": {\"id\": {\"description\": \"TempoMap.id, valid for the loaded score.\", \"minimum\": 0, \"type\": \"integer\"}, \"name\": {\"type\": [\"string\", \"null\"]}, \"ticks_per_beat\": {\"type\": [\"integer\", \"null\"]}}, \"required\": [\"id\", \"name\", \"ticks_per_beat\"], \"type\": \"object\"}, {\"properties\": {\"sync_point_child\": {\"description\": \"The alignment point, in the child's own ticks.\", \"type\": [\"integer\", \"null\"]}, \"sync_point_parent\": {\"description\": \"Where, in the parent's ticks, the child is rooted.\", \"type\": [\"integer\", \"null\"]}}, \"required\": [\"sync_point_parent\", \"sync_point_child\"], \"type\": \"object\"}], \"description\": \"A child map, with the synchronisation points of the edge that joins it to its parent.\"}, \"type\": \"array\"}, \"tempo_map_id\": {\"type\": \"integer\"}}, \"required\": [\"tempo_map_id\", \"children\"], \"type\": \"object\"}, \"TempoMapPointPage\": {\"properties\": {\"next\": {\"description\": \"The next page, relative to the server's origin; null on the last page.\", \"type\": [\"string\", \"null\"]}, \"points\": {\"items\": {\"properties\": {\"hold\": {\"description\": \"True when the tempo holds to the next point; false when it ramps to it, in the shape the root map's tempo_ramp_physical_time gives.\", \"type\": [\"boolean\", \"null\"]}, \"position\": {\"description\": \"Where the segment this point opens starts, in ticks.\", \"minimum\": 0, \"type\": \"integer\"}, \"start_tempo\": {\"description\": \"The tempo at the position, BPM.\", \"type\": [\"number\", \"null\"]}}, \"required\": [\"position\", \"start_tempo\", \"hold\"], \"type\": \"object\"}, \"type\": \"array\"}, \"tempo_map_id\": {\"type\": \"integer\"}, \"ticks_per_beat\": {\"type\": [\"integer\", \"null\"]}}, \"required\": [\"tempo_map_id\", \"ticks_per_beat\", \"points\", \"next\"], \"type\": \"object\"}, \"TempoMapWithChildren\": {\"allOf\": [{\"properties\": {\"id\": {\"description\": \"TempoMap.id, valid for the loaded score.\", \"minimum\": 0, \"type\": \"integer\"}, \"name\": {\"type\": [\"string\", \"null\"]}, \"ticks_per_beat\": {\"type\": [\"integer\", \"null\"]}}, \"required\": [\"id\", \"name\", \"ticks_per_beat\"], \"type\": \"object\"}, {\"properties\": {\"children\": {\"items\": {\"allOf\": [{\"properties\": {\"id\": {\"description\": \"TempoMap.id, valid for the loaded score.\", \"minimum\": 0, \"type\": \"integer\"}, \"name\": {\"type\": [\"string\", \"null\"]}, \"ticks_per_beat\": {\"type\": [\"integer\", \"null\"]}}, \"required\": [\"id\", \"name\", \"ticks_per_beat\"], \"type\": \"object\"}, {\"properties\": {\"sync_point_child\": {\"description\": \"The alignment point, in the child's own ticks.\", \"type\": [\"integer\", \"null\"]}, \"sync_point_parent\": {\"description\": \"Where, in the parent's ticks, the child is rooted.\", \"type\": [\"integer\", \"null\"]}}, \"required\": [\"sync_point_parent\", \"sync_point_child\"], \"type\": \"object\"}], \"description\": \"A child map, with the synchronisation points of the edge that joins it to its parent.\"}, \"type\": \"array\"}, \"tempo_ramp_physical_time\": {\"description\": \"The shape of every tempo ramp in the Score: true when a ramp is\\nlinear in physical time (its tempo changes at a constant rate\\nper second), false when it is linear in musical position (a\\nconstant rate per beat). Score.tempo_ramp_physical_time, with\\nNULL resolved to true, the default (ADR 0013). A client needs\\nit to interpret a point whose hold is false.\\n\", \"type\": \"boolean\"}}, \"required\": [\"tempo_ramp_physical_time\", \"children\"], \"type\": \"object\"}]}}",
       "type": "string",
       "description": "Generated from api/openapi.yaml; do not edit."
     },
@@ -825,7 +825,7 @@
     },
     {
       "name": "5 Tempo maps",
-      "description": "The root map of tempo-map-score is Main, 960 ticks per beat, with two points: 120 BPM ramping to 60 BPM at beat 4, then held. Its id is read from the root and used from then on, since ids are assigned per load (server.md \u00a72.2). The paging requests follow `next` until it is null; that loop needs the Collection Runner or newman, and a single Send fetches one page.",
+      "description": "The root map of tempo-map-score is Main, 960 ticks per beat, with two points: 120 BPM ramping to 60 BPM at beat 4, then held. The ramp is linear in physical time, the default. Its id is read from the root and used from then on, since ids are assigned per load (server.md \u00a72.2). The paging requests follow `next` until it is null; that loop needs the Collection Runner or newman, and a single Send fetches one page.",
       "item": [
         {
           "name": "Root tempo map: 200",
@@ -840,9 +840,10 @@
                   "    pm.response.to.have.jsonSchema(JSON.parse(pm.collectionVariables.get('schemas')).TempoMapWithChildren);",
                   "});",
                   "const root = pm.response.json();",
-                  "pm.test('the root is Main, 960 ticks per beat, with no children', () => {",
+                  "pm.test('the root is Main, 960 ticks per beat, ramps linear in physical time, with no children', () => {",
                   "    pm.expect(root.name).to.equal('Main');",
                   "    pm.expect(root.ticks_per_beat).to.equal(960);",
+                  "    pm.expect(root.tempo_ramp_physical_time).to.equal(true);",
                   "    pm.expect(root.children).to.eql([]);",
                   "});",
                   "pm.collectionVariables.set('tempoMapId', root.id);",
@@ -1281,7 +1282,7 @@
           }
         },
         {
-          "name": "Frame position at 2: the oracle's sample 55234",
+          "name": "Frame position at 2: the oracle's sample 53614",
           "event": [
             {
               "listen": "test",
@@ -1292,11 +1293,11 @@
                   "pm.test('the body fits the OpenAPI schema FramePosition', () => {",
                   "    pm.response.to.have.jsonSchema(JSON.parse(pm.collectionVariables.get('schemas')).FramePosition);",
                   "});",
-                  "pm.test('2:0 is frame 1, offset 7234', () => {",
+                  "pm.test('2:0 is frame 1, offset 5614', () => {",
                   "    const body = pm.response.json();",
                   "    pm.expect(body.tempo_map_id).to.equal(Number(pm.collectionVariables.get('tempoMapId')));",
                   "    pm.expect(body.at).to.equal('2:0');",
-                  "    pm.expect([body.frame, body.offset]).to.eql([1, 7234]);",
+                  "    pm.expect([body.frame, body.offset]).to.eql([1, 5614]);",
                   "});"
                 ]
               }
@@ -1309,7 +1310,7 @@
           }
         },
         {
-          "name": "Frame position at 4: the oracle's sample 133084",
+          "name": "Frame position at 4: the oracle's sample 128000",
           "event": [
             {
               "listen": "test",
@@ -1320,11 +1321,11 @@
                   "pm.test('the body fits the OpenAPI schema FramePosition', () => {",
                   "    pm.response.to.have.jsonSchema(JSON.parse(pm.collectionVariables.get('schemas')).FramePosition);",
                   "});",
-                  "pm.test('4:0 is frame 2, offset 37084', () => {",
+                  "pm.test('4:0 is frame 2, offset 32000', () => {",
                   "    const body = pm.response.json();",
                   "    pm.expect(body.tempo_map_id).to.equal(Number(pm.collectionVariables.get('tempoMapId')));",
                   "    pm.expect(body.at).to.equal('4:0');",
-                  "    pm.expect([body.frame, body.offset]).to.eql([2, 37084]);",
+                  "    pm.expect([body.frame, body.offset]).to.eql([2, 32000]);",
                   "});"
                 ]
               }
@@ -1337,7 +1338,7 @@
           }
         },
         {
-          "name": "Frame position at 8: the oracle's sample 325084",
+          "name": "Frame position at 8: the oracle's sample 320000",
           "event": [
             {
               "listen": "test",
@@ -1348,11 +1349,11 @@
                   "pm.test('the body fits the OpenAPI schema FramePosition', () => {",
                   "    pm.response.to.have.jsonSchema(JSON.parse(pm.collectionVariables.get('schemas')).FramePosition);",
                   "});",
-                  "pm.test('8:0 is frame 6, offset 37084', () => {",
+                  "pm.test('8:0 is frame 6, offset 32000', () => {",
                   "    const body = pm.response.json();",
                   "    pm.expect(body.tempo_map_id).to.equal(Number(pm.collectionVariables.get('tempoMapId')));",
                   "    pm.expect(body.at).to.equal('8:0');",
-                  "    pm.expect([body.frame, body.offset]).to.eql([6, 37084]);",
+                  "    pm.expect([body.frame, body.offset]).to.eql([6, 32000]);",
                   "});"
                 ]
               }

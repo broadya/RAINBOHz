@@ -46,8 +46,8 @@ Two things make the step more than a change of units:
 
 | In this version | Not yet |
 | --- | --- |
-| One `TempoMap` per `Score`, reached by `Score → NEXT_POINT → TempoMap` | Several tempo maps and `TEMPO_MAP_SYNCHRONIZATION_POINT`; any such edge is refused |
-| Held tempi and ramps linear in musical position (@see ADR 0013) | Other ramp shapes |
+| One `TempoMap` per `Score`, reached by `Score → NEXT_POINT → TempoMap` | Several tempo maps and `TEMPO_MAP_SYNCHRONIZATION_POINT`, designed in [polytempo.md](polytempo.md); any such edge is refused |
+| Held tempi, and ramps in the Score's one shape, `tempo_ramp_physical_time`: linear in physical time (the default) or in musical position (§6.1, @see ADR 0013) | A shape per segment |
 | `PartialSetMusicalTimeline` → one `FrequencyPhysicalTimeline`, one `AmplitudePhysicalTimeline` and one `PhasePhysicalTimeline` per partial | |
 | `SpatialPositionMusicalTimeline` → one `AzimuthPhysicalTimeline`, one `ElevationPhysicalTimeline` and one `DistancePhysicalTimeline` per SoundSource (§6.8) | |
 | `PartialState.phase` in degrees with `phase_free_run`: a target, a free-running point, or no role (§6.6) | |
@@ -118,9 +118,9 @@ rounding where they do not.
 Once per run:
 
 - the singleton `EngineConfig`, for `sampleRate`;
-- every `Score`, with its `TempoMap` by `NEXT_POINT`, the map's
-  `ticks_per_beat` and its `TempoMapPoint`s in `NEXT_POINT` order
-  (`position`, `start_tempo`, `hold`);
+- every `Score`, with its `tempo_ramp_physical_time` and its `TempoMap` by
+  `NEXT_POINT`, the map's `ticks_per_beat` and its `TempoMapPoint`s in
+  `NEXT_POINT` order (`position`, `start_tempo`, `hold`);
 - the number of `TEMPO_MAP_SYNCHRONIZATION_POINT` edges, which must be zero.
 
 Per `PartialSet` that has a `PartialSetMusicalTimeline` by
@@ -216,11 +216,11 @@ flowchart LR
     subgraph output ["Output — written"]
         FT["<b>FrequencyPhysicalTimeline</b>"]
         F0["<b>FrequencyPhysicalTimelinePoint</b><br/>time = 0<br/>frequency = 0.0864"]
-        F3["<b>FrequencyPhysicalTimelinePoint</b><br/>time = 325084.26<br/>frequency = 0.0432"]
+        F3["<b>FrequencyPhysicalTimelinePoint</b><br/>time = 320000<br/>frequency = 0.0432"]
         AT["<b>AmplitudePhysicalTimeline</b>"]
         A0["<b>AmplitudePhysicalTimelinePoint</b><br/>time = 0<br/>amplitude = -6"]
-        A2["<b>AmplitudePhysicalTimelinePoint</b><br/>time = 133084.26<br/>amplitude = -24"]
-        A3["<b>AmplitudePhysicalTimelinePoint</b><br/>time = 325084.26<br/>amplitude = -144"]
+        A2["<b>AmplitudePhysicalTimelinePoint</b><br/>time = 128000<br/>amplitude = -24"]
+        A3["<b>AmplitudePhysicalTimelinePoint</b><br/>time = 320000<br/>amplitude = -144"]
         FT -- NEXT_POINT --> F0 -- NEXT_POINT --> F3
         AT -- NEXT_POINT --> A0 -- NEXT_POINT --> A2 -- NEXT_POINT --> A3
     end
@@ -248,20 +248,40 @@ point's tempo. A valid map (confirmed by the author, 2026-10-02):
 - has `hold = true` on its last point: there is no next tempo to ramp to, and
   the tempo simply continues.
 
-**A ramp is linear in musical position** (ADR 0013): the tempo at beat *b*
-between points (b₁, T₁) and (b₂, T₂) is `T(b) = T₁ + (T₂ − T₁)·(b − b₁)/(b₂ − b₁)`,
-the convention of Logic, Cubase, Pro Tools and Live. The elapsed seconds from
-b₁ to *b* are the integral of 60 / T, which has a closed form:
+**A ramp has one of two shapes, chosen for the whole Score** by
+`Score.tempo_ramp_physical_time` (ADR 0013). Between points (b₁, T₁) and
+(b₂, T₂), in beats and BPM, with B = b₂ − b₁ and Δt the seconds from b₁ to
+beat *b*:
 
-```
-Δt(b) = 60 · (b₂ − b₁) · ln(T(b) / T₁) / (T₂ − T₁)      when T₁ ≠ T₂
-Δt(b) = 60 · (b − b₁) / T₁                             when T₁ = T₂ (held, or flat)
-```
+- **Linear in physical time**, when the flag is NULL or true, the default:
+  the tempo changes at a constant rate per second, as in REAPER. Over the
+  segment's duration D = 120·B / (T₁ + T₂), `T(τ) = T₁ + (T₂ − T₁)·τ/D`. In
+  beats, T² is linear, and the elapsed time is the beats covered at their
+  mean tempo:
 
-Beats are ticks divided by `ticks_per_beat`. The second form is also the limit
-of the first as the ramp flattens, so a ramp between equal tempi is a hold.
-This is `secondsThrough()` in `tempo_map.cpp`, the one place a logarithm is
-taken.
+  ```
+  T(b)² = T₁² + (T₂² − T₁²) · (b − b₁) / B
+  Δt(b) = 120 · (b − b₁) / (T₁ + T(b))
+  ```
+
+- **Linear in musical position**, when the flag is false: the tempo changes
+  at a constant rate per beat, `T(b) = T₁ + (T₂ − T₁)·(b − b₁)/B`, and the
+  elapsed seconds are the integral of 60 / T:
+
+  ```
+  Δt(b) = 60 · B · ln(T(b) / T₁) / (T₂ − T₁)
+  ```
+
+When T₁ = T₂ (held, or a flat ramp) both are `Δt(b) = 60 · (b − b₁) / T₁`,
+which is computed directly, so held tempi give bit-identical times in either
+shape. The physical-time form needs no special case and has no cancellation
+as the ramp flattens; the musical-position form tends to the same limit.
+Beats are ticks divided by `ticks_per_beat`. 120 → 60 BPM over four beats
+takes 8/3 = 2.666667 s by physical time and 4 ln 2 = 2.772589 s by musical
+position; 100 → 140 BPM over four beats takes exactly 2 s by physical time,
+which is what REAPER measures. This is `secondsThrough()` in
+`tempo_map.cpp`, which takes the shape as a `TempoRamp`, and the only place a
+square root or a logarithm is taken.
 
 The `TempoMap` class is built once per Score. Its constructor validates the
 rules above and accumulates the seconds at every point, so that
@@ -750,19 +770,27 @@ the others become entries in the report.
 
 ## 11. Worked examples
 
-The first three are example scores with JSON mirrors for the oracle
+The first four are example scores with JSON mirrors for the oracle
 (rendering.md §11.1), whose values were computed by an independent Python
 implementation of this document, not by the engine. Each gives its source a
 one-point spatial timeline: straight ahead, level and 1 m away, where the
 mono gain is exactly 1, so that the oracle, which is mono, still applies.
 
 **`tempo-map-score.cypher`.** 960 ticks per beat; 120 BPM at tick 0 ramping
-to 60 BPM at tick 3840, then held. Beats 0 to 4 take `4 ln 2 = 2.772589 s`;
-beat 2 falls at `−4 ln 0.75 = 1.150728 s` (the tempo there is 90); every
+to 60 BPM at tick 3840, then held, with `tempo_ramp_physical_time` left NULL,
+so the ramp is linear in physical time. Beats 0 to 4 take four beats at the
+mean tempo of 90, `8/3 = 2.666667 s`; beat 2 falls at
+`240 / (120 + √9000) = 1.116963 s` (the tempo there is √9000 = 94.87); every
 beat after 4 takes one second. Points at beats 0, 2, 4 and 8 land at samples
-0, 55234.96, 133084.26 and 325084.26. Partial A has four envelope nodes of each
+0, 53614.23, 128000 and 320000. Partial A has four envelope nodes of each
 property; partial B has frequency at beats 0 and 8 only and amplitude at 0,
 4 and 8 (§5 diagram).
+
+**`tempo-map-position-score.cypher`.** The same score with
+`tempo_ramp_physical_time: false`, so the ramp is linear in musical position.
+Beats 0 to 4 take `4 ln 2 = 2.772589 s`; beat 2 falls at
+`−4 ln 0.75 = 1.150728 s` (the tempo there is 90). The points land at samples
+0, 55234.96, 133084.26 and 325084.26.
 
 **`offset-collision-score.cypher`.** 480 BPM held, so a beat is 0.125 s.
 Three hits on beats 0, 1 and 2, each three points at the same tick with
@@ -778,12 +806,12 @@ each cut by the next.
 seven points: beats 0 to 4, beat 4 again with an offset of −0.25 s, and beat
 8. Partial A runs free at beats 0 to 3, then targets 90° at beat 4 and −180°
 at beat 8: its six phase points become four (NULL at 0 and at beat 3,
-90240.70 samples, then π/2 and −π), and precomputation works its initial
+86671.92 samples, then π/2 and −π), and precomputation works its initial
 phase backwards to meet π/2. Partial B targets 0°, then 45° at beat 4; the
 next point computes 12000 samples earlier, collides, and its −60° replaces
-the 45° at 133084.26; it ends at 120°. Partial C has default states at beats
+the 45° at 128000; it ends at 120°. Partial C has default states at beats
 0, 3 and 8 and targets 30° at beat 2 and −90° at beat 4: three phase points
-(NULL at 0, π/6 at 55234.96, −π/2 at 133084.26). It runs free to π/6, one
+(NULL at 0, π/6 at 53614.23, −π/2 at 128000). It runs free to π/6, one
 ramp spans beats 2 to 4 across the default state, and it runs free from beat
 4 to its end.
 
@@ -802,7 +830,7 @@ does not yet render more than one channel.
 ## 12. Numerical precision
 
 Times are `double` samples, as everywhere in the rendering model
-(precomputation.md §8). The tempo formulas take one logarithm per segment and
+(precomputation.md §8). The tempo formulas take one square root or logarithm per segment and
 accumulate seconds across at most as many segments as the map has points, so
 their error is a few ulp of a value in seconds, far below one sample. The
 compression step is one multiply and add per point. The FLOAT columns (§3)
@@ -819,8 +847,8 @@ score is written, not here.
   check, and other work, need not search (author, 2026-10-05). An
   optimisation for later.
 - **Several tempo maps**, synchronised by `TEMPO_MAP_SYNCHRONIZATION_POINT`:
-  a DAG of maps with relative scaling between synchronisation points, as the
-  schema comment sketches.
+  a DAG of maps with relative scaling between synchronisation points,
+  designed in [polytempo.md](polytempo.md).
 - **Dirty flags**, so that only the sets whose canonical input changed are
   transformed again.
 - **Curves.** When precomputation and rendering interpret curve types, the

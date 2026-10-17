@@ -114,6 +114,7 @@ the schema documents a range for it.
 | `*_curve_type` of the three spatial point tables | no | 0 to 4 | schema's enumeration |
 | `*_curve_amount` of the three spatial point tables | no | 0 to 1 | schema |
 
+| `Score.tempo_ramp_physical_time` | **allowed**: NULL means true, ramps linear in physical time | true or false | [transform.md](transform.md) §6.1 (@see ADR 0013); no check, since every value is valid |
 | `TempoMap.ticks_per_beat` | no | > 0 | schema |
 | `TempoMapPoint.position` | no | ≥ 0 | ticks from the map's start ([transform.md](transform.md) §6.1) |
 | `TempoMapPoint.start_tempo` | no | 1 to 1000 | schema's tempo range |

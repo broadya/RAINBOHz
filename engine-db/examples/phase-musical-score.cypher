@@ -11,8 +11,9 @@
 // transform must produce; keep the two in step.
 //
 // The tempo map is tempo-map-score's: 960 ticks per beat, 120 BPM
-// at tick 0 ramping linearly in musical position to 60 BPM at tick
-// 3840, then held.
+// at tick 0 ramping to 60 BPM at tick 3840, then held. The ramp is
+// linear in physical time, the default, since the Score leaves
+// tempo_ramp_physical_time NULL.
 //
 // One partial set, "Phased", with three partials, and a timeline of
 // seven points: beats 0, 1, 2, 3, 4, then beat 4 again with an

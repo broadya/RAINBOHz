@@ -1,6 +1,7 @@
-# 120 BPM at beat 0, ramping linearly in musical position to 60 BPM at
-# beat 4, which then holds. Beats 0..4 take 4 ln 2 = 2.7726 s; every beat
-# after that takes one second.
+# 120 BPM at beat 0, ramping to 60 BPM at beat 4, which then holds. The
+# score leaves tempo_ramp at its default, so the ramp is linear in physical
+# time: beats 0..4 take four beats at the mean tempo of 90, 8/3 = 2.6667 s;
+# every beat after that takes one second.
 tempo_map:
   hzl_version: "0.1.0"
   hzl_type: tempo_map

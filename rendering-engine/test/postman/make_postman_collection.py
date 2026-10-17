@@ -50,7 +50,7 @@ STRIPPED_KEYWORDS = {"format", "example", "examples"}
 # engine-db/examples/tempo-map-score.json, and the beats they fall on (as
 # CTest server.tempo-map-score checks them). frame-position must give the
 # floor of each, split by a frame size of 48000.
-ORACLE_BEATS = [(0, 0.0), (2, 55234.957910741934), (4, 133084.2586675095), (8, 325084.25866750954)]
+ORACLE_BEATS = [(0, 0.0), (2, 53614.22974922373), (4, 128000.0), (8, 320000.0)]
 FRAME_SIZE = 48000
 
 # Run before every request: the score URIs, built from repoRoot as the server
@@ -303,16 +303,18 @@ def tempo_maps_folder() -> dict:
     unknown = status(404) + detail("there is no TempoMap 999999")
     return folder("5 Tempo maps", (
         "The root map of tempo-map-score is Main, 960 ticks per beat, with two points: 120 BPM ramping to "
-        "60 BPM at beat 4, then held. Its id is read from the root and used from then on, since ids are "
+        "60 BPM at beat 4, then held. The ramp is linear in physical time, the default. Its id is read from the root and used from then on, since ids are "
         "assigned per load (server.md §2.2). The paging requests follow `next` until it is null; that "
         "loop needs the Collection Runner or newman, and a single Send fetches one page."
     ), [
         request("Root tempo map: 200", "GET", "/v1/tempo-maps/root",
                 status(200) + fits("TempoMapWithChildren") + (
                     "const root = pm.response.json();\n"
-                    "pm.test('the root is Main, 960 ticks per beat, with no children', () => {\n"
+                    "pm.test('the root is Main, 960 ticks per beat, ramps linear in physical time, "
+                    "with no children', () => {\n"
                     "    pm.expect(root.name).to.equal('Main');\n"
                     "    pm.expect(root.ticks_per_beat).to.equal(960);\n"
+                    "    pm.expect(root.tempo_ramp_physical_time).to.equal(true);\n"
                     "    pm.expect(root.children).to.eql([]);\n"
                     "});\n"
                     "pm.collectionVariables.set('tempoMapId', root.id);\n"

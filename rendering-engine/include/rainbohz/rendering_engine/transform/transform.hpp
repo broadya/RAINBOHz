@@ -473,6 +473,11 @@ struct TempoMapSummary {
 
     /// How many TempoMapPoints it has.
     std::size_t pointCount = 0;
+
+    /// Whether its ramps are linear in physical time (true) or in musical
+    /// position (false): Score.tempo_ramp_physical_time, with NULL resolved
+    /// to true (@see ADR 0013).
+    bool rampPhysicalTime = true;
 };
 
 /// The result of a transform run.

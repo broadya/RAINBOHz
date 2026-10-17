@@ -94,7 +94,7 @@ def test_rows_are_chunked_and_ids_run_on(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_each_table_pair_of_a_relationship_is_its_own_copy() -> None:
     model = Model()
-    score = model.add(ScoreRow("s"))
+    score = model.add(ScoreRow("s", True))
     tempo_map = model.add(TempoMapRow("m", 960))
     model.link("NEXT_POINT", score, tempo_map)
     for position in (0, 960):

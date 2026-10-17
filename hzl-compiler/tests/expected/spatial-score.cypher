@@ -9,8 +9,8 @@ CREATE (n:EngineConfig {sampleRate: 48000, channelMode: 1});
 
 // Score: 1
 UNWIND [
-    {name: "scores/spatial_score"}
-] AS r CREATE (n:Score {name: r.name});
+    {name: "scores/spatial_score", tempo_ramp_physical_time: true}
+] AS r CREATE (n:Score {name: r.name, tempo_ramp_physical_time: r.tempo_ramp_physical_time});
 
 // TempoMap: 1
 UNWIND [

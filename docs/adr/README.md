@@ -45,7 +45,7 @@ Non-obvious design choices are recorded here, per AGENTS.md, using the
 | [0010](0010-build-ladybug-from-our-fork.md) | Build Ladybug from our fork, carrying the SERIAL primary-key index fix | Superseded by [0011](0011-carry-upstreams-serial-fix-until-released.md) |
 | [0011](0011-carry-upstreams-serial-fix-until-released.md) | Carry upstream's SERIAL primary-key fix in our fork until a release includes it | Accepted |
 | [0012](0012-distinguish-musical-and-physical-time.md) | Distinguish musical time from physical time, in the schema and in the code | Accepted |
-| [0013](0013-tempo-ramps-are-linear-in-musical-position.md) | Tempo ramps are linear in musical position, and a tempo map's validity rules | Accepted |
+| [0013](0013-tempo-ramp-shape-is-a-score-setting-physical-time-by-default.md) | The tempo ramp shape is a Score setting, linear in physical time by default, and a tempo map's validity rules | Accepted |
 | [0014](0014-resolve-time-collisions-by-semantic-order.md) | Resolve physical-time collisions by semantic order: the later state wins, and only the tail yields | Accepted |
 | [0015](0015-the-lowest-hzl-level-is-the-canonical-model-as-tables.md) | The lowest HzL level is the canonical model as tables, emitted as Cypher | Accepted |
 | [0016](0016-serve-rest-with-cpp-httplib-one-call-at-a-time.md) | Serve REST with cpp-httplib, one call at a time, holding one score | Accepted |

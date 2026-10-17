@@ -83,7 +83,7 @@ in HzL terms, rather than left for the engine to refuse: amplitude in
 
 | HzL | `engine-db` |
 | --- | --- |
-| `score` | `Score`, `NEXT_POINT → TempoMap` |
+| `score` | `Score`, with `tempo_ramp_physical_time` from `tempo_ramp` (true unless `musical_position`, always written), `NEXT_POINT → TempoMap` |
 | `tempo_map` and its points | `TempoMap`, chain of `TempoMapPoint` |
 | `sound_entity`, `sound_source` | `SoundEntity`, `SoundSource`, with `HAS_SOUNDENTITY`, `HAS_SOUNDSOURCE` |
 | `envelope` | `PartialSet` + `PartialSetMusicalTimeline`, `HAS_PARTIALSET`, `HAS_MUSICAL_TIMELINE` |

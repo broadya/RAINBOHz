@@ -6,15 +6,17 @@
 //
 // A TempoMap is a NEXT_POINT list of TempoMapPoints. Each point sets the tempo
 // at the start of the segment it opens; `hold` says whether that tempo holds
-// until the next point or ramps linearly to the next point's tempo. The
-// design, with the rules a valid map obeys and the segment formulas, is
-// docs/transform.md section 6.1 and ADR 0013. In outline:
+// until the next point or ramps to the next point's tempo. The design, with
+// the rules a valid map obeys and the segment formulas, is docs/transform.md
+// section 6.1 and ADR 0013. In outline:
 //
 //   - positions are ticks of this map, strictly increasing, the first at 0;
 //   - the last point holds, so tempo continues indefinitely after it, and a
 //     one-point map is "this tempo forever";
-//   - a ramp is linear in musical position, the DAW convention, which gives a
-//     closed form for the elapsed seconds (secondsThrough).
+//   - a ramp has one of two shapes, chosen for the whole Score by
+//     Score.tempo_ramp_physical_time: linear in physical time (the default,
+//     as in REAPER) or linear in musical position. Both give a closed form
+//     for the elapsed seconds (secondsThrough).
 //
 // The class is built once per map from validated points and answers
 // toSeconds() in O(log n) from cumulative seconds kept at each point.
@@ -29,6 +31,26 @@
 #include <vector>
 
 namespace rainbohz::rendering_engine::transform {
+
+/// The shape of every tempo ramp in a Score (@see ADR 0013).
+enum class TempoRamp : std::uint8_t {
+    /// The tempo changes at a constant rate per second, dT/dt constant. The
+    /// default, used when Score.tempo_ramp_physical_time is NULL or true.
+    PhysicalTime,
+
+    /// The tempo changes at a constant rate per beat, dT/db constant. Used
+    /// when Score.tempo_ramp_physical_time is false.
+    MusicalPosition,
+};
+
+/// The ramp shape that Score.tempo_ramp_physical_time selects.
+///
+/// @param tempoRampPhysicalTime  The property as read; nullopt for NULL.
+/// @return PhysicalTime for NULL or true; MusicalPosition for false.
+constexpr TempoRamp tempoRampFromScore(std::optional<bool> tempoRampPhysicalTime) noexcept {
+    return tempoRampPhysicalTime.value_or(true) ? TempoRamp::PhysicalTime
+                                                : TempoRamp::MusicalPosition;
+}
 
 /// Thrown when a TempoMap is not valid under the rules of docs/transform.md
 /// section 6.1. The message names the point by its position in the list,
@@ -63,23 +85,28 @@ struct TempoMapPoint {
     Tempo tempo{0.0};
 
     /// True when the tempo holds until the next point; false when it ramps
-    /// linearly to the next point's tempo. Always true on the last point.
+    /// to the next point's tempo, in the map's TempoRamp shape. Always true
+    /// on the last point.
     bool hold = true;
 };
 
 /// The seconds elapsed from the start of a segment to a point inside it.
 ///
-/// The tempo ramps linearly in musical position from `from` at the segment's
-/// start to `to` at its end, so at `elapsed` ticks it is
-/// `T = from + (to − from) · elapsed / length`, and the elapsed seconds are
-/// the integral of 60 / T over the beats covered:
+/// The tempo goes from `from` at the segment's start to `to` at its end, in
+/// the shape `ramp`. With e = elapsed / length, the fraction of the segment's
+/// beats covered:
 ///
-///   60 · length_beats · ln(T / from) / (to − from)   when from ≠ to
-///   60 · elapsed_beats / from                        when from = to
+///   linear in physical time:   T² = from² + (to² − from²) · e, and the
+///                              seconds are 120 · elapsed_beats / (from + T),
+///                              the beats over their mean tempo;
+///   linear in musical position: T = from + (to − from) · e, and the seconds
+///                              are 60 · length_beats · ln(T / from) /
+///                              (to − from), the integral of 60 / T.
 ///
-/// The second form is a held tempo, and also the limit of the first as the
-/// ramp flattens. `length` is not used in the held case, so a held or final
-/// segment may pass any value for it.
+/// When from = to both reduce to 60 · elapsed_beats / from, which is computed
+/// directly so that a held tempo gives the same result in either shape.
+/// `length` is not used in that case, so a held or final segment may pass any
+/// value for it.
 ///
 /// @param from        Tempo at the segment's start, BPM. Positive.
 /// @param to          Tempo at the segment's end, BPM. Positive.
@@ -89,9 +116,10 @@ struct TempoMapPoint {
 ///                    about, in [0, length] for a ramp; any non-negative value
 ///                    for a held tempo.
 /// @param resolution  Ticks per beat of the map. Positive.
+/// @param ramp        The shape of the ramp.
 /// @return The elapsed seconds.
 SecondsDuration secondsThrough(Tempo from, Tempo to, MusicalDuration length,
-    MusicalDuration elapsed, TicksPerBeat resolution) noexcept;
+    MusicalDuration elapsed, TicksPerBeat resolution, TempoRamp ramp) noexcept;
 
 /// A validated tempo map that converts musical time to seconds.
 class TempoMap {
@@ -103,20 +131,23 @@ public:
     ///                    rules of docs/transform.md section 6.1: at least
     ///                    one; the first at position 0; positions strictly
     ///                    increasing; tempos in [1, 1000]; the last holding.
+    /// @param ramp        The shape of every ramp, from the Score.
     /// @throws TempoMapError  If any rule is broken. The message says which,
     ///         and names the point by its position in the list.
-    TempoMap(TicksPerBeat resolution, std::vector<TempoMapPoint> points);
+    TempoMap(TicksPerBeat resolution, std::vector<TempoMapPoint> points, TempoRamp ramp);
 
     /// Validates records as read from engine-db and builds the map.
     ///
     /// @param ticksPerBeat  TempoMap.ticks_per_beat; nullopt for NULL.
     /// @param records       The map's TempoMapPoints in NEXT_POINT order.
+    /// @param ramp          The shape of every ramp, from the Score (see
+    ///                      tempoRampFromScore()).
     /// @return The map.
     /// @throws TempoMapError  If `ticksPerBeat` is NULL or not positive; a
     ///         point's position, tempo or hold is NULL; a tempo is not
     ///         finite; or the rules of the constructor are broken.
-    static TempoMap fromRecords(
-        std::optional<std::int64_t> ticksPerBeat, std::span<const TempoMapPointRecord> records);
+    static TempoMap fromRecords(std::optional<std::int64_t> ticksPerBeat,
+        std::span<const TempoMapPointRecord> records, TempoRamp ramp);
 
     /// The seconds from the start of the map to a musical position.
     ///
@@ -135,6 +166,11 @@ public:
     /// @return Ticks per beat, as given to the constructor.
     TicksPerBeat ticksPerBeat() const noexcept { return resolution_; }
 
+    /// The shape of the map's ramps.
+    ///
+    /// @return The shape given to the constructor.
+    TempoRamp ramp() const noexcept { return ramp_; }
+
     /// The map's points, in order.
     ///
     /// @return The validated points; never empty. Valid while this map is.
@@ -143,6 +179,9 @@ public:
 private:
     /// Ticks per beat, as given to the constructor.
     TicksPerBeat resolution_;
+
+    /// The shape of every ramp, as given to the constructor.
+    TempoRamp ramp_;
 
     /// The validated points, in list order; never empty.
     std::vector<TempoMapPoint> points_;

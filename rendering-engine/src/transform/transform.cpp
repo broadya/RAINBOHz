@@ -66,11 +66,12 @@ using IdMap = std::unordered_map<std::int64_t, std::int64_t>;
 /// Reads the engine's configured sample rate.
 constexpr std::string_view kReadConfig = "MATCH (c:EngineConfig) RETURN c.sampleRate;";
 
-/// A Score and the TempoMap that defines its time zero, if it has one.
-/// NEXT_POINT is ONE_ONE per pair, so there is at most one row per Score.
+/// A Score, its ramp shape, and the TempoMap that defines its time zero, if
+/// it has one. NEXT_POINT is ONE_ONE per pair, so there is at most one row
+/// per Score.
 constexpr std::string_view kReadScores =
     "MATCH (s:Score) OPTIONAL MATCH (s)-[:NEXT_POINT]->(m:TempoMap) "
-    "RETURN s.id, m.id, m.name, m.ticks_per_beat ORDER BY s.id;";
+    "RETURN s.id, m.id, m.name, m.ticks_per_beat, s.tempo_ramp_physical_time ORDER BY s.id;";
 
 /// Each TempoMap's point-list head, by TempoMap.id.
 constexpr std::string_view kReadTempoMapHeads =
@@ -413,6 +414,9 @@ struct ScoreRecord {
     std::optional<std::int64_t> tempoMapId;   ///< Its TempoMap; nullopt if it has none.
     std::optional<std::string> tempoMapName;  ///< That TempoMap's name.
     std::optional<std::int64_t> ticksPerBeat; ///< That TempoMap's ticks_per_beat.
+
+    /// Score.tempo_ramp_physical_time; nullopt for NULL, which means true.
+    std::optional<bool> tempoRampPhysicalTime;
 };
 
 /// A PartialSet with a musical timeline, as read.
@@ -650,6 +654,7 @@ Inputs readInputs(EngineDb& db) {
             .tempoMapId = optionalInt64(row.at(1)),
             .tempoMapName = optionalString(row.at(2)),
             .ticksPerBeat = optionalInt64(row.at(3)),
+            .tempoRampPhysicalTime = optionalBool(row.at(4)),
         });
     }
     for (const DbRow& row : db.query(kReadTempoMapHeads)) {
@@ -822,13 +827,15 @@ std::map<std::int64_t, ScoreTempoMap> buildTempoMaps(
             for (const std::int64_t id : walkList<TempoMapError>(head, inputs.tempoMapNext, what)) {
                 records.push_back(inputs.tempoMapPoints.at(id));
             }
-            TempoMap map = TempoMap::fromRecords(score.ticksPerBeat, records);
+            TempoMap map = TempoMap::fromRecords(
+                score.ticksPerBeat, records, tempoRampFromScore(score.tempoRampPhysicalTime));
             report.tempoMaps.push_back(TempoMapSummary{
                 .scoreId = score.scoreId,
                 .tempoMapId = mapId,
                 .name = score.tempoMapName,
                 .ticksPerBeat = map.ticksPerBeat().value(),
                 .pointCount = map.points().size(),
+                .rampPhysicalTime = map.ramp() == TempoRamp::PhysicalTime,
             });
             maps.emplace(score.scoreId, ScoreTempoMap{.mapId = mapId, .map = std::move(map)});
         } catch (const TempoMapError& e) {

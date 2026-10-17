@@ -93,6 +93,7 @@ Each level lists the next with a musical time; the times add.
 score:
   ...header...
   tempo_map: {namespace: tempo_maps, name: main}
+  tempo_ramp: physical_time      # or musical_position; default physical_time (§5)
   sound_entities:
     - sound_entity: {namespace: entities, name: pad}
       position: "0:0"            # where the entity starts; default 0:0
@@ -130,15 +131,25 @@ tempo_map:
     - tempo_map_point:
         position: "0:0"          # ticks of this map; the first must be 0:0
         tempo: 120.0             # BPM from here
-        hold: false              # false: ramp linearly in position to the next tempo
+        hold: false              # false: ramp to the next tempo, in the score's tempo_ramp shape
     - tempo_map_point:
         position: "4:0"          # strictly after the previous
         tempo: 60.0
         hold: true               # the last point must hold
 ```
 
-A ramp is linear in musical position (ADR 0013). A score has one tempo map
-in this version.
+A ramp's shape is set once for the whole score, by the score's optional
+`tempo_ramp` (ADR 0013):
+
+- `physical_time`, the default: the tempo changes at a constant rate per
+  second, as in REAPER. 120 → 60 BPM over four beats takes four beats at the
+  mean tempo of 90, 2.667 s.
+- `musical_position`: the tempo changes at a constant rate per beat. The same
+  ramp takes 4 ln 2 = 2.773 s.
+
+A held tempo is the same in either shape. The compiler always writes the
+choice to `Score.tempo_ramp_physical_time`, so the database never relies on
+its NULL default. A score has one tempo map in this version.
 
 ## 6. State sets
 

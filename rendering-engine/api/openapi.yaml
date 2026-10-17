@@ -212,6 +212,7 @@ paths:
                 id: 0
                 name: Main
                 ticks_per_beat: 960
+                tempo_ramp_physical_time: true
                 children: []
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -611,8 +612,17 @@ components:
       allOf:
         - $ref: "#/components/schemas/TempoMap"
         - type: object
-          required: [children]
+          required: [tempo_ramp_physical_time, children]
           properties:
+            tempo_ramp_physical_time:
+              type: boolean
+              description: |
+                The shape of every tempo ramp in the Score: true when a ramp is
+                linear in physical time (its tempo changes at a constant rate
+                per second), false when it is linear in musical position (a
+                constant rate per beat). Score.tempo_ramp_physical_time, with
+                NULL resolved to true, the default (ADR 0013). A client needs
+                it to interpret a point whose hold is false.
             children:
               type: array
               items:
@@ -644,7 +654,7 @@ components:
           description: The tempo at the position, BPM.
         hold:
           type: [boolean, "null"]
-          description: True when the tempo holds to the next point; false when it ramps linearly to it.
+          description: True when the tempo holds to the next point; false when it ramps to it, in the shape the root map's tempo_ramp_physical_time gives.
 
     TempoMapPointPage:
       type: object

@@ -987,6 +987,55 @@ TEST_F(TransformDb, TransformsASimpleScore) {
     EXPECT_DOUBLE_EQ(std::get<1>(amplitude[1]), -12.0);
 }
 
+/// Turns addScore()'s map into 120 BPM ramping to 60 over four beats, then
+/// held, adds a set with points at beats 0 and 4, transforms, and returns
+/// the report and the physical time of the beat-4 point.
+///
+/// @param[in,out] db    Database with addScore() applied. Transformed.
+/// @param physicalTime  Score.tempo_ramp_physical_time; nullopt leaves it
+///                      NULL.
+/// @return The report and the sample time of the second frequency node.
+std::pair<TransformReport, double> transformTheRamp(
+    EngineDb& db, const std::optional<bool>& physicalTime) {
+    db.execute("MATCH (p:TempoMapPoint) SET p.hold = false "
+               "CREATE (p)-[:NEXT_POINT]->(:TempoMapPoint {position: 3840, "
+               "start_tempo: 60.0, hold: true});");
+    if (physicalTime.has_value()) {
+        db.execute(std::string{"MATCH (s:Score) SET s.tempo_ramp_physical_time = "} +
+                   (*physicalTime ? "true;" : "false;"));
+    }
+    addMusicalSet(db, "P", {"A"},
+        {
+            MusicalPoint{.sync = 0, .offset = 0.0, .states = {state("A", 440.0, -6.0)}},
+            MusicalPoint{.sync = 3840, .offset = 0.0, .states = {state("A", 440.0, -12.0)}},
+        });
+    TransformReport report = transformAll(db);
+    const auto frequency = physicalPoints(db, "A", "FrequencyPhysicalTimeline", "frequency");
+    const double beatFour = frequency.size() == 2 ? std::get<0>(frequency[1]) : -1.0;
+    return {std::move(report), beatFour};
+}
+
+TEST_F(TransformDb, ARampIsLinearInPhysicalTimeByDefault) {
+    // Four beats from 120 to 60 at their mean tempo, 90: 8/3 s.
+    addScore(db);
+    const auto [report, beatFour] = transformTheRamp(db, std::nullopt);
+    ASSERT_TRUE(report.ok());
+    ASSERT_EQ(report.tempoMaps.size(), 1U);
+    EXPECT_TRUE(report.tempoMaps[0].rampPhysicalTime);
+    EXPECT_EQ(report.tempoMaps[0].pointCount, 2U);
+    EXPECT_NEAR(beatFour, 8.0 / 3.0 * 48000.0, 1e-6);
+}
+
+TEST_F(TransformDb, TheScoreCanMakeRampsLinearInMusicalPosition) {
+    // The same ramp with Score.tempo_ramp_physical_time false: 4 ln 2 s.
+    addScore(db);
+    const auto [report, beatFour] = transformTheRamp(db, false);
+    ASSERT_TRUE(report.ok());
+    ASSERT_EQ(report.tempoMaps.size(), 1U);
+    EXPECT_FALSE(report.tempoMaps[0].rampPhysicalTime);
+    EXPECT_NEAR(beatFour, 4.0 * std::numbers::ln2 * 48000.0, 1e-6);
+}
+
 TEST_F(TransformDb, ANullPropertyOrAMissingStateIsNotAnEnvelopeNode) {
     addScore(db);
     addMusicalSet(db, "P", {"A", "B"},

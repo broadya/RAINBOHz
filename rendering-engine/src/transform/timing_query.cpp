@@ -43,15 +43,16 @@ using Kind = TimingQueryError::Kind;
 constexpr std::string_view kFindMap =
     "MATCH (m:TempoMap {id: $id}) RETURN m.id, m.name, m.ticks_per_beat;";
 
-/// Each Score and its root TempoMap, if it has one.
+/// Each Score, its ramp shape, and its root TempoMap, if it has one.
 /// NEXT_POINT is ONE_ONE per pair, so there is at most one row per Score.
 constexpr std::string_view kReadScores =
     "MATCH (s:Score) OPTIONAL MATCH (s)-[:NEXT_POINT]->(m:TempoMap) "
-    "RETURN s.id, m.id, m.name, m.ticks_per_beat ORDER BY s.id;";
+    "RETURN s.id, m.id, m.name, m.ticks_per_beat, s.tempo_ramp_physical_time ORDER BY s.id;";
 
-/// The Scores whose root TempoMap is the map $id; none when it is not a root.
-constexpr std::string_view kScoresOfMap =
-    "MATCH (s:Score)-[:NEXT_POINT]->(m:TempoMap {id: $id}) RETURN s.id;";
+/// The Score whose root TempoMap is the map $id, with its ramp shape; no row
+/// when the map is not a root. NEXT_POINT is ONE_ONE, so there is at most one.
+constexpr std::string_view kScoresOfMap = "MATCH (s:Score)-[:NEXT_POINT]->(m:TempoMap {id: $id}) "
+                                          "RETURN s.id, s.tempo_ramp_physical_time;";
 
 /// The child TempoMaps of the map $id, with their synchronization points.
 /// The edge runs from child to parent.
@@ -239,6 +240,8 @@ TempoMapNode readRootTempoMap(EngineDb& db) {
     TempoMapNode root{.map = TempoMapInfo{.id = requireInt64(score.at(1)),
                           .name = optionalString(score.at(2)),
                           .ticksPerBeat = optionalInt64(score.at(3))},
+        .tempoRampPhysicalTime =
+            tempoRampFromScore(optionalBool(score.at(4))) == TempoRamp::PhysicalTime,
         .children = {}};
     root.children = readTempoMapChildren(db, root.map.id);
     return root;
@@ -320,12 +323,16 @@ EngineParameters readEngineParameters(EngineDb& db) {
 
 FramePosition framePosition(EngineDb& db, std::int64_t mapId, BeatsTicks at) {
     const TempoMapInfo map = requireMap(db, mapId);
-    if (db.query(kScoresOfMap, {{"id", mapId}}).empty()) {
+    const std::vector<DbRow> scores = db.query(kScoresOfMap, {{"id", mapId}});
+    if (scores.empty()) {
         throw TimingQueryError{Kind::Unprocessable,
             describeMap(mapId) +
                 " is not the TempoMap of a Score; only a root map converts to samples in this "
                 "version, since synchronised maps are not implemented"};
     }
+    // The ramp shape belongs to the Score. NEXT_POINT is ONE_ONE, so the map
+    // has exactly one.
+    const TempoRamp ramp = tempoRampFromScore(optionalBool(scores.front().at(1)));
     if (!map.ticksPerBeat.has_value() || *map.ticksPerBeat <= 0 ||
         *map.ticksPerBeat > std::numeric_limits<std::int32_t>::max()) {
         throw TimingQueryError{
@@ -355,7 +362,7 @@ FramePosition framePosition(EngineDb& db, std::int64_t mapId, BeatsTicks at) {
     });
     std::optional<TempoMap> tempoMap;
     try {
-        tempoMap.emplace(TempoMap::fromRecords(map.ticksPerBeat, records));
+        tempoMap.emplace(TempoMap::fromRecords(map.ticksPerBeat, records, ramp));
     } catch (const TempoMapError& e) {
         throw TimingQueryError{Kind::Unprocessable, describeMap(mapId) + ": " + e.what()};
     }

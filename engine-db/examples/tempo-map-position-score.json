@@ -1,0 +1,77 @@
+{
+  "_comment": "Mirror of tempo-map-position-score.cypher for rendering-engine/test/oracle/render_oracle.py: the physical values the transform must produce. Times in samples, frequencies in radians per sample, amplitudes in dB. Set and partial ids are the SERIAL ids the score gets when loaded alone. Point times are the tempo map's seconds times 48000: beats 0, 2, 4 and 8 of a 120->60 BPM ramp over four beats, linear in musical position (Score.tempo_ramp_physical_time false), then a hold.",
+  "sample_rate": 48000,
+  "partial_sets": [
+    {
+      "id": 0,
+      "partials": [
+        {
+          "id": 0,
+          "frequency": [
+            [
+              0.0,
+              0.05759586531581288
+            ],
+            [
+              55234.957910741934,
+              0.05759586531581288
+            ],
+            [
+              133084.2586675095,
+              0.02879793265790644
+            ],
+            [
+              325084.25866750954,
+              0.02879793265790644
+            ]
+          ],
+          "amplitude": [
+            [
+              0.0,
+              -6.0
+            ],
+            [
+              55234.957910741934,
+              -6.0
+            ],
+            [
+              133084.2586675095,
+              -12.0
+            ],
+            [
+              325084.25866750954,
+              -144.0
+            ]
+          ]
+        },
+        {
+          "id": 1,
+          "frequency": [
+            [
+              0.0,
+              0.08639379797371931
+            ],
+            [
+              325084.25866750954,
+              0.043196898986859654
+            ]
+          ],
+          "amplitude": [
+            [
+              0.0,
+              -6.0
+            ],
+            [
+              133084.2586675095,
+              -24.0
+            ],
+            [
+              325084.25866750954,
+              -144.0
+            ]
+          ]
+        }
+      ]
+    }
+  ]
+}

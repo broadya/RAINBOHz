@@ -30,8 +30,8 @@ class TempoMapPoint:
         position: Where the point is, on this map.
         position_ticks: The same, as ticks of this map.
         tempo: BPM from this point, in [1, 1000].
-        hold: True holds `tempo` until the next point; False ramps linearly in
-            musical position to the next point's tempo.
+        hold: True holds `tempo` until the next point; False ramps to the next
+            point's tempo, in the score's `tempo_ramp` shape.
     """
 
     position: MusicalTime

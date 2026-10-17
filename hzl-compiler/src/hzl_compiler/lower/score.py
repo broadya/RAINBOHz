@@ -33,7 +33,7 @@ from ..canonical.model import (
 from ..errors import Where
 from ..hzl.common import FREE_RUN, Phase
 from ..hzl.envelope import load_envelope
-from ..hzl.score import load_score
+from ..hzl.score import TempoRamp, load_score
 from ..hzl.sound_entity import load_sound_entity
 from ..hzl.sound_source import load_sound_source
 from ..hzl.tempo_map import load_tempo_map
@@ -100,7 +100,9 @@ def lower_score(tree: SourceTree, ref: Ref, options: EngineOptions = EngineOptio
     model = Model()
     model.add(EngineConfigRow(options.sample_rate, options.channel_mode))
 
-    score_key = model.add(ScoreRow(score.header.qualified_name))
+    score_key = model.add(
+        ScoreRow(score.header.qualified_name, score.tempo_ramp is TempoRamp.PHYSICAL_TIME)
+    )
     for label in score.header.labels:
         model.link("HAS_LABEL", score_key, model.label(label))
 

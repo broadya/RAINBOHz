@@ -9,9 +9,13 @@
 // transform must produce; keep the two in step.
 //
 // The tempo map has 960 ticks per beat and two points: 120 BPM at
-// tick 0 ramping linearly in musical position to 60 BPM at tick
-// 3840 (four beats), which then holds. So beats 0..4 take 4 ln 2
-// = 2.7726 s and every beat after that takes one second.
+// tick 0 ramping to 60 BPM at tick 3840 (four beats), which then
+// holds. The Score leaves tempo_ramp_physical_time NULL, so the
+// ramp is linear in physical time, the default (ADR 0013): beats
+// 0..4 take four beats at the mean tempo of 90, 8/3 = 2.6667 s,
+// and every beat after that takes one second.
+// tempo-map-position-score.cypher is the same score with the ramp
+// linear in musical position.
 //
 // One partial set, "Chord", with two partials, and a timeline of
 // four points at beats 0, 2, 4 and 8. Partial A has a state at

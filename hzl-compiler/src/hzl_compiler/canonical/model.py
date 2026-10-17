@@ -70,10 +70,11 @@ class EngineConfigRow(Row):
 
 @dataclass(frozen=True)
 class ScoreRow(Row):
-    """A `Score`."""
+    """A `Score`, with the shape of its tempo ramps (ADR 0013)."""
 
     TABLE: ClassVar[str] = "Score"
     name: str
+    tempo_ramp_physical_time: bool
 
 
 @dataclass(frozen=True)

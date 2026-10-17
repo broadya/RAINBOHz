@@ -110,6 +110,12 @@ struct TempoMapNode {
     /// The map.
     TempoMapInfo map;
 
+    /// Whether the Score's ramps are linear in physical time (true) or in
+    /// musical position (false): Score.tempo_ramp_physical_time, with NULL
+    /// resolved to true (@see ADR 0013). A client needs it to interpret a
+    /// point with `hold` false.
+    bool tempoRampPhysicalTime = true;
+
     /// Its children, in child id order. A child joined by two edges appears
     /// twice, once per edge.
     std::vector<TempoMapChild> children;

@@ -51,19 +51,31 @@ std::string formatNumber(double value) {
 } // namespace
 
 SecondsDuration secondsThrough(Tempo from, Tempo to, MusicalDuration length,
-    MusicalDuration elapsed, TicksPerBeat resolution) noexcept {
+    MusicalDuration elapsed, TicksPerBeat resolution, TempoRamp ramp) noexcept {
     constexpr double kSecondsPerMinute = 60.0;
     if (from == to) {
         return SecondsDuration{kSecondsPerMinute * beats(elapsed, resolution) / from.value()};
     }
-    const double slope = (to.value() - from.value()) / static_cast<double>(length.value());
-    const double tempoAt = from.value() + (slope * static_cast<double>(elapsed.value()));
-    return SecondsDuration{kSecondsPerMinute * beats(length, resolution) *
-                           std::log(tempoAt / from.value()) / (to.value() - from.value())};
+    const double fraction =
+        static_cast<double>(elapsed.value()) / static_cast<double>(length.value());
+    const double start = from.value();
+    const double end = to.value();
+    if (ramp == TempoRamp::PhysicalTime) {
+        // The tempo is linear in time, so over the elapsed part it averages
+        // (start + T) / 2, where T² is linear in beats. This form has no
+        // cancellation as the ramp flattens.
+        const double tempoAt =
+            std::sqrt((start * start) + (((end * end) - (start * start)) * fraction));
+        return SecondsDuration{
+            2.0 * kSecondsPerMinute * beats(elapsed, resolution) / (start + tempoAt)};
+    }
+    const double tempoAt = start + ((end - start) * fraction);
+    return SecondsDuration{
+        kSecondsPerMinute * beats(length, resolution) * std::log(tempoAt / start) / (end - start)};
 }
 
-TempoMap::TempoMap(TicksPerBeat resolution, std::vector<TempoMapPoint> points)
-    : resolution_{resolution}, points_{std::move(points)} {
+TempoMap::TempoMap(TicksPerBeat resolution, std::vector<TempoMapPoint> points, TempoRamp ramp)
+    : resolution_{resolution}, ramp_{ramp}, points_{std::move(points)} {
     if (resolution_.value() <= 0) {
         throw TempoMapError{
             "ticks_per_beat is " + std::to_string(resolution_.value()) + "; it must be positive"};
@@ -104,13 +116,13 @@ TempoMap::TempoMap(TicksPerBeat resolution, std::vector<TempoMapPoint> points)
         const TempoMapPoint& start = points_[i - 1];
         const MusicalDuration length = points_[i].position - start.position;
         const Tempo end = start.hold ? start.tempo : points_[i].tempo;
-        at += secondsThrough(start.tempo, end, length, length, resolution_);
+        at += secondsThrough(start.tempo, end, length, length, resolution_, ramp_);
         secondsAt_.push_back(at);
     }
 }
 
-TempoMap TempoMap::fromRecords(
-    std::optional<std::int64_t> ticksPerBeat, std::span<const TempoMapPointRecord> records) {
+TempoMap TempoMap::fromRecords(std::optional<std::int64_t> ticksPerBeat,
+    std::span<const TempoMapPointRecord> records, TempoRamp ramp) {
     if (!ticksPerBeat.has_value()) {
         throw TempoMapError{"ticks_per_beat is NULL"};
     }
@@ -137,7 +149,8 @@ TempoMap TempoMap::fromRecords(
             .hold = *record.hold,
         });
     }
-    return TempoMap{TicksPerBeat{static_cast<std::int32_t>(*ticksPerBeat)}, std::move(points)};
+    return TempoMap{
+        TicksPerBeat{static_cast<std::int32_t>(*ticksPerBeat)}, std::move(points), ramp};
 }
 
 SecondsTime TempoMap::toSeconds(MusicalTime at) const {
@@ -155,7 +168,8 @@ SecondsTime TempoMap::toSeconds(MusicalTime at) const {
     const MusicalDuration elapsed = at - start.position;
     const MusicalDuration length = last ? elapsed : points_[index + 1].position - start.position;
     const Tempo end = (start.hold || last) ? start.tempo : points_[index + 1].tempo;
-    return secondsAt_[index] + secondsThrough(start.tempo, end, length, elapsed, resolution_);
+    return secondsAt_[index] +
+           secondsThrough(start.tempo, end, length, elapsed, resolution_, ramp_);
 }
 
 } // namespace rainbohz::rendering_engine::transform

@@ -2,6 +2,7 @@ classDiagram
     class Score {
         +SERIAL id_pk
         +STRING name
+        +BOOLEAN tempo_ramp_physical_time
     }
     class SoundSource {
         +SERIAL id_pk
@@ -448,11 +449,6 @@ classDiagram
     }
     PartialSegmentPhysicalTimeline "1" -- NEXT_POINT__PartialSegmentPhysicalTimeline__PartialPhaseCompensationSegment
     NEXT_POINT__PartialSegmentPhysicalTimeline__PartialPhaseCompensationSegment -- "1" PartialPhaseCompensationSegment
-    class NEXT_POINT__SpatialPositionMusicalTimeline__SpatialPositionMusicalTimelinePoint["NEXT_POINT"] {
-        <<REL>>
-    }
-    SpatialPositionMusicalTimeline "1" -- NEXT_POINT__SpatialPositionMusicalTimeline__SpatialPositionMusicalTimelinePoint
-    NEXT_POINT__SpatialPositionMusicalTimeline__SpatialPositionMusicalTimelinePoint -- "1" SpatialPositionMusicalTimelinePoint
     class NEXT_POINT__AmplitudePhysicalTimeline__AmplitudePhysicalTimelinePoint["NEXT_POINT"] {
         <<REL>>
     }
@@ -528,6 +524,11 @@ classDiagram
     }
     PartialSetMusicalTimeline "1" -- NEXT_POINT__PartialSetMusicalTimeline__PartialSetMusicalTimelinePoint
     NEXT_POINT__PartialSetMusicalTimeline__PartialSetMusicalTimelinePoint -- "1" PartialSetMusicalTimelinePoint
+    class NEXT_POINT__SpatialPositionMusicalTimeline__SpatialPositionMusicalTimelinePoint["NEXT_POINT"] {
+        <<REL>>
+    }
+    SpatialPositionMusicalTimeline "1" -- NEXT_POINT__SpatialPositionMusicalTimeline__SpatialPositionMusicalTimelinePoint
+    NEXT_POINT__SpatialPositionMusicalTimeline__SpatialPositionMusicalTimelinePoint -- "1" SpatialPositionMusicalTimelinePoint
     class NEXT_POINT__PartialIntegrableSegment__PartialIntegrableSegment["NEXT_POINT"] {
         <<REL>>
     }
@@ -538,11 +539,6 @@ classDiagram
     }
     PartialPhaseCompensationSegment "1" -- NEXT_POINT__PartialPhaseCompensationSegment__PartialPhaseCompensationSegment
     NEXT_POINT__PartialPhaseCompensationSegment__PartialPhaseCompensationSegment -- "1" PartialPhaseCompensationSegment
-    class NEXT_POINT__SpatialPositionMusicalTimelinePoint__SpatialPositionMusicalTimelinePoint["NEXT_POINT"] {
-        <<REL>>
-    }
-    SpatialPositionMusicalTimelinePoint "1" -- NEXT_POINT__SpatialPositionMusicalTimelinePoint__SpatialPositionMusicalTimelinePoint
-    NEXT_POINT__SpatialPositionMusicalTimelinePoint__SpatialPositionMusicalTimelinePoint -- "1" SpatialPositionMusicalTimelinePoint
     class NEXT_POINT__AmplitudePhysicalTimelinePoint__AmplitudePhysicalTimelinePoint["NEXT_POINT"] {
         <<REL>>
     }
@@ -613,6 +609,11 @@ classDiagram
     }
     PartialSetMusicalTimelinePoint "1" -- NEXT_POINT__PartialSetMusicalTimelinePoint__PartialSetMusicalTimelinePoint
     NEXT_POINT__PartialSetMusicalTimelinePoint__PartialSetMusicalTimelinePoint -- "1" PartialSetMusicalTimelinePoint
+    class NEXT_POINT__SpatialPositionMusicalTimelinePoint__SpatialPositionMusicalTimelinePoint["NEXT_POINT"] {
+        <<REL>>
+    }
+    SpatialPositionMusicalTimelinePoint "1" -- NEXT_POINT__SpatialPositionMusicalTimelinePoint__SpatialPositionMusicalTimelinePoint
+    NEXT_POINT__SpatialPositionMusicalTimelinePoint__SpatialPositionMusicalTimelinePoint -- "1" SpatialPositionMusicalTimelinePoint
     class HAS_PHYSICAL_TIMELINE__Partial__AmplitudePhysicalTimeline["HAS_PHYSICAL_TIMELINE"] {
         <<REL>>
     }

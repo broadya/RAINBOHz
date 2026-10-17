@@ -598,6 +598,7 @@ HttpReply ServerCore::tempoMapRoot(const QueryParameters& query) {
         [](EngineDb& db, std::string& verdict) {
             const TempoMapNode root = readRootTempoMap(db);
             Json body = mapJson(root.map);
+            body["tempo_ramp_physical_time"] = root.tempoRampPhysicalTime;
             body["children"] = childrenJson(root.children);
             verdict = "root TempoMap " + std::to_string(root.map.id) + ", " +
                       std::to_string(root.children.size()) + " child(ren)";

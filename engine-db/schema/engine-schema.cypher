@@ -159,10 +159,15 @@
 // Score: An entire piece of music to be rendered. Expected to
 // be a singleton, but it is possible that some (future) use
 // cases could call for multiple scores.
+//
+// tempo_ramp_physical_time defines whether tempo ramps are
+// linear in physical time units (seconds or samples) or
+// in musical time units (beats).
 // ============================================================
 CREATE NODE TABLE Score (
-    id      SERIAL,
-    name    STRING,
+    id                        SERIAL,
+    name                      STRING,
+    tempo_ramp_physical_time  BOOLEAN,
     PRIMARY KEY(id)
 );
 
@@ -459,7 +464,7 @@ CREATE NODE TABLE TempoMap (
 //
 // If hold is false, then there is a linear tempo change to the
 // next segment start tempo. Linear means that the rate of
-// change of BPM is constant.
+// change is according to that specified in the flag of Score.
 // ============================================================
 CREATE NODE TABLE TempoMapPoint (
     id              SERIAL,
@@ -472,18 +477,41 @@ CREATE NODE TABLE TempoMapPoint (
 // ============================================================
 // TEMPO_MAP_SYNCHRONIZATION_POINT: Defines the relationship in
 // time between tempo maps. It is a relationship from child to
-// parent. Where a child has more than one parent, the tempos
-// between synchronization points are relative not absolute,
-// with any segments either before the first synchronization
-// point being scaled by the same factor as the first relative
-// segment. Equally any segments after the last synchronization
-// point being scaled by the same factor as the last relative
-// segment.
+// parent. This forms a directed acyclic graph between TempoMaps
+// independently of the times at which the synchronization points
+// occur.
+//
+// A child can have many parents. A child can link to any point
+// "further back" in this "ancestry".
+//
+// Conversion to physical time starts at the root node of the
+// DAG and proceeds in parent to child order, so that whenever
+// a child's conversion needs to take place, the position in
+// physical time of all parents is known.
+//
+// Where a child has exactly one synchronization point,
+// this is only a shift in position in time, without a shift
+// in tempo.
+//
+// Where a child has more than one synchronization point,
+// this causes time stretching to occur. The amount of time
+// expressed in beats, between two synchronization points
+// remains the same but tempos are adjusted.
+//
+// When there are multiple TempoMapPoints between two
+// synchronization points, they retain their relative
+// tempi and their relative positions in time.
+//
+// At the two ends of a TempoMap that includes this time
+// stretching, if there is a tempo ramp (hold == false),
+// then the ramp is smooth to the time stretched adjusted
+// tempo for each end. This results in a change in physical
+// time for the placement of those ends.
 //
 // It is invalid to create synchronization points that result in
 // out-of-order playback, this will be detected in the
 // compilation to the rendering model (if not earlier) and
-// reported as an error.
+// reported as a fatal error.
 // ============================================================
 CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
     FROM TempoMap TO TempoMap,  // child to parent
@@ -612,9 +640,9 @@ CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
 // ------------------------------------------------------------
 // time                             samples
 // ------------------------------------------------------------
-// In the rendering model, time is measured based on the the
+// In the rendering model, time is measured based on the
 // sample rate. This is expressed using either
-//  continuous or discrete time depending upon the situation.
+// continuous or discrete time depending upon the situation.
 //
 // In continuous time type is DOUBLE. In discrete time type is
 // INT64.
@@ -810,8 +838,8 @@ CREATE REL TABLE TEMPO_MAP_SYNCHRONIZATION_POINT (
 // rendering.
 // ============================================================
 CREATE NODE TABLE Label (
-    id      SERIAL,
-    name    STRING,
+    id                        SERIAL,
+    name                      STRING,
     PRIMARY KEY(id)
 );
 

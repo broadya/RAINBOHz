@@ -173,6 +173,7 @@ TEST_F(TimingQueryDb, TheRootIsTheScoresMapWithItsChildren) {
     EXPECT_EQ(node.map.id, root);
     EXPECT_EQ(node.map.name, "root");
     EXPECT_EQ(node.map.ticksPerBeat, 960);
+    EXPECT_TRUE(node.tempoRampPhysicalTime);
     ASSERT_EQ(node.children.size(), 2U);
     // In child id order, each with its own edge's sync points.
     EXPECT_EQ(node.children[0].map.id, second);
@@ -194,6 +195,16 @@ TEST_F(TimingQueryDb, TheRootNeedsExactlyOneScoreWithAMap) {
     EXPECT_NO_THROW(readRootTempoMap(db));
     addScore("T");
     expectFailure(Kind::Unprocessable, [&] { readRootTempoMap(db); });
+}
+
+TEST_F(TimingQueryDb, TheRootCarriesTheScoresRampShape) {
+    const std::int64_t score = addScore("S");
+    addMap("root", 960, {Point{}}, score);
+    EXPECT_TRUE(readRootTempoMap(db).tempoRampPhysicalTime);
+    db.execute("MATCH (s:Score) SET s.tempo_ramp_physical_time = true;");
+    EXPECT_TRUE(readRootTempoMap(db).tempoRampPhysicalTime);
+    db.execute("MATCH (s:Score) SET s.tempo_ramp_physical_time = false;");
+    EXPECT_FALSE(readRootTempoMap(db).tempoRampPhysicalTime);
 }
 
 TEST_F(TimingQueryDb, AnUnknownMapIsNotFound) {
@@ -372,13 +383,42 @@ TEST_F(TimingQueryDb, APositionBetweenSamplesGivesTheOneBefore) {
 
 TEST_F(TimingQueryDb, ARampFollowsTheTempoMap) {
     // tempo-map-score's map: 120 BPM ramping to 60 over four beats of 960
-    // ticks. One beat in, the tempo is 105, and the seconds elapsed are
-    // 60 · 4 · ln(105 / 120) / (60 − 120) (docs/transform.md section 6.1).
+    // ticks, with the Score's ramp shape left NULL, so linear in physical
+    // time. One beat in, T² = 120² − (120² − 60²) / 4 = 11700, and the
+    // seconds elapsed are 120 / (120 + √11700) (docs/transform.md section
+    // 6.1).
     db.execute("CREATE (:EngineConfig {sampleRate: 48000, channelMode: 0});");
     const std::int64_t map = addMap("ramp", 960,
         {Point{.position = 0, .tempo = 120.0, .hold = false},
             Point{.position = 3840, .tempo = 60.0, .hold = true}},
         addScore("S"));
+    const double seconds = 120.0 / (120.0 + std::sqrt(11700.0));
+    const auto expected = static_cast<std::int32_t>(std::floor(seconds * 48000.0));
+
+    const FramePosition at = framePosition(db, map, BeatsTicks{.beats = 1, .ticks = 0});
+    EXPECT_EQ(at.frame.value(), 0);
+    EXPECT_EQ(at.offset.value(), expected);
+
+    // Beat 6 is 8/3 seconds for the ramp (four beats at the mean tempo of 90)
+    // plus two held beats at 60 BPM.
+    const double later = (8.0 / 3.0) + 2.0;
+    const auto laterSample = static_cast<std::int64_t>(std::floor(later * 48000.0));
+    const FramePosition six = framePosition(db, map, BeatsTicks{.beats = 6, .ticks = 0});
+    EXPECT_EQ(six.frame.value(), laterSample / 48000);
+    EXPECT_EQ(six.offset.value(), laterSample % 48000);
+}
+
+TEST_F(TimingQueryDb, ARampLinearInMusicalPositionFollowsTheLogFormula) {
+    // The same map with Score.tempo_ramp_physical_time false. One beat in,
+    // the tempo is 105, and the seconds elapsed are
+    // 60 · 4 · ln(105 / 120) / (60 − 120).
+    db.execute("CREATE (:EngineConfig {sampleRate: 48000, channelMode: 0});");
+    const std::int64_t score = addScore("S");
+    db.execute("MATCH (s:Score {name: 'S'}) SET s.tempo_ramp_physical_time = false;");
+    const std::int64_t map = addMap("ramp", 960,
+        {Point{.position = 0, .tempo = 120.0, .hold = false},
+            Point{.position = 3840, .tempo = 60.0, .hold = true}},
+        score);
     const double seconds = 60.0 * 4.0 * std::log(105.0 / 120.0) / (60.0 - 120.0);
     const auto expected = static_cast<std::int32_t>(std::floor(seconds * 48000.0));
 

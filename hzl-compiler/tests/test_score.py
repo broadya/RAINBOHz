@@ -124,6 +124,27 @@ def test_tempo_map_rules_are_reported_in_hzl_terms(tree: TreeBuilder) -> None:
         compile_(tree, {"tempo_maps/main": two})
 
 
+def test_ramps_are_linear_in_physical_time_unless_the_score_says_otherwise(
+    tree: TreeBuilder,
+) -> None:
+    score = BASE["scores/score"]
+    default = compile_(tree)
+    assert default.rows["Score"][0].properties()["tempo_ramp_physical_time"] is True
+    tempo_map = "tempo_map: {namespace: tempo_maps, name: main}"
+    for spelling, expected in (("physical_time", True), ("musical_position", False)):
+        chosen = score.replace(tempo_map, f"{tempo_map}\n  tempo_ramp: {spelling}")
+        model = compile_(tree, {"scores/score": chosen})
+        assert model.rows["Score"][0].properties()["tempo_ramp_physical_time"] is expected
+
+
+def test_an_unknown_tempo_ramp_is_refused(tree: TreeBuilder) -> None:
+    tempo_map = "tempo_map: {namespace: tempo_maps, name: main}"
+    bad = BASE["scores/score"].replace(tempo_map, f"{tempo_map}\n  tempo_ramp: linear")
+    shapes = "the shapes are: 'physical_time', 'musical_position'"
+    with pytest.raises(HzlError, match=f"unknown tempo_ramp 'linear'; {shapes}"):
+        compile_(tree, {"scores/score": bad})
+
+
 def test_ticks_beyond_the_beat_are_refused_where_written(tree: TreeBuilder) -> None:
     bad = BASE["entities/entity"].replace('offset: "0:480"', 'offset: "0:960"')
     with pytest.raises(HzlError, match=r"sound_sources\[0\].offset: 0:960 has 960 ticks"):

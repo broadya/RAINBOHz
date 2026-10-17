@@ -52,9 +52,9 @@ CLIENT_SECONDS = 240
 # The channels of each mode the client plays; the server's names.
 CHANNELS = {"mono": 1, "stereo-from-xy": 2, "stereo-from-mid-side": 2, "blumlein-classic": 2}
 
-# The range played: beats 1:240 to 6:480. The tempo-map score's map puts
-# beat 4 at 2.77 s and holds 60 BPM after it, so the range is about 0.6 s to
-# 5.3 s, frames 0 to 5 at one second a frame; the spatial musical score holds
+# The range played: beats 1:240 to 6:480. The tempo-map score's map ramps
+# linearly in physical time to beat 4 at 2.67 s and holds 60 BPM after it, so
+# the range is about 0.67 s to 5.17 s, frames 0 to 5 at one second a frame; the spatial musical score holds
 # 60 BPM throughout, so it is 1.25 s to 6.5 s, frames 1 to 6. Either way the
 # first and last frames are both trimmed.
 START = "1:240"

@@ -168,10 +168,16 @@ that are NULL in `engine-db` are `null`.
 
 #### `GET /v1/tempo-maps/root`
 
-The root map with its `children`, in child id order.
+The root map with its `children`, in child id order, and
+`tempo_ramp_physical_time`: the shape of every ramp in the Score, true when a
+ramp is linear in physical time and false when it is linear in musical
+position. It is `Score.tempo_ramp_physical_time` with NULL resolved to true,
+the default (ADR 0013), so it is never `null`. A client needs it to interpret
+a point whose `hold` is false.
 
 ```json
-{"id": 0, "name": "Main", "ticks_per_beat": 960, "children": []}
+{"id": 0, "name": "Main", "ticks_per_beat": 960,
+ "tempo_ramp_physical_time": true, "children": []}
 ```
 
 404 when there is no Score, or the Score has no TempoMap, as in a score

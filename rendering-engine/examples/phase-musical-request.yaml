@@ -4,7 +4,7 @@
 #       RE_REQUEST=rendering-engine/examples/phase-musical-request.yaml
 #
 # The score is in musical time on tempo-map-score's tempo map, and ends at
-# 6.7726 s. Frames 0 to 6 cover every phase point and the ramps between
+# 6.6667 s. Frames 0 to 6 cover every phase point and the ramps between
 # them; frame 7 is past the end and renders as silence.
 
 frames:
