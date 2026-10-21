@@ -74,6 +74,12 @@ or unknown key is reported at the exact place in the file (`file: path:
 message`). Unknown keys are refused: YAML accepts a misspelt key silently and
 the compiler would otherwise ignore it.
 
+Files are parsed with libyaml (`yaml.CSafeLoader`), which is about eight times
+faster than PyYAML's pure-Python parser, so hzlc needs a PyYAML built with it
+and refuses to start without one. libyaml's syntax-error messages drop the
+quoted source line and its `^` marker, so a file it refuses is parsed again
+with the pure-Python parser, only to report its error.
+
 Each HzL type is one module under `hzl/`: a frozen dataclass, a parser from a
 `Node`, and a loader from a tree and a reference.
 

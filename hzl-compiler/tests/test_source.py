@@ -3,8 +3,10 @@
 from pathlib import Path
 
 import pytest
+import yaml
 from conftest import BASE, TreeBuilder, hzl
 
+from hzl_compiler import source
 from hzl_compiler.errors import HzlError
 from hzl_compiler.hzl.partial_state_set import load_partial_state_set
 from hzl_compiler.ref import Ref
@@ -76,3 +78,16 @@ def test_a_file_must_be_one_known_type(tree: TreeBuilder) -> None:
     t = tree({"ns/z": "score: [\n"})
     with pytest.raises(HzlError, match="not valid YAML"):
         t.load_any(Ref("ns", "z"))
+
+
+def test_files_are_parsed_with_libyaml() -> None:
+    assert source._LOADER is yaml.CSafeLoader
+
+
+def test_a_yaml_error_quotes_the_line_and_marks_the_fault(tree: TreeBuilder) -> None:
+    # libyaml's own message has no source line or caret; the pure-Python
+    # parser's is reported instead.
+    t = tree({"ns/z": "score:\n  oops: [1\n  x: 2\n"})
+    with pytest.raises(HzlError) as raised:
+        t.load_any(Ref("ns", "z"))
+    assert "line 2, column 9:\n      oops: [1\n            ^" in raised.value.message

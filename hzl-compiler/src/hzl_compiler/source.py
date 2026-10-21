@@ -20,6 +20,17 @@ from .errors import HzlError, Where
 from .nodes import Node
 from .ref import Ref
 
+# Files are parsed with libyaml, which is about eight times faster than PyYAML's
+# pure-Python parser: parsing was most of hzlc's time on a large piece. It is
+# required, so that a PyYAML built without it does not quietly run slow.
+try:
+    _LOADER = yaml.CSafeLoader
+except AttributeError as missing:
+    raise ImportError(
+        "hzl-compiler needs PyYAML built with libyaml (yaml.CSafeLoader); "
+        "reinstall the venv with `make venv`"
+    ) from missing
+
 # The HzL types this version reads. The value of each file's single top-level
 # key is the type's body; a file whose type is not here is refused.
 HZL_TYPES = (
@@ -179,18 +190,34 @@ class SourceTree:
 
 
 def _parse(path: Path) -> object:
-    """Parses the YAML file at `path`.
+    """Parses the YAML file at `path` with libyaml.
 
     Raises:
         HzlError: if the file cannot be read or is not valid YAML.
     """
     where = Where(path)
     try:
-        return yaml.safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as error:
-        raise where.error(f"not valid YAML: {error}") from error
+        text = path.read_text(encoding="utf-8")
     except OSError as error:
         raise where.error(f"cannot read: {error.strerror}") from error
+    try:
+        return yaml.load(text, Loader=_LOADER)
+    except yaml.YAMLError as error:
+        raise where.error(f"not valid YAML: {_explained(text, error)}") from error
+
+
+def _explained(text: str, error: yaml.YAMLError) -> yaml.YAMLError:
+    """The error to report for `text`, which libyaml failed to parse.
+
+    libyaml's messages give the line and column but not the source line with a
+    `^` under the fault, so the pure-Python parser is run again just for its
+    message. Should it accept what libyaml refused, libyaml's error stands.
+    """
+    try:
+        yaml.load(text, Loader=yaml.SafeLoader)
+    except yaml.YAMLError as explained:
+        return explained
+    return error
 
 
 def _read(path: Path, document: object | None = None) -> tuple[str, Node]:
