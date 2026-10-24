@@ -574,7 +574,7 @@ FORMS_EXAMPLES := \
     spatial-score/scores/spatial_score.yaml:$(RE_DIR)/examples/spatial-request.yaml:1 \
     demo/scores/demo.yaml:$(HZL_DIR)/examples/demo/render-request.yaml:0
 
-## test-score-forms: compile every example as tables and as Cypher, render both, and check the frames are byte-identical
+## test-score-forms: compile every example as tables and as Cypher, render with 1 and 8 threads, and check the frames are byte-identical
 test-score-forms: hzl-compiler rendering-engine
 	@for example in $(FORMS_EXAMPLES); do \
 	    score=$$(echo "$$example" | cut -d: -f1); \

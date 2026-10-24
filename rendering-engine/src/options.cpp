@@ -3,6 +3,7 @@
 #include "rainbohz/rendering_engine/options.hpp"
 
 #include "rainbohz/rendering_engine/engine_db.hpp"
+#include "rainbohz/rendering_engine/parallel.hpp"
 
 #include <CLI/CLI.hpp>
 
@@ -206,6 +207,11 @@ ParseResult parseCommandLine(int argc, const char* const* argv) {
 
     app.add_flag("--per-set-wav", options.perSetWav,
         "Also write each partial set's contribution to a frame as its own WAV file");
+
+    app.add_option("--render-threads", options.renderThreads,
+           "Threads rendering each frame's partial sets; 0 (default) uses one per hardware "
+           "thread. The output does not depend on it")
+        ->check(CLI::Range(std::size_t{0}, kMaxThreads));
 
     try {
         app.parse(argc, argv);

@@ -84,6 +84,9 @@ rendering-engine --mode server --host <address> --port <port>
                                             server: required]
       --per-set-wav                         Also write each partial set's contribution
                                             to a frame as its own file
+      --render-threads <n>                  Threads rendering each frame's partial
+                                            sets; 0 for one per hardware thread [0].
+                                            The output does not depend on it
       --db-path <path>                      Put engine-db on disk instead of in memory
                                             (batch only)
       --validate-db                         Check engine-db's integrity after loading;

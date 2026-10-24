@@ -111,6 +111,7 @@ add_library(rendering_engine_lib STATIC
     src/frame_plan.cpp
     src/integrity.cpp
     src/options.cpp
+    src/parallel.cpp
     src/precomputation.cpp
     src/render_kernel.cpp
     src/render_request.cpp
@@ -143,8 +144,9 @@ target_link_libraries(rendering_engine_lib
     # (src/wav_writer.cpp), and cpp-httplib and nlohmann/json
     # (src/server.cpp) appear in no public header, so they stay out of the
     # interface -- the same rule Ladybug's own types are held to.
+    # Threads::Threads for std::jthread (src/parallel.cpp, ADR 0026).
     PRIVATE rainbohz::cli11 rainbohz::yaml_cpp rainbohz::dr_wav rainbohz::httplib
-            rainbohz::json rainbohz::project_warnings
+            rainbohz::json rainbohz::project_warnings Threads::Threads
 )
 
 # The schema the engine applies to an empty database when no --schema is given.

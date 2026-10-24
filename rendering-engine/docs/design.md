@@ -327,7 +327,9 @@ Carried from overview.md §10, plus those specific to this component.
   unresolved. The rendering design ([rendering.md](rendering.md) §6.2, §7.5)
   fixes the partial set as the unit of parallelism and keeps every database
   read in a gather layer that finishes before any rendering starts, so the
-  question is confined to that layer.
+  question is confined to that layer. Rendering's own threads are settled
+  (ADR 0026): a frame's partial sets render on `--render-threads` threads
+  after the gather, and only the calling thread talks to Ladybug.
 - ~~**The definition of an *integrable segment*** and how its boundaries are
   chosen are not specified.~~ Specified in
   [precomputation.md](precomputation.md) §6.3–6.4: boundaries are the merged

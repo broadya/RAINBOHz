@@ -34,6 +34,7 @@ add_executable(rendering_engine_tests
     test_frame_plan.cpp
     test_integrity.cpp
     test_options.cpp
+    test_parallel.cpp
     test_precomputation.cpp
     test_render_kernel.cpp
     test_render_request.cpp

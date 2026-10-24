@@ -18,6 +18,7 @@
 #include "rainbohz/rendering_engine/render_request.hpp"
 #include "rainbohz/rendering_engine/rendering.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <ostream>
@@ -39,6 +40,11 @@ struct PipelineSettings {
     /// Also write each partial set's contribution to a frame as its own WAV
     /// file.
     bool perSetWav = false;
+
+    /// Threads rendering each frame's partial sets, as renderFrames() takes
+    /// them: 0 for one per hardware thread. 1 by default, so that a caller
+    /// gets threads only when it asks; the command line's default is 0.
+    std::size_t renderThreads = 1;
 };
 
 /// The step at which a load stopped, or Complete.
@@ -82,7 +88,8 @@ struct LoadResult {
 ///                    not clear what is already there.
 /// @param schemaFile  Cypher file of schema DDL.
 /// @param stateFile   Cypher file holding the score.
-/// @param settings    verbose and validateDb are used; perSetWav is not.
+/// @param settings    verbose and validateDb are used; perSetWav and
+///                    renderThreads are not.
 /// @param log         Where the narrative goes.
 /// @return The step that stopped the load, with its verdict, or Complete.
 /// @throws ScriptLoadError  If either file cannot be read.
@@ -131,7 +138,8 @@ struct RenderResult {
 /// @param db         Database holding a score that loadScore() completed.
 /// @param request    The frames to render.
 /// @param outputDir  Where the WAV files go; created if absent.
-/// @param settings   verbose and perSetWav are used; validateDb is not.
+/// @param settings   verbose, perSetWav and renderThreads are used;
+///                   validateDb is not.
 /// @param log        Where the narrative goes.
 /// @return The step that stopped rendering, with its verdict and whatever
 ///         renderFrames() reported, or Complete.

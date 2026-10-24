@@ -26,6 +26,7 @@
 // no third-party type appears in this header, the same rule Ladybug is held
 // to.
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -108,6 +109,12 @@ struct Options {
     /// file, before summing (docs/rendering.md section 5). A debugging
     /// affordance, off by default.
     bool perSetWav = false;
+
+    /// How many threads render each frame's partial sets: 0 (the default)
+    /// for one per hardware thread, otherwise that many, at most
+    /// kMaxThreads. The files written do not depend on it, only how fast
+    /// they are written (ADR 0026).
+    std::size_t renderThreads = 0;
 };
 
 /// The outcome of parsing a command line.

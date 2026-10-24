@@ -9,7 +9,8 @@
 // Any frame can be rendered on its own: nothing rendered before a frame is
 // needed to render it, because precomputation has made every partial's phase
 // a function of time. So a run renders each requested frame in turn, and the
-// frames do not interact.
+// frames do not interact. Within a frame, the partial sets are rendered on
+// several threads (ADR 0026).
 //
 // This is the only piece of rendering that takes an EngineDb, and it only
 // reads. Per frame it gathers the frame's FrameEntry nodes and what follows
@@ -125,6 +126,11 @@ struct RenderingReport {
     /// and what they are.
     ChannelMode channelMode = ChannelMode::Mono;
 
+    /// How many threads rendered each frame's partial sets, resolved
+    /// (resolveThreadCount()). Says nothing about the output, which is the
+    /// same for every count.
+    std::size_t threads = 1;
+
     /// One outcome per requested frame, in request order.
     std::vector<FrameOutcome> frames;
 
@@ -166,7 +172,8 @@ std::string setFileName(FrameNumber frame, std::int64_t partialSetId);
 /// order: gathers the frame's inputs through its FrameEntry nodes (section
 /// 6.3), validates every partial in scope and its SoundSource's spatial
 /// timelines (section 9), renders each partial set into its own mono buffer
-/// (frame_plan.hpp), sums each source's sets, spreads each source's sum over
+/// (frame_plan.hpp) on up to `threads` threads, sums each source's sets in
+/// id order on the calling thread, spreads each source's sum over
 /// the output channels by its position (section 8.5), and writes
 /// `outputDir / frameFileName(k)` with one channel per output of the
 /// channel mode. Each frame's file is complete before the
@@ -188,6 +195,12 @@ std::string setFileName(FrameNumber frame, std::int64_t partialSetId);
 /// @param perSetWav  Whether to also write each contributing partial set's
 ///                   buffer, before summing and spatialisation, as
 ///                   `setFileName()`. These files are always mono.
+/// @param threads    Threads rendering a frame's partial sets, the caller's
+///                   included; 0 for one per hardware thread
+///                   (resolveThreadCount()). The files and the report are
+///                   byte-for-byte the same for every count (ADR 0026): only
+///                   the time taken changes. 1, the default, creates no
+///                   thread.
 /// @return One outcome per requested frame, in request order.
 /// @throws RenderingError  If there is not exactly one EngineConfig; its
 ///         sampleRate is NULL or not positive; its frame size is unusable;
@@ -198,6 +211,6 @@ std::string setFileName(FrameNumber frame, std::int64_t partialSetId);
 /// @note Side effect: writes WAV files into `outputDir`, replacing any of the
 ///       same names.
 RenderingReport renderFrames(EngineDb& db, const RenderRequest& request,
-    const std::filesystem::path& outputDir, bool perSetWav);
+    const std::filesystem::path& outputDir, bool perSetWav, std::size_t threads = 1);
 
 } // namespace rainbohz::rendering_engine

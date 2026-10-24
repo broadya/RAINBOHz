@@ -39,7 +39,9 @@ of time (design.md §2, random access). This document therefore describes the
 rendering of *one* frame; a run renders each requested frame in turn, and
 the frames do not interact.
 
-The first version is a **correct, serial reference**. It is also the version
+The first version was a **correct, serial reference**; its partial sets now
+render on several threads (§7.5, ADR 0026), with output bit-identical to the
+serial engine. It is also the version
 whose structure the later parallel one will keep, so it is arranged from the
 start as the parallel version will need to be: a gathering layer that alone
 touches the database, a preparation layer that produces plain
@@ -60,7 +62,7 @@ Built one feature at a time, as precomputation was.
 | One `AmplitudePhysicalTimeline` per partial, linear curves only | Amplitude curve types other than linear |
 | Amplitude in dB, summed per sample, one conversion to linear | Amplitude modulators (they join the dB sum, §8.1) |
 | Frequency-range roll-off, stateless (§8.2) | Frequency modulators |
-| One partial set at a time, summed per SoundSource, with a shared source clock per source (§6.2) | Threads across partial sets; SIMD across partials |
+| Partial sets rendered on `--render-threads` threads, summed per SoundSource in id order, with a shared source clock per source (§6.2, §7.5) | SIMD across partials; splitting a large set across threads |
 | Source time advancing at 1.0 per receiver sample | Distance delay, Doppler |
 | One position per SoundSource from its azimuth, elevation and distance timelines, linear curves only, azimuth along the shorter arc (§8.5) | Spatial curve types; spatial modulators |
 | All eight channel modes: perfect coincident first-order virtual microphones, gain ∝ 1/r (§8.5) | Higher-order Ambisonics; frequency-dependent patterns; air absorption |
@@ -688,7 +690,17 @@ replacement of the kernel's body, not of its callers:
 - **Presence as a mask.** The active list becomes a lane mask, or a
   compaction of the block, per chunk.
 - **Threads across partial sets.** Each set's buffer is its own; sets are
-  summed at the end. Nothing in a set's rendering reads another's.
+  summed at the end. Nothing in a set's rendering reads another's. *Built*
+  (ADR 0026): `renderSources()` plans and renders a frame's sets on
+  `--render-threads` threads through `forEachIndex()` (`parallel.hpp`), in
+  waves of at most four sets per thread so that memory stays bounded. The
+  calling thread then takes each wave's sets in id order and does everything
+  else: the per-set files, the sums, the spatial stage and the report. So
+  every addition happens in the serial engine's order, and the files are
+  byte-for-byte the same for every thread count. Worker threads never touch
+  `engine-db`, a file or the report. A frame goes only as wide as its number
+  of sets; splitting a large set would change the summation order, and is
+  not done.
 
 None of these changes the kernel's inputs, its outputs, or the anchoring
 that precedes it. The serial version calls the same function with one
@@ -1172,7 +1184,7 @@ Three decisions worth stating:
   already uses for statements, integrity checks and precomputation:
 
   ```
-    rendering: sample rate 48000, frame size 48000 samples, mono (1 channel(s))
+    rendering: sample rate 48000, frame size 48000 samples, mono (1 channel(s)), 8 thread(s)
       FAILED   Partial 4 (id 4): amplitude timeline: point 1: time 100 is not later than point 0
       ok       frame 3: 1 source(s), 1 set(s), 1 partial(s), peak 0.501187, wrote frame-000003.wav
       ok       frame 7: 0 source(s), 0 set(s), 0 partial(s), silent, wrote frame-000007.wav
@@ -1394,7 +1406,7 @@ In roughly the order expected. Each names the place in this design it goes.
 | Spatial curve types | A curve term in `NominalPosition`; validation relaxes. |
 | Spatial modulators | Terms added to the position in `spatialiseChunk()`, with their boundaries merged into the spatial segments. |
 | Higher-order Ambisonics, other patterns | More channel modes in `channel_mode` and `spatial_gains`; `kMaxChannels` grows. |
-| Threads | One thread per partial set over §6.4 and §7; the summation waits for all. |
+| Threads | Built: partial sets across threads, summed in order afterwards (§7.5, ADR 0026). Splitting one set across threads is the next step, and changes the last bits of the output. |
 | SIMD | §7.5: the body of `render_kernel`. |
 | Recurrence for the multiplier | §8.4, inside `render_kernel`, checked against the direct form. |
 | INT64 exact accumulation | The per-set buffer of §6.4 step 4. |

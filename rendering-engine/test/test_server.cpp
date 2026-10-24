@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <random>
 #include <sstream>
@@ -339,6 +340,26 @@ TEST_F(ServerTest, PerSetWavAddsTheSetFiles) {
     for (const Json& uri : response.at("set_uris")) {
         EXPECT_TRUE(std::filesystem::is_regular_file(fileUriToPath(uri.get<std::string>())));
     }
+}
+
+// ADR 0026: a server rendering on several threads writes the same bytes as
+// one rendering on one.
+TEST_F(ServerTest, RenderThreadsChangeNothingButTheLog) {
+    const auto renderBytes = [this](std::size_t threads) {
+        server_.reset();
+        pipeline_.renderThreads = threads;
+        loadOk("two sets.cypher");
+        const Json response = expectResource(server().renderFrame("3", ""));
+        std::ifstream in{fileUriToPath(response.at("uri").get<std::string>()), std::ios::binary};
+        return std::vector<char>{
+            std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+    };
+    const std::vector<char> one = renderBytes(1);
+    EXPECT_TRUE(echoMentions("1 thread(s)"));
+    const std::vector<char> four = renderBytes(4);
+    EXPECT_TRUE(echoMentions("4 thread(s)"));
+    ASSERT_FALSE(one.empty());
+    EXPECT_EQ(four, one);
 }
 
 TEST_F(ServerTest, AnUnknownLabelIsUnprocessable) {

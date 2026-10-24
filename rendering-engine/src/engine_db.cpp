@@ -286,12 +286,37 @@ std::int64_t requireInt64(const DbValue& value) {
     return *held;
 }
 
+namespace {
+
+/// Ladybug's settings for opening engine-db: its defaults, except under
+/// ThreadSanitizer.
+///
+/// Ladybug reserves an 8 TiB range of address space for its pages
+/// (`maxDBSize`, which Ladybug documents as the setting for environments
+/// where that cannot be mapped). TSan lays out its own shadow memory beside
+/// the program's, and the range no longer fits, so every database fails to
+/// open. The macos-tsan build caps it at 64 GiB, far more than any test
+/// uses. Every other build is unchanged.
+///
+/// @return The configuration to open the database with.
+lbug::main::SystemConfig systemConfig() {
+    lbug::main::SystemConfig config;
+#ifdef __has_feature
+#if __has_feature(thread_sanitizer)
+    config.maxDBSize = std::uint64_t{1} << 36;
+#endif
+#endif
+    return config;
+}
+
+} // namespace
+
 EngineDb::EngineDb() : EngineDb(kInMemoryPath) {}
 
 EngineDb::EngineDb(std::string_view path)
     : path_{path.empty() ? std::string{kInMemoryPath} : std::string{path}} {
     try {
-        database_ = std::make_unique<lbug::main::Database>(path_);
+        database_ = std::make_unique<lbug::main::Database>(path_, systemConfig());
         connection_ = std::make_unique<lbug::main::Connection>(database_.get());
     } catch (const std::exception& e) {
         throw EngineDbError{std::string{"failed to open engine-db at "} + path_ + ": " + e.what()};

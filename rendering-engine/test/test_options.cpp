@@ -149,4 +149,33 @@ TEST(Options, TheInputRootMustBeAnExistingDirectory) {
     EXPECT_FALSE(parse(line).options.has_value());
 }
 
+TEST(Options, RenderThreadsDefaultToAutomatic) {
+    const ParseResult result = parse({"--state", kFile, "--request", kFile});
+    ASSERT_TRUE(result.options.has_value());
+    EXPECT_EQ(result.options->renderThreads, 0U);
+}
+
+TEST(Options, RenderThreadsAreTakenInBothModes) {
+    const ParseResult batch =
+        parse({"--state", kFile, "--request", kFile, "--render-threads", "4"});
+    ASSERT_TRUE(batch.options.has_value());
+    EXPECT_EQ(batch.options->renderThreads, 4U);
+
+    std::vector<std::string> line = serverLine();
+    line.insert(line.end(), {"--render-threads", "1"});
+    const ParseResult server = parse(line);
+    ASSERT_TRUE(server.options.has_value());
+    EXPECT_EQ(server.options->renderThreads, 1U);
+}
+
+TEST(Options, RenderThreadsMustBeInRange) {
+    for (const std::string threads : {"257", "-1", "many"}) {
+        EXPECT_FALSE(parse({"--state", kFile, "--request", kFile, "--render-threads", threads})
+                .options.has_value())
+            << threads;
+    }
+    EXPECT_TRUE(parse({"--state", kFile, "--request", kFile, "--render-threads", "256"})
+            .options.has_value());
+}
+
 } // namespace

@@ -4,6 +4,7 @@
 
 #include "rainbohz/rendering_engine/amplitude_maths.hpp"
 #include "rainbohz/rendering_engine/frame_plan.hpp"
+#include "rainbohz/rendering_engine/parallel.hpp"
 #include "rainbohz/rendering_engine/precomputation.hpp"
 #include "rainbohz/rendering_engine/wav_writer.hpp"
 
@@ -13,6 +14,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <iomanip>
 #include <iterator>
@@ -51,7 +53,10 @@
 ///     sets, spread the sum over the channels by the source's position, write.
 ///
 /// The gather is the only layer that touches engine-db, and it finishes
-/// before the frame is prepared.
+/// before the frame is prepared. Planning and rendering the sets is the only
+/// step that runs on several threads (ADR 0026); everything else, the sums,
+/// the files and the report included, runs on the calling thread in a fixed
+/// order, so the output does not depend on the thread count.
 ///
 /// @see rendering.hpp
 
@@ -1279,16 +1284,108 @@ ValidatedFrame validateFrame(const GatheredFrame& gathered, FrameNumber frame, F
     return result;
 }
 
+/// One partial set's place in a frame's render, in rendering order: sources
+/// by id, then each source's sets by id. Built on the calling thread before
+/// any worker starts, and only read while they run.
+struct SetTask {
+    /// SoundSource.id of the set's source.
+    std::int64_t sourceId = 0;
+    /// PartialSet.id.
+    std::int64_t setId = 0;
+    /// The set's partials, in the validated frame.
+    std::span<const PartialData> partials;
+    /// Whether this is its source's first set: the source's sum starts here.
+    bool firstOfSource = false;
+    /// Whether this is its source's last set: the source is spatialised after it.
+    bool lastOfSource = false;
+};
+
+/// What rendering one partial set produced. Written only by the thread that
+/// rendered the set, and read by the calling thread after forEachIndex()
+/// has returned.
+struct SetResult {
+    /// The set's mono samples, one frame long.
+    std::vector<SampleValue> samples;
+    /// renderPartialSet()'s capped phases.
+    std::vector<std::pair<std::int64_t, std::int64_t>> capped;
+    /// What planning or rendering the set threw, if anything.
+    std::exception_ptr error;
+};
+
 /// Scratch buffers reused between sets, sources and frames, so that a frame
-/// allocates nothing once the first has been rendered.
+/// allocates no sample buffers once the first has been rendered.
 struct Buffers {
     /// The frame, interleaved by channel.
     std::vector<SampleValue> frame;
     /// One source's mono sum.
     std::vector<SampleValue> source;
-    /// One set's mono samples.
-    std::vector<SampleValue> set;
+    /// One slot per set of the wave in flight.
+    std::vector<SetResult> wave;
 };
+
+/// The most memory one wave's set buffers may take.
+constexpr std::size_t kWaveBudgetBytes = std::size_t{64} * 1024 * 1024;
+
+/// How many sets to render at once: four per thread, so that a slow set
+/// leaves the others work to claim, fewer if the frame is so long that four
+/// per thread would pass kWaveBudgetBytes, and never fewer than one per
+/// thread.
+///
+/// @param threads    Threads rendering. Positive.
+/// @param frameSize  Samples per frame. Positive.
+/// @return The wave size, at least `threads`.
+std::size_t waveSize(std::size_t threads, std::size_t frameSize) noexcept {
+    const std::size_t byBudget = kWaveBudgetBytes / (frameSize * sizeof(SampleValue));
+    return std::clamp(byBudget, threads, 4 * threads);
+}
+
+/// Lists a frame's partial sets in rendering order (§6.4).
+///
+/// @param validated  The frame's validated partials.
+/// @return One task per set: sources by id, then sets by id.
+std::vector<SetTask> listSetTasks(const ValidatedFrame& validated) {
+    std::vector<SetTask> tasks;
+    for (const auto& [sourceId, sets] : validated.bySource) {
+        const std::size_t first = tasks.size();
+        for (const auto& [setId, partials] : sets) {
+            tasks.push_back(SetTask{.sourceId = sourceId,
+                .setId = setId,
+                .partials = partials,
+                .firstOfSource = tasks.size() == first,
+                .lastOfSource = false});
+        }
+        if (tasks.size() > first) {
+            tasks.back().lastOfSource = true;
+        }
+    }
+    return tasks;
+}
+
+/// Plans and renders one partial set into its slot: the work that runs on
+/// worker threads (ADR 0026).
+///
+/// Reads only `task`, the partials it points to and the arguments, none of
+/// which anything writes while workers run; writes only `result`. Never
+/// touches engine-db, a file or the frame's outcome.
+///
+/// @param task     The set.
+/// @param frame    The frame.
+/// @param size     Frame size.
+/// @param rollOff  Band edges for the run.
+/// @param[in,out] result  The task's slot: its buffer exactly one frame
+///                        long. Zeroed, then filled; on failure, `error` set.
+void renderSetTask(const SetTask& task, FrameNumber frame, FrameSize size, const RollOff& rollOff,
+    SetResult& result) noexcept {
+    result.error = nullptr;
+    result.capped.clear();
+    std::ranges::fill(result.samples, 0);
+    try {
+        const PartialSetPlan plan = planPartialSet(task.setId, task.partials, frame, size);
+        result.capped = renderPartialSet(plan, rollOff, result.samples);
+    } catch (...) {
+        result.error = std::current_exception();
+    }
+}
 
 /// Renders a frame's sources into the frame buffer and writes the files (§6.4,
 /// §7, §8.5, §5).
@@ -1296,49 +1393,83 @@ struct Buffers {
 /// Each source's sets are rendered to mono and summed; the sum is spread
 /// over the output channels by the source's position, once.
 ///
+/// The sets are rendered in waves of waveSize() on up to `threads` threads,
+/// each into its own buffer (ADR 0026). After each wave, the calling thread
+/// takes the wave's sets in rendering order and does everything else: the
+/// per-set files, the sums, the spatial stage and the outcome. So every
+/// addition happens in the same order whatever the thread count, and the
+/// files and the outcome are byte-for-byte those of a single thread.
+///
 /// @param validated   The frame's validated partials and sources.
 /// @param config      Sample rate, frame size and channel mode.
 /// @param rollOff     Band edges for the run.
 /// @param outputDir   Where files go.
 /// @param perSetWav   Whether to write per-set files: mono, before the
 ///                    spatial stage.
+/// @param threads     Threads rendering sets, the caller's included.
 /// @param[in,out] outcome  Gains the source, set and partial counts, the
 ///                         peak over every channel, the file and the set
 ///                         files.
 /// @param[in,out] buffers  Scratch, resized and zeroed here.
 /// @throws WavWriteError  If a file cannot be written.
 /// @throws std::invalid_argument  If a plan's precondition fails, which
-///         validation rules out.
+///         validation rules out. Thrown when the calling thread reaches that
+///         set, as a single thread would.
 void renderSources(const ValidatedFrame& validated, const Config& config, const RollOff& rollOff,
-    const std::filesystem::path& outputDir, bool perSetWav, FrameOutcome& outcome,
-    Buffers& buffers) {
+    const std::filesystem::path& outputDir, bool perSetWav, std::size_t threads,
+    FrameOutcome& outcome, Buffers& buffers) {
     const auto frameSize = static_cast<std::size_t>(config.frameSize.value());
     const std::size_t channels = channelCount(config.channelMode);
     buffers.frame.assign(frameSize * channels, 0);
     buffers.source.resize(frameSize);
-    buffers.set.resize(frameSize);
-    for (const auto& [sourceId, sets] : validated.bySource) {
-        std::ranges::fill(buffers.source, 0);
-        for (const auto& [setId, partials] : sets) {
-            const PartialSetPlan plan =
-                planPartialSet(setId, partials, outcome.frame, config.frameSize);
-            std::ranges::fill(buffers.set, 0);
-            for (const auto& capped : renderPartialSet(plan, rollOff, buffers.set)) {
-                outcome.cappedPhases.push_back(capped);
-            }
-            if (perSetWav) {
-                const std::filesystem::path setFile = outputDir / setFileName(outcome.frame, setId);
-                writeFloatWav(setFile, config.sampleRate, 1, buffers.set);
-                outcome.setFiles.emplace_back(setId, setFile);
-            }
-            addInto(buffers.source, buffers.set);
-            ++outcome.setCount;
-            outcome.partialCount += partials.size();
+
+    const std::vector<SetTask> tasks = listSetTasks(validated);
+    const std::size_t wave = waveSize(threads, frameSize);
+    for (std::size_t start = 0; start < tasks.size(); start += wave) {
+        const std::size_t count = std::min(wave, tasks.size() - start);
+        if (buffers.wave.size() < count) {
+            buffers.wave.resize(count);
         }
-        const SoundSourcePlan plan =
-            planSoundSource(validated.sources.at(sourceId), outcome.frame, config.frameSize);
-        spatialiseSource(plan, config.channelMode, buffers.source, buffers.frame);
-        ++outcome.sourceCount;
+        for (std::size_t i = 0; i < count; ++i) {
+            buffers.wave[i].samples.resize(frameSize);
+        }
+
+        // Parallel: each set into its own slot. Nothing else is touched
+        // until forEachIndex() returns.
+        forEachIndex(threads, count, [&](std::size_t i) {
+            renderSetTask(
+                tasks[start + i], outcome.frame, config.frameSize, rollOff, buffers.wave[i]);
+        });
+
+        // Serial, in rendering order: everything a single thread did after
+        // rendering a set.
+        for (std::size_t i = 0; i < count; ++i) {
+            const SetTask& task = tasks[start + i];
+            SetResult& result = buffers.wave[i];
+            if (task.firstOfSource) {
+                std::ranges::fill(buffers.source, 0);
+            }
+            if (result.error) {
+                std::rethrow_exception(result.error);
+            }
+            outcome.cappedPhases.insert(
+                outcome.cappedPhases.end(), result.capped.begin(), result.capped.end());
+            if (perSetWav) {
+                const std::filesystem::path setFile =
+                    outputDir / setFileName(outcome.frame, task.setId);
+                writeFloatWav(setFile, config.sampleRate, 1, result.samples);
+                outcome.setFiles.emplace_back(task.setId, setFile);
+            }
+            addInto(buffers.source, result.samples);
+            ++outcome.setCount;
+            outcome.partialCount += task.partials.size();
+            if (task.lastOfSource) {
+                const SoundSourcePlan plan = planSoundSource(
+                    validated.sources.at(task.sourceId), outcome.frame, config.frameSize);
+                spatialiseSource(plan, config.channelMode, buffers.source, buffers.frame);
+                ++outcome.sourceCount;
+            }
+        }
     }
     std::ranges::sort(outcome.cappedPhases);
     outcome.peak = peakOf(buffers.frame);
@@ -1356,12 +1487,13 @@ void renderSources(const ValidatedFrame& validated, const Config& config, const 
 /// @param frame          The frame.
 /// @param outputDir      Where files go.
 /// @param perSetWav      Whether to write per-set files.
+/// @param threads        Threads rendering the frame's sets.
 /// @param[in,out] known  Partials already reported as failed, by id; grows.
 /// @param[in,out] buffers  Scratch, reused between frames.
 /// @return The frame's outcome.
 /// @throws Nothing: every failure is recorded in the outcome.
 FrameOutcome renderOneFrame(EngineDb& db, const Config& config, const RollOff& rollOff,
-    FrameNumber frame, const std::filesystem::path& outputDir, bool perSetWav,
+    FrameNumber frame, const std::filesystem::path& outputDir, bool perSetWav, std::size_t threads,
     std::unordered_set<std::int64_t>& known, Buffers& buffers) {
     FrameOutcome outcome{.frame = frame,
         .error = std::nullopt,
@@ -1391,7 +1523,7 @@ FrameOutcome renderOneFrame(EngineDb& db, const Config& config, const RollOff& r
     // Prepare, render, sum and write (§6.4, §7, §5). A frame that cannot be
     // written has no file, and no per-set file either.
     try {
-        renderSources(validated, config, rollOff, outputDir, perSetWav, outcome, buffers);
+        renderSources(validated, config, rollOff, outputDir, perSetWav, threads, outcome, buffers);
     } catch (const WavWriteError& e) {
         outcome.error = e.what();
     } catch (const std::invalid_argument& e) {
@@ -1436,7 +1568,7 @@ std::string setFileName(FrameNumber frame, std::int64_t partialSetId) {
 }
 
 RenderingReport renderFrames(EngineDb& db, const RenderRequest& request,
-    const std::filesystem::path& outputDir, bool perSetWav) {
+    const std::filesystem::path& outputDir, bool perSetWav, std::size_t threads) {
     const Config config = readConfig(db);
     const RollOff rollOff = makeRollOff(config.sampleRate);
 
@@ -1444,12 +1576,14 @@ RenderingReport renderFrames(EngineDb& db, const RenderRequest& request,
     report.sampleRate = config.sampleRate;
     report.frameSize = config.frameSize;
     report.channelMode = config.channelMode;
+    report.threads = resolveThreadCount(threads);
 
     std::unordered_set<std::int64_t> known;
     Buffers buffers;
     for (const FrameRequest& requested : request.frames) {
-        report.frames.push_back(renderOneFrame(db, config, rollOff,
-            FrameNumber{requested.frameNumber}, outputDir, perSetWav, known, buffers));
+        report.frames.push_back(
+            renderOneFrame(db, config, rollOff, FrameNumber{requested.frameNumber}, outputDir,
+                perSetWav, report.threads, known, buffers));
     }
     return report;
 }

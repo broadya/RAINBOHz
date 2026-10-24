@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-24
 ---
 
@@ -74,9 +74,9 @@ count.**
   needs a decision of its own.
 * **Threads.** One fork-join primitive is the only code that creates
   threads. It hands out indices from an atomic counter, the calling thread
-  works too, it joins every thread before returning (`std::jthread`, never
-  detached), and it rethrows the failure with the lowest index. It holds no
-  locks and no state between calls, and cannot be nested.
+  works too, it joins every thread before returning, even when unwinding,
+  and never detaches one, and it rethrows the failure with the lowest index.
+  It holds no locks and no state between calls, and cannot be nested.
 * **Rules for code that runs on worker threads.** It never touches
   `engine-db`, files, the report or a stream. It reads only data that
   nothing writes during the step, and writes only to what belongs to its
@@ -135,11 +135,13 @@ Impact on components:
 ### Confirmation
 
 * Rendering tests render the same requests with 1, 2, 3 and 8 threads and
-  require byte-identical files and equal reports. The cases cover many sets
-  across several waves, per-set files, a frame that fails, a silent frame
-  and capped phases.
-* A `make` check renders every example score with 1 and 8 threads and
-  compares the frame files byte for byte. It is part of `make test`.
+  require byte-identical files and equal reports. The cases cover fifteen
+  sets over three sources across several waves, per-set files, frames that
+  fail validation, a silent frame, the two-set score and the spatial score
+  in FOA B-format. A server test does the same through `POST /v1/frames`.
+* `make test-score-forms` renders every example score from tables with 1
+  and 8 threads, and from Cypher with 8, and compares the frame files byte
+  for byte. It is part of `make test`.
 * The fork-join primitive's tests check that every index runs exactly once,
   that the lowest failure is rethrown, and that nesting is refused.
 * The `macos-tsan` preset (ThreadSanitizer) runs the rendering-engine tests,

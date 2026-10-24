@@ -6,9 +6,11 @@
 hzlc writes a score as Parquet tables and a manifest, or with
 `--debug-cypher` as one Cypher script. The engine loads either, and the two
 must give the same engine-db: the same ids in particular, since
-relationships name their ends by id (ADR 0025). This compiles one score both
-ways, renders the same request from each, and fails unless every frame file
-is byte-identical.
+relationships name their ends by id (ADR 0025). The engine must also write
+the same frames whatever its --render-threads (ADR 0026). This compiles one
+score both ways, renders the same request from the tables with one thread
+and with eight, and from the Cypher with eight, and fails unless every frame
+file is byte-identical across the three.
 
 Usage:
     check_score_forms.py --engine <binary> --schema <cypher> --score <score.yaml> \\
@@ -61,12 +63,14 @@ def main() -> int:
     run([*hzlc, "-o", str(out / "tables")])
     run([*hzlc, "-o", str(out / "score.cypher"), "--debug-cypher"])
 
+    runs = (
+        ("tables-t1", out / "tables" / "manifest.json", "1"),
+        ("tables-t8", out / "tables" / "manifest.json", "8"),
+        ("cypher-t8", out / "score.cypher", "8"),
+    )
     seconds = {}
-    for form, state in (
-        ("tables", out / "tables" / "manifest.json"),
-        ("cypher", out / "score.cypher"),
-    ):
-        seconds[form] = run(
+    for name, state, threads in runs:
+        seconds[name] = run(
             [
                 args.engine,
                 "--mode",
@@ -77,26 +81,34 @@ def main() -> int:
                 str(state),
                 "--request",
                 args.request,
+                "--render-threads",
+                threads,
                 "--out-dir",
-                str(out / f"frames-{form}"),
+                str(out / f"frames-{name}"),
             ]
         )
 
-    tables = sorted(p.name for p in (out / "frames-tables").iterdir())
-    cypher = sorted(p.name for p in (out / "frames-cypher").iterdir())
-    if not tables or tables != cypher:
-        sys.exit(f"{args.score}: the forms wrote different files: {tables} vs {cypher}")
-    differ = [
-        name
-        for name in tables
-        if (out / "frames-tables" / name).read_bytes()
-        != (out / "frames-cypher" / name).read_bytes()
-    ]
-    if differ:
-        sys.exit(f"{args.score}: frames differ between the forms: {', '.join(differ)}")
+    reference = runs[0][0]
+    files = sorted(p.name for p in (out / f"frames-{reference}").iterdir())
+    if not files:
+        sys.exit(f"{args.score}: no frames written")
+    for name, _, _ in runs[1:]:
+        other = sorted(p.name for p in (out / f"frames-{name}").iterdir())
+        if other != files:
+            sys.exit(f"{args.score}: {name} wrote different files: {other} vs {files}")
+        differ = [
+            file
+            for file in files
+            if (out / f"frames-{name}" / file).read_bytes()
+            != (out / f"frames-{reference}" / file).read_bytes()
+        ]
+        if differ:
+            sys.exit(
+                f"{args.score}: frames differ between {reference} and {name}: {', '.join(differ)}"
+            )
     print(
-        f"{Path(args.score).stem}: {len(tables)} frame file(s) byte-identical; "
-        f"run {seconds['tables']:.2f} s from tables, {seconds['cypher']:.2f} s from Cypher"
+        f"{Path(args.score).stem}: {len(files)} frame file(s) byte-identical; run "
+        + ", ".join(f"{seconds[name]:.2f} s {name}" for name, _, _ in runs)
     )
     return 0
 

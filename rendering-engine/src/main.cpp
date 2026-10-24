@@ -103,7 +103,8 @@ int runBatchMode(const Options& options) {
 
     const PipelineSettings settings{.verbose = options.verbose,
         .validateDb = options.validateDb,
-        .perSetWav = options.perSetWav};
+        .perSetWav = options.perSetWav,
+        .renderThreads = options.renderThreads};
 
     const LoadResult loaded = rainbohz::rendering_engine::loadScore(
         db, options.schemaFile, options.stateFile, settings, std::cout);

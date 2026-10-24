@@ -276,7 +276,7 @@ void reportPrecomputation(std::ostream& out, const PrecomputationReport& report,
 void reportRendering(std::ostream& out, const RenderingReport& report, bool verbose) {
     out << "  rendering: sample rate " << report.sampleRate.value() << ", frame size "
         << report.frameSize.value() << " samples, " << channelModeName(report.channelMode) << " ("
-        << channelCount(report.channelMode) << " channel(s))\n";
+        << channelCount(report.channelMode) << " channel(s)), " << report.threads << " thread(s)\n";
     for (const FrameOutcome& frame : report.frames) {
         for (const PartialFailure& failure : frame.newFailures) {
             out << "    FAILED   " << describeFailedPartial(failure) << " in frame "

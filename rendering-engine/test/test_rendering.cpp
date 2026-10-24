@@ -777,4 +777,152 @@ TEST(Rendering, TheMusicalSpatialScoreRendersAsItsPhysicalTwin) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Thread count (ADR 0026): the files and the report must not depend on it.
+// ---------------------------------------------------------------------------
+
+/// Checks that two runs of the same request agree in every file, byte for
+/// byte, and in every field of the report but the thread count.
+///
+/// @param one    The run with one thread.
+/// @param other  A run with another count, written to another directory.
+/// @param label  Names `other` in messages.
+void expectSameRender(
+    const RenderingReport& one, const RenderingReport& other, const std::string& label) {
+    ASSERT_EQ(other.frames.size(), one.frames.size()) << label;
+    for (std::size_t i = 0; i < one.frames.size(); ++i) {
+        const FrameOutcome& a = one.frames[i];
+        const FrameOutcome& b = other.frames[i];
+        const std::string where = label + ", frame " + std::to_string(a.frame.value());
+        EXPECT_EQ(b.frame.value(), a.frame.value()) << where;
+        EXPECT_EQ(b.error, a.error) << where;
+        EXPECT_EQ(b.sourceCount, a.sourceCount) << where;
+        EXPECT_EQ(b.setCount, a.setCount) << where;
+        EXPECT_EQ(b.partialCount, a.partialCount) << where;
+        EXPECT_EQ(b.peak, a.peak) << where;
+        EXPECT_EQ(b.cappedPhases, a.cappedPhases) << where;
+        ASSERT_EQ(b.newFailures.size(), a.newFailures.size()) << where;
+        for (std::size_t f = 0; f < a.newFailures.size(); ++f) {
+            EXPECT_EQ(b.newFailures[f].partialId, a.newFailures[f].partialId) << where;
+            EXPECT_EQ(b.newFailures[f].reason, a.newFailures[f].reason) << where;
+        }
+        EXPECT_EQ(b.file.filename(), a.file.filename()) << where;
+        if (!a.file.empty()) {
+            EXPECT_EQ(fileBytes(b.file), fileBytes(a.file)) << where;
+        }
+        ASSERT_EQ(b.setFiles.size(), a.setFiles.size()) << where;
+        for (std::size_t s = 0; s < a.setFiles.size(); ++s) {
+            EXPECT_EQ(b.setFiles[s].first, a.setFiles[s].first) << where;
+            EXPECT_EQ(fileBytes(b.setFiles[s].second), fileBytes(a.setFiles[s].second)) << where;
+        }
+    }
+}
+
+/// Renders `frames` of `db` with one thread and with each count in
+/// `threads`, each into its own fresh directory, and checks every run
+/// against the first.
+///
+/// @param db         A precomputed score.
+/// @param frames     Frame numbers.
+/// @param perSetWav  Whether to write per-set files too.
+/// @param name       A name for the output directories.
+/// @return The one-thread report.
+RenderingReport expectThreadCountIrrelevant(EngineDb& db, const std::vector<std::int32_t>& frames,
+    bool perSetWav, const std::string& name) {
+    const RenderingReport one =
+        renderFrames(db, requestFor(frames), freshDirectory(name + "-t1"), perSetWav, 1);
+    EXPECT_EQ(one.threads, 1U);
+    for (const std::size_t threads : {2U, 3U, 8U}) {
+        const std::string label = name + "-t" + std::to_string(threads);
+        const RenderingReport other =
+            renderFrames(db, requestFor(frames), freshDirectory(label), perSetWav, threads);
+        EXPECT_EQ(other.threads, threads);
+        expectSameRender(one, other, label);
+    }
+    return one;
+}
+
+// Fifteen sets of uneven size over three sources. With two threads a wave is
+// eight sets, so the second source's sets straddle a wave boundary and the
+// last wave is short; with three threads, twelve, and with eight, all of them.
+TEST_F(RenderingDb, ManySetsRenderTheSameOnAnyThreadCount) {
+    for (int source = 0; source < 3; ++source) {
+        for (int set = 0; set < 5; ++set) {
+            const std::string setName = "S" + std::to_string(source) + std::to_string(set);
+            addSet(setName, "Source" + std::to_string(source));
+            for (int p = 0; p <= (set % 3); ++p) {
+                const double frequency = 0.02 + (0.013 * set) + (0.007 * p) + (0.031 * source);
+                addPartial(setName, setName + "p" + std::to_string(p),
+                    {{0.0, frequency}, {96000.0, frequency * 1.5}},
+                    {{0.0, -12.0 - p}, {96000.0, -18.0 - p}});
+            }
+        }
+    }
+    precompute();
+
+    const RenderingReport one =
+        expectThreadCountIrrelevant(db, {0, 1}, true, "Rendering.ManySetsThreads");
+    ASSERT_TRUE(one.ok()) << firstError(one);
+    EXPECT_EQ(one.frames[0].setCount, 15U);
+    EXPECT_EQ(one.frames[0].sourceCount, 3U);
+    EXPECT_EQ(one.frames[0].setFiles.size(), 15U);
+}
+
+TEST_F(RenderingDb, AFailedFrameIsTheSameOnAnyThreadCount) {
+    addSet("S");
+    addPartial("S", "good", {{0.0, 0.1}, {200000.0, 0.1}}, {{0.0, -6.0}, {200000.0, -6.0}});
+    addPartial("S", "bad", {{0.0, 0.1}, {60000.0, 0.1}}, {{0.0, -6.0}, {60000.0, -6.0}});
+    precompute();
+    db.execute(
+        "MATCH (:Partial {name: 'bad'})-[:HAS_PHYSICAL_TIMELINE]->(:PartialSegmentPhysicalTimeline)"
+        "-[:NEXT_POINT]->(:PartialIntegrableSegment)-[:SEGMENT_TO_FREQUENCY_NOMINAL]->"
+        "(n:PartialSegmentNominalFrequency) SET n.curve_component = true;");
+
+    const RenderingReport one =
+        expectThreadCountIrrelevant(db, {0, 1, 2}, true, "Rendering.FailedFrameThreads");
+    EXPECT_EQ(one.failureCount(), 2U);
+}
+
+TEST_F(RenderingDb, ASilentFrameIsTheSameOnAnyThreadCount) {
+    addSet("S");
+    addPartial("S", "short", {{0.0, 0.1}, {1000.0, 0.1}}, {{0.0, -6.0}, {1000.0, -6.0}});
+    precompute();
+
+    const RenderingReport one =
+        expectThreadCountIrrelevant(db, {5}, false, "Rendering.SilentFrameThreads");
+    ASSERT_TRUE(one.ok()) << firstError(one);
+    EXPECT_EQ(one.frames[0].setCount, 0U);
+}
+
+TEST(Rendering, TheExampleScoresRenderTheSameOnAnyThreadCount) {
+    {
+        EngineDb db;
+        ASSERT_TRUE(loadCypherFile(db, RE_TEST_SCHEMA_FILE).ok());
+        ASSERT_TRUE(loadCypherFile(db, RE_TEST_TWO_SETS_STATE).ok());
+        ASSERT_TRUE(precomputeAll(db).ok());
+        expectThreadCountIrrelevant(db, {0, 1, 2, 3, 4, 6, 11}, true, "Rendering.TwoSetsThreads");
+    }
+    // FOA B-format, so that the spatial stage runs on every channel.
+    EngineDb db;
+    std::ostringstream log;
+    ASSERT_TRUE(loadScore(db, RE_TEST_SCHEMA_FILE, RE_TEST_SPATIAL_STATE,
+        PipelineSettings{.verbose = false, .validateDb = false, .perSetWav = false}, log)
+            .ok())
+        << log.str();
+    db.execute("MATCH (c:EngineConfig) SET c.channelMode = 7;");
+    expectThreadCountIrrelevant(
+        db, {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, false, "Rendering.SpatialThreads");
+}
+
+TEST(Rendering, ThreadsDefaultToOneAndZeroMeansAutomatic) {
+    EngineDb db;
+    ASSERT_TRUE(loadCypherFile(db, RE_TEST_SCHEMA_FILE).ok());
+    ASSERT_TRUE(loadCypherFile(db, RE_TEST_EXAMPLE_STATE).ok());
+    ASSERT_TRUE(precomputeAll(db).ok());
+    const std::filesystem::path dir = freshDirectory("Rendering.ThreadDefaults");
+
+    EXPECT_EQ(renderFrames(db, requestFor({3}), dir, false).threads, 1U);
+    EXPECT_GE(renderFrames(db, requestFor({3}), dir, false, 0).threads, 1U);
+}
+
 } // namespace

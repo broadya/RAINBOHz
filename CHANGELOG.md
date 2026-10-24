@@ -106,6 +106,17 @@ The target architecture, built from 2026-09-27 onwards.
   9.2 s on `macos-max`, with byte-identical audio. `make test-score-forms`
   checks every example renders the same from both forms. `hzl-compiler`
   now depends on pyarrow.
+- `rendering-engine` renders a frame's partial sets on several threads
+  (ADR 0026), in batch and server mode. `--render-threads` sets how many;
+  0, the default, uses one per hardware thread. The files and the report are
+  byte-for-byte the same for every count: only the sums, files and report
+  run on the calling thread, in the serial order. `make test-score-forms`
+  also compares 1 thread with 8. A `macos-tsan` preset runs the tests under
+  ThreadSanitizer; under it engine-db caps Ladybug's address-space
+  reservation, which does not fit beside TSan's shadow memory. On `echoes`
+  (32 sets and 640 partials per frame) rendering takes 0.26 s a frame on 10
+  threads against 0.31 s on one, on `macos-max`: its frames are dominated
+  by the serial database gather, not the kernel.
 
 ## Before this changelog
 
