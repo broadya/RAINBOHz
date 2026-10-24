@@ -122,8 +122,8 @@ reporting that says whether they worked:
 - an empty `engine-db` is opened (in memory, per §5; `--db-path` puts it on
   disk as a debugging affordance) and the schema is applied to it from the one
   Cypher file named by `--schema`;
-- an initial database state is loaded from the one Cypher file named by
-  `--state`;
+- the score is loaded from the one file named by `--state`: hzlc's
+  `manifest.json` of Parquet tables, or a Cypher script (below);
 - with `--validate-db`, the integrity of the canonical model that loaded is
   checked (list shapes, and the ranges of the columns the transform reads),
   and the run stops before the transform if a check fails; see
@@ -169,6 +169,30 @@ Cypher reaches the database through an in-process loader, statement by
 statement, so that a failure carries its source line — see
 @see ADR 0005.
 
+**The two forms of a score** (ADR 0025). `--state` is chosen by its
+extension. A `.json` file is a manifest of Parquet tables, hzlc's normal
+output: the engine builds a `COPY <Table>(<columns>) FROM '<file>'` for
+each node table, in the manifest's order, then a `COPY <REL> FROM '<file>'
+(from=…, to=…)` for each relationship pair, and Ladybug reads the rows as
+data. A `.cypher` file is a script, as above: hzlc's debugging form
+(`--debug-cypher`), or a state written by hand like those in
+`engine-db/examples/`. Both forms of one score load the same database
+(`make test-score-forms`). The tables are much faster: 0.11 s against 9.2 s
+for `echoes`' 82,005 rows.
+
+A manifest is checked whole before anything runs (`table_loader.hpp`):
+
+- every table and column name is an identifier;
+- every file is a plain `.parquet` name that resolves, symlinks followed, to
+  a regular file in the manifest's own directory, so a manifest under
+  `--input-root` reads nothing outside it;
+- each node table must be empty before its rows are copied in, because
+  relationships name their ends by id and the ids are row indices only in a
+  fresh table; and its row count must match the manifest's afterwards.
+
+A failure of a table's statement is reported against that table's file,
+with no line number.
+
 What the harness does **not** yet have, in the order it will need it:
 
 - **Label selection.** A request's labels are checked for existence and
@@ -182,10 +206,11 @@ What the harness does **not** yet have, in the order it will need it:
 - **The production egress.** Files in a directory are the test harness's
   egress; `object-storage` is not written (rendering.md §13).
 
-The `--state` file is also not `canonical-form`. It is Cypher applied directly
-to `engine-db`, which sidesteps responsibility 2 ("load `canonical-form` into
-it, and set dirty flags") rather than implementing it — and that is the step
-overview.md §10 leaves open, so it could not be implemented yet in any case.
+The `--state` file is also not `canonical-form`. It is tables or Cypher
+applied directly to `engine-db`, which sidesteps responsibility 2 ("load
+`canonical-form` into it, and set dirty flags") rather than implementing it —
+and that is the step overview.md §10 leaves open, so it could not be
+implemented yet in any case.
 A state file may be written in the canonical model (musical time, as
 `engine-db/examples/tempo-map-score.cypher` is) or directly in the rendering
 model (physical time, as the first two examples are); the transform converts

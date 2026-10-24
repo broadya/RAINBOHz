@@ -118,17 +118,19 @@ void reportTempoMap(std::ostream& out, const TempoMapSummary& map) {
 void narrateStatement(std::ostream& out, bool verbose, const std::filesystem::path& file,
     const rainbohz::rendering_engine::CypherStatement& statement,
     const rainbohz::rendering_engine::ExecuteOutcome& outcome) {
+    // A statement of a table load has no source line: its file says enough.
+    const std::string where = statement.startLine == 0
+                                  ? file.filename().string()
+                                  : file.filename().string() + ", " + statement.lineSpan();
     if (outcome.ok || outcome.alreadyExists) {
         if (verbose) {
-            out << "    " << (outcome.ok ? "ok      " : "present ") << ' '
-                << file.filename().string() << ", " << statement.lineSpan() << ": "
+            out << "    " << (outcome.ok ? "ok      " : "present ") << ' ' << where << ": "
                 << statement.label() << '\n';
         }
         return;
     }
 
-    out << "    FAILED   " << file.filename().string() << ", " << statement.lineSpan() << ": "
-        << statement.label() << '\n';
+    out << "    FAILED   " << where << ": " << statement.label() << '\n';
     std::istringstream detail{outcome.message};
     for (std::string line; std::getline(detail, line);) {
         out << "               " << line << '\n';

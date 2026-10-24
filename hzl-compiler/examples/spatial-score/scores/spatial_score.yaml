@@ -8,7 +8,7 @@
 # ticks are 0.1 s, and every point falls on the same sample as there.
 # Compiled with channel mode 1 it renders to the same stereo frames.
 #
-#   hzlc compile scores/spatial_score.yaml --channel-mode 1 -o build/spatial-score.cypher
+#   hzlc compile scores/spatial_score.yaml --channel-mode 1 -o build/spatial-score
 score:
   hzl_version: "0.1.0"
   hzl_type: score

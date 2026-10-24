@@ -294,6 +294,18 @@ class Model:
         """How many rows `table` has."""
         return len(self.rows[table])
 
+    def edge_groups(self) -> dict[tuple[str, str, str], list[Edge]]:
+        """The edges by relationship and (FROM, TO) pair of tables.
+
+        A `COPY` names one pair, so every serialisation writes a group at a
+        time. Groups are in order of first appearance, edges in the order
+        added.
+        """
+        groups: dict[tuple[str, str, str], list[Edge]] = {}
+        for edge in self.edges:
+            groups.setdefault((edge.rel, edge.src.table, edge.dst.table), []).append(edge)
+        return groups
+
     def to_dict(self) -> dict[str, Any]:
         """The model as plain data, for a JSON dump a person can inspect."""
         return {

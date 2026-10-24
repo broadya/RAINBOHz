@@ -6,7 +6,7 @@
 # synchronisation points. The entity keeps time by main, so its source's
 # position is on main; its one envelope names voice and starts at 0:0 there.
 #
-#   hzlc compile scores/polytempo_stretch_score.yaml -o build/polytempo-stretch-score.cypher
+#   hzlc compile scores/polytempo_stretch_score.yaml -o build/polytempo-stretch-score
 score:
   hzl_version: "0.1.0"
   hzl_type: score

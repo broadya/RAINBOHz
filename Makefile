@@ -185,7 +185,7 @@ PC_DOC_SOURCES := $(filter-out $(PC_DIR)/test/%,$(PC_SOURCES)) \
         run-playback-client format-playback-client tidy-playback-client \
         clean-playback-client \
         hzl-compiler hzl-compile test-hzl-compiler format-hzl-compiler lint-hzl-compiler \
-        test-hzl-oracle run-hzl-score \
+        test-hzl-oracle test-score-forms run-hzl-score \
         clean-hzl-compiler venv clean-venv lock lock-upgrade audit-python uv-present \
         build test clean help
 
@@ -489,20 +489,34 @@ audit-python: venv
 
 HZL_DIR   := hzl-compiler
 
-# What `make hzl-compile` compiles, and where the Cypher goes. Override to
-# compile your own score:
+# What `make hzl-compile` compiles, and where it goes. Override to compile
+# your own score:
 #   make hzl-compile HZL_SCORE=/path/to/scores/mine.yaml
+# The output is a directory of Parquet tables and their manifest.json, which
+# is what the engine loads fast. HZL_FORM=cypher writes the debugging form
+# instead, one Cypher script of literal rows (hzlc --debug-cypher).
 HZL_SCORE ?= $(HZL_DIR)/examples/tempo-map-score/scores/tempo_map_score.yaml
+HZL_FORM  ?= tables
+ifeq ($(HZL_FORM),cypher)
 HZL_OUT   ?= $(HZL_DIR)/build/$(notdir $(basename $(HZL_SCORE))).cypher
+HZL_STATE  = $(HZL_OUT)
+HZL_FORM_ARGS := --debug-cypher
+else ifeq ($(HZL_FORM),tables)
+HZL_OUT   ?= $(HZL_DIR)/build/$(notdir $(basename $(HZL_SCORE)))
+HZL_STATE  = $(HZL_OUT)/manifest.json
+HZL_FORM_ARGS :=
+else
+$(error HZL_FORM is '$(HZL_FORM)': it must be tables or cypher)
+endif
 # Extra compiler options, e.g. HZL_ARGS="--sample-rate 44100 --dump-canonical out.json".
 HZL_ARGS  ?=
 
 ## hzl-compiler: make the compiler usable (it lives in the root venv; same as make venv)
 hzl-compiler: venv
 
-## hzl-compile: compile $(HZL_SCORE) to $(HZL_OUT)
+## hzl-compile: compile $(HZL_SCORE) to $(HZL_OUT) (tables; HZL_FORM=cypher for the debugging script)
 hzl-compile: hzl-compiler
-	$(VENV_PY) -m hzl_compiler compile $(HZL_SCORE) -o $(HZL_OUT) $(HZL_ARGS)
+	$(VENV_PY) -m hzl_compiler compile $(HZL_SCORE) -o $(HZL_OUT) $(HZL_FORM_ARGS) $(HZL_ARGS)
 
 ## test-hzl-compiler: run the compiler's tests
 test-hzl-compiler: hzl-compiler
@@ -530,10 +544,10 @@ lint-hzl-compiler: hzl-compiler
 test-hzl-oracle: hzl-compiler rendering-engine
 	$(VENV_PY) -m hzl_compiler compile -q \
 	    $(HZL_DIR)/examples/tempo-map-score/scores/tempo_map_score.yaml \
-	    -o $(HZL_DIR)/build/oracle/tempo-map-score.cypher
+	    -o $(HZL_DIR)/build/oracle/tempo-map-score-tables
 	$(VENV_PY) $(RE_DIR)/test/oracle/run_oracle_check.py \
 	    --engine $(RE_BUILD)/bin/rendering-engine --schema $(ENGINE_SCHEMA) \
-	    --state $(HZL_DIR)/build/oracle/tempo-map-score.cypher \
+	    --state $(HZL_DIR)/build/oracle/tempo-map-score-tables/manifest.json \
 	    --request $(RE_DIR)/examples/tempo-map-request.yaml \
 	    --score engine-db/examples/tempo-map-score.json \
 	    --out-dir $(HZL_DIR)/build/oracle/frames
@@ -541,19 +555,41 @@ test-hzl-oracle: hzl-compiler rendering-engine
 	    score=$$(echo $$twin | tr - _)_score; \
 	    $(VENV_PY) -m hzl_compiler compile -q \
 	        $(HZL_DIR)/examples/$$twin-score/scores/$$score.yaml \
-	        -o $(HZL_DIR)/build/oracle/$$twin-score.cypher || exit 1; \
+	        -o $(HZL_DIR)/build/oracle/$$twin-score-tables || exit 1; \
 	    $(VENV_PY) $(RE_DIR)/test/oracle/run_oracle_check.py \
 	        --engine $(RE_BUILD)/bin/rendering-engine --schema $(ENGINE_SCHEMA) \
-	        --state $(HZL_DIR)/build/oracle/$$twin-score.cypher \
+	        --state $(HZL_DIR)/build/oracle/$$twin-score-tables/manifest.json \
 	        --request $(RE_DIR)/examples/$$twin-request.yaml \
 	        --score engine-db/examples/$$twin-score.json \
 	        --out-dir $(HZL_DIR)/build/oracle/$$twin-frames || exit 1; \
 	done
 
+# A score compiles to tables or, for debugging, to Cypher, and the engine
+# must give the same audio from either: every frame byte-identical (ADR 0025).
+# Each example as score:request:channel mode.
+FORMS_EXAMPLES := \
+    tempo-map-score/scores/tempo_map_score.yaml:$(RE_DIR)/examples/tempo-map-request.yaml:0 \
+    polytempo-shift-score/scores/polytempo_shift_score.yaml:$(RE_DIR)/examples/polytempo-shift-request.yaml:0 \
+    polytempo-stretch-score/scores/polytempo_stretch_score.yaml:$(RE_DIR)/examples/polytempo-stretch-request.yaml:0 \
+    spatial-score/scores/spatial_score.yaml:$(RE_DIR)/examples/spatial-request.yaml:1 \
+    demo/scores/demo.yaml:$(HZL_DIR)/examples/demo/render-request.yaml:0
+
+## test-score-forms: compile every example as tables and as Cypher, render both, and check the frames are byte-identical
+test-score-forms: hzl-compiler rendering-engine
+	@for example in $(FORMS_EXAMPLES); do \
+	    score=$$(echo "$$example" | cut -d: -f1); \
+	    request=$$(echo "$$example" | cut -d: -f2); \
+	    mode=$$(echo "$$example" | cut -d: -f3); \
+	    $(VENV_PY) scripts/check_score_forms.py \
+	        --engine $(RE_BUILD)/bin/rendering-engine --schema $(ENGINE_SCHEMA) \
+	        --score $(HZL_DIR)/examples/$$score --request $$request --channel-mode $$mode \
+	        --out-dir $(HZL_DIR)/build/forms/$$(basename $$score .yaml) || exit 1; \
+	done
+
 ## run-hzl-score: compile $(HZL_SCORE), then render it with $(RE_REQUEST) into $(RE_OUT_DIR)
 run-hzl-score: hzl-compile rendering-engine
 	$(RE_BUILD)/bin/rendering-engine --mode batch \
-	    --schema $(RE_SCHEMA) --state $(HZL_OUT) \
+	    --schema $(RE_SCHEMA) --state $(HZL_STATE) \
 	    --request $(RE_REQUEST) --out-dir $(RE_OUT_DIR) $(RE_ARGS)
 
 ## clean-hzl-compiler: remove the compiler's build output
@@ -571,7 +607,7 @@ build: rendering-engine playback-client hzl-compiler
 # compiler, and a schema that does not load makes the rest moot.
 
 ## test: run every component's tests
-test: check-whitespace validate-schemas lint-hzl-compiler test-hzl-compiler test-rendering-engine test-playback-client test-hzl-oracle
+test: check-whitespace validate-schemas lint-hzl-compiler test-hzl-compiler test-rendering-engine test-playback-client test-hzl-oracle test-score-forms
 
 ## clean: remove all generated artefacts
 clean: clean-docs clean-rendering-engine clean-playback-client clean-hzl-compiler clean-venv

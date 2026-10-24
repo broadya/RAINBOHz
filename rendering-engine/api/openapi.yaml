@@ -70,7 +70,8 @@ paths:
       summary: Load a score, replacing the one held
       description: |
         Discards the score the server holds, then loads, transforms and
-        precomputes the named Cypher file into a fresh engine-db.
+        precomputes the named score into a fresh engine-db: hzlc's
+        manifest.json of Parquet tables, or a Cypher script.
 
         A request refused with 400, 403 or 404 never reaches the score, and
         the score held before it stays. A request that gets as far as loading
@@ -87,7 +88,7 @@ paths:
             schema:
               $ref: "#/components/schemas/ScoreRequest"
             example:
-              uri: file:///Users/me/scores/tempo-map-score.cypher
+              uri: file:///Users/me/scores/tempo-map-score/manifest.json
       responses:
         "200":
           description: The score loaded, transformed and precomputed.
@@ -96,7 +97,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/LoadResult"
               example:
-                uri: file:///Users/me/scores/tempo-map-score.cypher
+                uri: file:///Users/me/scores/tempo-map-score/manifest.json
                 nodes: 412
                 relationships: 830
                 partials: 2
@@ -116,9 +117,11 @@ paths:
                 $ref: "#/components/schemas/Problem"
         "422":
           description: |
-            The load stopped short: a statement did not apply, an integrity
-            check failed (--validate-db), or the transform or precomputation
-            failed. The server now holds no score.
+            The load stopped short: a manifest is malformed or names a table
+            file that is missing or outside its directory, a statement did
+            not apply, an integrity check failed (--validate-db), or the
+            transform or precomputation failed. The server now holds no
+            score.
           content:
             application/problem+json:
               schema:
@@ -519,7 +522,9 @@ components:
           description: |
             A `file://` URI with an empty or `localhost` authority and an
             absolute, percent-encoded path; no query or fragment. The file
-            must lie within the server's --input-root.
+            must lie within the server's --input-root. It is a score in
+            either form: hzlc's `manifest.json` of Parquet tables (which
+            must lie in the manifest's directory), or a `.cypher` script.
 
     LoadResult:
       type: object

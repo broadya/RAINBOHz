@@ -120,6 +120,7 @@ add_library(rendering_engine_lib STATIC
     src/script_loader.cpp
     src/server.cpp
     src/spatial_gains.cpp
+    src/table_loader.cpp
     src/transform/polytempo.cpp
     src/transform/squash.cpp
     src/transform/tempo_map.cpp

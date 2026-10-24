@@ -6,7 +6,7 @@
 # synchronisation point, which only shifts it. One source holds two
 # envelopes: "chord" on the entity's map, main; "voice" on the voice map.
 #
-#   hzlc compile scores/polytempo_shift_score.yaml -o build/polytempo-shift-score.cypher
+#   hzlc compile scores/polytempo_shift_score.yaml -o build/polytempo-shift-score
 score:
   hzl_version: "0.1.0"
   hzl_type: score

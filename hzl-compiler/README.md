@@ -3,13 +3,14 @@
 The compiler for HzL (Hertz Language), the practitioner-facing language of
 RAINBOHz. It reads a score and every file the score reaches, lowers the
 higher-level constructs to the lowest level of the language, and emits that
-level as a Cypher script that `rendering-engine` loads into `engine-db`.
-Python 3.12.
+level as Parquet tables with a manifest, which `rendering-engine` loads into
+`engine-db`. For debugging it can emit the same level as one Cypher script
+instead. Python 3.12.
 
 This is the actual route into the engine:
 
 ```
-HzL source --> hzlc --> canonical model (Cypher) --> rendering-engine --> audio
+HzL source --> hzlc --> canonical model (Parquet tables) --> rendering-engine --> audio
 ```
 
 The hand-written scores in `engine-db/examples/` remain the engine's test
@@ -25,25 +26,34 @@ From the repository root:
 
 ```bash
 make venv                         # create the root .venv with the compiler in it (automatic on first use)
-make hzl-compile                  # compile examples/tempo-map-score to build/
+make hzl-compile                  # compile examples/tempo-map-score to build/tempo_map_score/
 make hzl-compile HZL_SCORE=hzl-compiler/examples/demo/scores/demo.yaml
+make hzl-compile HZL_FORM=cypher  # the debugging form: build/tempo_map_score.cypher
 make run-hzl-score HZL_SCORE=hzl-compiler/examples/demo/scores/demo.yaml \
     RE_REQUEST=hzl-compiler/examples/demo/render-request.yaml   # ...and render it
 make test-hzl-compiler            # pytest
 make lint-hzl-compiler            # ruff lint and format check, mypy (part of make test)
 make format-hzl-compiler          # apply ruff's fixes and formatting in place
 make test-hzl-oracle              # compiled twin == hand-written score, by the oracle
+make test-score-forms             # tables and Cypher give byte-identical frames, every example
 ```
 
 Or directly, once installed:
 
 ```bash
-../.venv/bin/hzlc compile examples/demo/scores/demo.yaml -o build/demo.cypher
+../.venv/bin/hzlc compile examples/demo/scores/demo.yaml -o build/demo
+../.venv/bin/hzlc compile examples/demo/scores/demo.yaml -o build/demo.cypher --debug-cypher
 ../.venv/bin/hzlc compile --help
 ```
 
 `hzlc compile` takes the score's file and works the source root out from the
-score's `namespace`. It writes one `.cypher` file. `--sample-rate` and
+score's `namespace`. It writes the directory `-o` names: one Parquet file
+per table and per relationship pair, and `manifest.json`, which is what the
+engine is given (`--state` or `PUT /v1/score`). An earlier output there is
+replaced; a directory holding anything else is refused. With
+`--debug-cypher` it writes one `.cypher` file instead: readable, loadable by
+hand, the same database, but about 80 times slower for the engine to load
+(ADR 0025). `--sample-rate` and
 `--channel-mode` set the `EngineConfig` the engine needs, which is not part of
 the score; `--dump-canonical FILE.json` also writes the canonical model's
 tables as JSON, for inspection. Errors name the file, the place in it and what
@@ -62,7 +72,8 @@ src/hzl_compiler/
   lower/tempo_maps.py           L0: every tempo map of the tree and their ties
   lower/score.py                L0: score -> canonical model
   canonical/model.py            the canonical model as tables (the lowest HzL level)
-  canonical/cypher.py           ...emitted as Cypher
+  canonical/tables.py           ...emitted as Parquet tables and manifest.json
+  canonical/cypher.py           ...or as Cypher, with --debug-cypher
   cli.py                        hzlc
 tests/                          pytest; tests/expected/ holds the golden scripts
 examples/tempo-map-score/       HzL twin of engine-db/examples/tempo-map-score.cypher

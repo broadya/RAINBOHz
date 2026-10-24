@@ -247,6 +247,33 @@ TEST_F(ServerTest, AMissingFileIsNotFound) {
     expectProblem(server().putScore(scoreBody("a-directory")), 404);
 }
 
+// A score's tables load as its Cypher does. The manifest here holds only the
+// EngineConfig; test_table_loader.cpp covers the tables themselves.
+TEST_F(ServerTest, AManifestOfTablesLoads) {
+    std::ofstream{inputRoot_.path() / "manifest.json"}
+        << R"({"format": "rainbohz-score-tables", "version": 1,
+               "engine_config": {"sampleRate": 48000, "channelMode": 0},
+               "nodes": [], "relationships": []})";
+    const Json response = loadOk("manifest.json");
+    EXPECT_EQ(response.at("partials"), 0);
+    EXPECT_EQ(response.at("nodes"), 1);
+}
+
+// A manifest that names a file outside its directory is a fault in the
+// score, like a statement that does not apply, and leaves no score behind.
+TEST_F(ServerTest, AManifestNamingAFileOutsideItIsUnprocessable) {
+    loadOk("tempo-map.cypher");
+    std::ofstream{inputRoot_.path() / "manifest.json"}
+        << R"({"format": "rainbohz-score-tables", "version": 1, "engine_config": {},
+               "nodes": [{"table": "Partial", "rows": 1, "file": "../Partial.parquet",
+                          "columns": ["name"]}],
+               "relationships": []})";
+    const Json problem = expectProblem(server().putScore(scoreBody("manifest.json")), 422);
+    EXPECT_NE(
+        problem.at("detail").get<std::string>().find("../Partial.parquet"), std::string::npos);
+    expectProblem(server().engineConfig({}), 409);
+}
+
 TEST_F(ServerTest, AFailedLoadLeavesNoScore) {
     loadOk("tempo-map.cypher");
     const Json problem = expectProblem(server().putScore(scoreBody("broken.cypher")), 422);

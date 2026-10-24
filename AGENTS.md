@@ -422,9 +422,10 @@ Databases (built from the schema DDL, which is the source of truth):
   Python-driven tests run with the root `.venv`, as Ladybug's code
   generation does; configuring fails if it does not exist (`make venv`).
 - `make run-rendering-engine` — run the engine in batch mode, loading two
-  Cypher files into an in-memory database: `RE_SCHEMA` (default
+  files into an in-memory database: `RE_SCHEMA` (default
   `engine-db/schema/engine-schema.cypher`) and then `RE_STATE` (default
-  `engine-db/examples/minimum-score.cypher`), precomputing every partial and
+  `engine-db/examples/minimum-score.cypher`; a score is a `.cypher` script or
+  hzlc's `manifest.json` of tables), precomputing every partial and
   rendering the frames of `RE_REQUEST` (default
   `rendering-engine/examples/minimum-request.yaml`) as WAV files into
   `RE_OUT_DIR` (default `rendering-engine/build/<preset>/frames`). Override
@@ -498,11 +499,17 @@ Python:
 
 - `make hzl-compiler` — the same as `make venv`: the compiler lives there.
 - `make hzl-compile` — compile `HZL_SCORE` (default the tempo-map twin) to
-  `HZL_OUT` (default `hzl-compiler/build/<score>.cypher`). Extra `hzlc`
-  options go in `HZL_ARGS`.
+  `HZL_OUT` (default `hzl-compiler/build/<score>/`, Parquet tables and
+  `manifest.json`). `HZL_FORM=cypher` writes the debugging form instead,
+  `hzl-compiler/build/<score>.cypher` (`hzlc --debug-cypher`; ADR 0025).
+  Extra `hzlc` options go in `HZL_ARGS`.
 - `make run-hzl-score` — compile, then render with `RE_REQUEST` into
   `RE_OUT_DIR`, exactly as `run-rendering-engine` would from a hand-written
-  state file.
+  state file. `--state` takes the manifest, or the script with
+  `HZL_FORM=cypher`.
+- `make test-score-forms` — compile every example score both as tables and
+  as Cypher, render both, and fail unless every frame is byte-identical
+  (`scripts/check_score_forms.py`). Part of `make test`.
 - `make test-hzl-compiler` — pytest.
 - `make lint-hzl-compiler` — ruff lint and format check, then mypy;
   changes nothing, fails on any finding. Part of `make test`.

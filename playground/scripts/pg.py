@@ -102,25 +102,30 @@ def read_piece(piece: str) -> dict[str, str]:
 
 
 def compile_piece(piece: str, score: str, channel_mode: str) -> Path:
-    """Compiles a piece's score to `.run/<piece>.cypher` with hzlc.
+    """Compiles a piece's score to `.run/<piece>.tables/` with hzlc.
 
-    Compiles to a temporary file first, so a failed compile leaves the last
-    good Cypher in place.
+    The output is hzlc's directory of Parquet tables and their manifest,
+    which the engine loads far faster than the Cypher form. It is compiled
+    into a temporary directory first and swapped in only when hzlc succeeds,
+    so a failed compile leaves the last good tables in place.
 
     Args:
-        piece: The piece's name, which names the output file.
+        piece: The piece's name, which names the output directory.
         score: Absolute path of the score's .yaml.
         channel_mode: hzlc's --channel-mode, 0 to 7; 1 is stereo from M/S.
 
     Returns:
-        The compiled Cypher file.
+        The compiled score's manifest.json.
 
     Raises:
         PgError: with hzlc's message, if the compile fails.
     """
     RUN.mkdir(exist_ok=True)
-    out = RUN / f"{piece}.cypher"
-    tmp = RUN / f"{piece}.cypher.new"
+    out = RUN / f"{piece}.tables"
+    tmp = RUN / f"{piece}.tables.new"
+    old = RUN / f"{piece}.tables.old"
+    for leftover in (tmp, old):
+        shutil.rmtree(leftover, ignore_errors=True)
     result = subprocess.run(
         [str(VENV_PY), "-m", "hzl_compiler", "compile", score, "-o", str(tmp), "-q",
          "--channel-mode", channel_mode],
@@ -129,10 +134,15 @@ def compile_piece(piece: str, score: str, channel_mode: str) -> Path:
         text=True,
     )
     if result.returncode != 0:
-        tmp.unlink(missing_ok=True)
+        shutil.rmtree(tmp, ignore_errors=True)
         raise PgError("compile failed, nothing changed:\n" + (result.stderr or result.stdout))
-    tmp.replace(out)
-    return out
+    # A directory cannot replace a non-empty one in a single rename, so the
+    # old tables step aside first.
+    if out.exists():
+        out.rename(old)
+    tmp.rename(out)
+    shutil.rmtree(old, ignore_errors=True)
+    return out / "manifest.json"
 
 
 def call(port: int, method: str, path: str, body: Any = None, timeout: float = 120) -> Any:
@@ -171,17 +181,18 @@ def call(port: int, method: str, path: str, body: Any = None, timeout: float = 1
         raise PgError(f"{method} {path}: cannot reach the server on port {port}: {error}") from error
 
 
-def load_score(port: int, cypher: Path) -> None:
+def load_score(port: int, manifest: Path) -> None:
     """Loads a compiled score into the server, replacing the one it holds.
 
     Args:
         port: The server's port.
-        cypher: The compiled score, under the playground (the input root).
+        manifest: The compiled score's manifest, under the playground (the
+            input root).
 
     Raises:
         PgError: if the load fails. After a 422 the server holds no score.
     """
-    answer = call(port, "PUT", "/score", {"uri": cypher.resolve().as_uri()})
+    answer = call(port, "PUT", "/score", {"uri": manifest.resolve().as_uri()})
     print(f"pg: loaded {answer['partials']} partials")
 
 
@@ -350,12 +361,12 @@ def cmd_start(args: argparse.Namespace) -> None:
         raise PgError(f"'{state['piece']}' is already running: pg reload, or pg stop first")
     check_tools()
     piece = read_piece(args.piece)
-    cypher = compile_piece(args.piece, piece["score"], piece["channel_mode"])
+    manifest = compile_piece(args.piece, piece["score"], piece["channel_mode"])
     server_pid, port = start_server()
     print(f"pg: server on port {port} (pid {server_pid})")
     state = {"piece": args.piece, "port": port, "server_pid": server_pid, "client_pid": None}
     write_state(state)
-    load_score(port, cypher)
+    load_score(port, manifest)
     state["span"] = loop_span(port, piece["loop_start"], piece["loop_end"])
     state["loop"] = [piece["loop_start"], piece["loop_end"]]
     state["channel_mode"] = piece["channel_mode"]
@@ -378,9 +389,9 @@ def cmd_reload(_: argparse.Namespace) -> None:
     if not state or not alive(state.get("server_pid")):
         raise PgError("nothing is running: pg start")
     piece = read_piece(state["piece"])
-    cypher = compile_piece(state["piece"], piece["score"], piece["channel_mode"])
+    manifest = compile_piece(state["piece"], piece["score"], piece["channel_mode"])
     port = state["port"]
-    load_score(port, cypher)
+    load_score(port, manifest)
     loop = [piece["loop_start"], piece["loop_end"]]
     span = loop_span(port, *loop)
     reasons = []

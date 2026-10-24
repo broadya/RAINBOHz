@@ -184,6 +184,7 @@ def test_cli_compiles_and_dumps(tmp_path: Path, capsys: pytest.CaptureFixture[st
             str(EXAMPLES / "tempo-map-score" / "scores" / "tempo_map_score.yaml"),
             "-o",
             str(out),
+            "--debug-cypher",
             "--dump-canonical",
             str(dump),
         ]
@@ -198,7 +199,7 @@ def test_cli_header_names_the_tree_without_its_path(tmp_path: Path) -> None:
     # The script must be the same whichever machine or directory compiled it.
     score = EXAMPLES / "tempo-map-score" / "scores" / "tempo_map_score.yaml"
     out = tmp_path / "o.cypher"
-    assert main(["compile", str(score), "-o", str(out), "-q"]) == 0
+    assert main(["compile", str(score), "-o", str(out), "--debug-cypher", "-q"]) == 0
     header = [line for line in out.read_text().splitlines() if line.startswith("//")]
     assert "// Score scores/tempo_map_score, from source tree tempo-map-score" in header
     assert not any(str(EXAMPLES) in line for line in header)
@@ -211,5 +212,5 @@ def test_cli_reports_hzl_errors(tmp_path: Path, capsys: pytest.CaptureFixture[st
         'score:\n  hzl_version: "0.1.0"\n  hzl_type: score\n  name: s\n  namespace: scores\n'
         "  layer: x\n  tempo_map: {namespace: t, name: m}\n  sound_entities: []\n"
     )
-    assert main(["compile", str(bad), "-o", str(tmp_path / "o.cypher"), "-q"]) == 1
+    assert main(["compile", str(bad), "-o", str(tmp_path / "o"), "-q"]) == 1
     assert "no file for reference t/m" in capsys.readouterr().err

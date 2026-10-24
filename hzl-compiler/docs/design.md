@@ -32,7 +32,7 @@ emits is exactly what the hand-written scores already were.
 | Curves carried per stage, per property | Curves interpreted (the engine renders linear only) |
 | Labels emitted for partials and the score | Labels as a selection; labels on entities, sources and sets (`HAS_LABEL` is not declared for them) |
 | One Python CLI running every stage in process | The Ninja build; incremental compilation; provenance columns (not in the schema) |
-| Cypher output, batched by table | Columnar files for `COPY FROM` at target scale (§7) |
+| Parquet tables and a manifest for `COPY FROM`; Cypher, batched by table, for debugging (§7) | Several node tables loaded at once (§7) |
 
 Layers and namespaces are parsed and carried as the proof of concept had
 them. One rule uses layers: a tempo map's synchronisation point ties it to a
@@ -239,15 +239,70 @@ a later optimisation, along with leaving out other unused objects.
 row list per node table, one edge list, compiler-assigned local keys. This is
 the lowest level of HzL (`architecture/overview.md` §6, "Lowest abstraction
 level"), and it is deliberately not Cypher. Cypher is one serialisation of
-these rows; a columnar file for Ladybug's `COPY FROM` would be another, over
-the same rows, when loading speed matters (§7). `hzlc compile
---dump-canonical` writes the tables as JSON for inspection.
+these rows, and Parquet files for Ladybug's `COPY FROM` are another, over
+the same rows (§7). `hzlc compile --dump-canonical` writes the tables as JSON
+for inspection.
 
 ## 7. Emission
 
-The emitter writes the `EngineConfig` in a statement of its own, from the
-compiler's options. The score follows as **one statement per table, in
-chunks of 1,000 rows**, every node table before any relationship:
+The model is written in one of two forms, which load the same `engine-db`
+and render byte-identical frames (`make test-score-forms`, ADR 0025):
+
+- **Tables** (the default): Parquet files and a manifest, which the engine
+  loads with `COPY FROM`. Nothing in them is parsed as Cypher.
+- **Cypher** (`--debug-cypher`): one script of literal rows, readable and
+  loadable by hand, and about 80 times slower to load.
+
+Both depend on the same rule for ids, set out under the Cypher form below:
+a relationship names its ends by the model's row indices, which are the ids
+a fresh database gives rows in the order they are created.
+
+### 7.1 Tables
+
+`canonical/tables.py` writes the directory `-o` names:
+
+- `manifest.json`: `format` `"rainbohz-score-tables"`, `version` 1,
+  `comments`, `engine_config` (the `EngineConfig` properties), `nodes` (each
+  node table in `TABLE_ORDER` with its `rows`, and its `file` and `columns`
+  if it has columns) and `relationships` (each relationship (FROM, TO) pair,
+  in order of first appearance, with its `rows` and `file`);
+- `<Table>.parquet` for each node table with columns, one column per row
+  field, typed from the field's annotation (STRING, INT64, DOUBLE, BOOL),
+  with None as NULL;
+- `<REL>.<From>.<To>.parquet` for each relationship pair: `from`, `to` (row
+  indices) and the relationship's properties.
+
+A table with no columns (`PartialStateSet`, say) has no file; the engine
+creates `rows` nodes. The manifest is written last, so a directory with one
+is complete. An earlier output in the directory is replaced, file by file as
+its manifest lists them; a directory holding anything else is refused, and
+so is `-o x.cypher` without `--debug-cypher`.
+
+**One row group per node file.** Ladybug reads a Parquet file one row group
+per task, in parallel, and numbers rows as the tasks finish, so a node file
+of several row groups would get ids out of file order and connect the wrong
+nodes. It did on `echoes` (2026-10-21): frames differed by more than their
+own peak. `parallel=false` is refused for Parquet. Every node file is
+therefore one row group, whatever its size; pyarrow's default would split a
+table at 1,048,576 rows (`test_a_node_file_is_one_row_group_past_pyarrows_default`).
+Relationship files are left to pyarrow, as edge order does not reach the
+audio.
+
+The engine checks the manifest before running anything, refuses a node table
+that already holds rows, and checks each table's count after the copy
+(`rendering-engine/docs/design.md` §3.1).
+
+**Cost.** On `echoes` (5,120 partials, 82,005 rows; macos-max, 2026-10-21)
+the tables load in about 0.11 s, against 9.2 s for the Cypher form, of which
+49% was Ladybug parsing the literals and 36% binding them. Each node table is
+read by one task. Loading tables in parallel would need ids that do not
+depend on read order.
+
+### 7.2 Cypher, for debugging
+
+`canonical/cypher.py` writes the `EngineConfig` in a statement of its own,
+from the compiler's options. The score follows as **one statement per table,
+in chunks of 1,000 rows**, every node table before any relationship:
 
 ```cypher
 UNWIND [
@@ -310,11 +365,9 @@ them in a different order than before. Convergence's frames moved by at most
 model order). The oracle twin, the spatial twin and `examples/demo` rendered
 byte-identical frames. Relationship order does not reach the audio.
 
-**Beyond this.** At target scale (1M+ partials) about 55 µs × rows is many
-minutes of parsing literals. There, the tables of §6 go to Ladybug's
-`COPY FROM` as CSV or Parquet files instead, which the row lists already
-suit. That needs the engine to resolve the files' paths beneath the server's
-`--input-root`. It is not started.
+**Beyond this.** At target scale (1M+ partials) about 55 to 110 µs × rows
+is many minutes of parsing literals, which is why the tables (§7.1) are the
+normal output and this form is for debugging.
 
 ## 8. Tests
 
@@ -355,5 +408,3 @@ suit. That needs the engine to resolve the files' paths beneath the server's
 - **Layers as an ordering for other references**, namespaces as a
   dependency rule, the Ninja build and incremental compilation. Deliberately
   untouched; layers order tempo-map ties only.
-- **Columnar output** (§7): CSV or Parquet for `COPY FROM`, when parsing
-  literal rows (about 55 µs a row) dominates the load.

@@ -45,6 +45,7 @@ add_executable(rendering_engine_tests
     test_spatial_gains_oracle.cpp
     test_spatial_maths.cpp
     test_spatialise.cpp
+    test_table_loader.cpp
     test_units.cpp
     test_wav_writer.cpp
     test_write_batch.cpp

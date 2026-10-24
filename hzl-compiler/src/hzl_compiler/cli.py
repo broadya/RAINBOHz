@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""The `hzlc` command line: compile a score to Cypher."""
+"""The `hzlc` command line: compile a score to Parquet tables, or to Cypher for debugging."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from pathlib import Path
 from . import __version__
 from .canonical.cypher import emit_cypher
 from .canonical.model import TABLE_ORDER
+from .canonical.tables import MANIFEST, TablesError, emit_tables
 from .errors import HzlError
 from .lower.score import CHANNEL_MODES, EngineOptions, lower_score
 from .source import SourceTree
@@ -20,7 +21,7 @@ from .source import SourceTree
 def build_parser() -> argparse.ArgumentParser:
     """Builds the argument parser for `hzlc`."""
     parser = argparse.ArgumentParser(
-        prog="hzlc", description="Compile an HzL score to Cypher for engine-db."
+        prog="hzlc", description="Compile an HzL score to tables for engine-db."
     )
     parser.add_argument("--version", action="version", version=f"hzlc {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -34,7 +35,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="the score's .yaml file; the source root is worked out from its namespace",
     )
     compile_.add_argument(
-        "-o", "--output", type=Path, required=True, help="the .cypher file to write"
+        "-o",
+        "--output",
+        type=Path,
+        required=True,
+        help=f"the directory to write the tables and {MANIFEST} to; with --debug-cypher, "
+        "the .cypher file to write",
+    )
+    compile_.add_argument(
+        "--debug-cypher",
+        action="store_true",
+        help="write one Cypher script of literal rows instead of tables: readable, and "
+        "loadable by hand, but much slower for the engine to load",
     )
     compile_.add_argument(
         "--sample-rate",
@@ -62,12 +74,22 @@ def build_parser() -> argparse.ArgumentParser:
 def compile_command(args: argparse.Namespace) -> int:
     """Runs `hzlc compile`.
 
-    Writes the Cypher script to `args.output`, creating its directory, and
-    the JSON dump if asked. Prints a one-line summary to stdout unless quiet.
+    Writes the tables and their manifest to the directory `args.output`, or
+    with `--debug-cypher` the Cypher script to the file `args.output`,
+    creating directories as needed, and the JSON dump if asked. Prints a
+    one-line summary to stdout unless quiet.
 
     Returns:
-        0 on success, 1 on an HzL fault (reported on stderr).
+        0 on success, 1 on an HzL fault or an output that cannot be written
+        (reported on stderr), 2 on a usage error.
     """
+    if not args.debug_cypher and args.output.suffix == ".cypher":
+        print(
+            f"hzlc: error: {args.output} names a .cypher file, but the output is a directory "
+            "of tables; add --debug-cypher to write Cypher",
+            file=sys.stderr,
+        )
+        return 2
     try:
         options = EngineOptions(sample_rate=args.sample_rate, channel_mode=args.channel_mode)
     except ValueError as error:
@@ -79,18 +101,23 @@ def compile_command(args: argparse.Namespace) -> int:
     except HzlError as error:
         print(f"hzlc: error: {error}", file=sys.stderr)
         return 1
-    script = emit_cypher(
-        model,
-        [
-            f"Score {ref}, from source tree {tree.root.name}",
-            (
-                f"hzlc {__version__}; sample rate {options.sample_rate} Hz, "
-                f"channel mode {options.channel_mode} ({CHANNEL_MODES[options.channel_mode]})"
-            ),
-        ],
-    )
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(script, encoding="utf-8")
+    comments = [
+        f"Score {ref}, from source tree {tree.root.name}",
+        (
+            f"hzlc {__version__}; sample rate {options.sample_rate} Hz, "
+            f"channel mode {options.channel_mode} ({CHANNEL_MODES[options.channel_mode]})"
+        ),
+    ]
+    if args.debug_cypher:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(emit_cypher(model, comments), encoding="utf-8")
+        written = args.output
+    else:
+        try:
+            written = emit_tables(model, args.output, comments)
+        except TablesError as error:
+            print(f"hzlc: error: {error}", file=sys.stderr)
+            return 1
     if args.dump_canonical is not None:
         args.dump_canonical.parent.mkdir(parents=True, exist_ok=True)
         args.dump_canonical.write_text(
@@ -100,7 +127,7 @@ def compile_command(args: argparse.Namespace) -> int:
         counts = ", ".join(
             f"{model.count(t)} {t}" for t in TABLE_ORDER if model.count(t) and t != "EngineConfig"
         )
-        print(f"hzlc: compiled {ref}: {counts}; {len(model.edges)} relationships -> {args.output}")
+        print(f"hzlc: compiled {ref}: {counts}; {len(model.edges)} relationships -> {written}")
     return 0
 
 

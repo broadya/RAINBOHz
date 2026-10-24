@@ -90,6 +90,6 @@ mono. They are small enough to play on any build.
 
 ## Runtime files
 
-`.run/` holds the compiled Cypher, rendered frames, the client's buffer,
-`state.json` and the logs (`server.log`, `client.log`). Delete it any time
-nothing is running.
+`.run/` holds the compiled scores (`<piece>.tables/`, hzlc's Parquet tables
+and manifest), rendered frames, the client's buffer, `state.json` and the
+logs (`server.log`, `client.log`). Delete it any time nothing is running.

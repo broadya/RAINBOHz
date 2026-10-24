@@ -7,7 +7,7 @@
 # hand-written partials with a physical-time attack, placed two beats
 # later.
 #
-#   hzlc compile scores/demo.yaml -o build/demo.cypher
+#   hzlc compile scores/demo.yaml -o build/demo
 #   make run-hzl-score HZL_SCORE=hzl-compiler/examples/demo/scores/demo.yaml \
 #       RE_REQUEST=hzl-compiler/examples/demo/render-request.yaml
 score:

@@ -6,6 +6,7 @@
 #include "rainbohz/rendering_engine/render_request.hpp"
 #include "rainbohz/rendering_engine/rendering.hpp"
 #include "rainbohz/rendering_engine/script_loader.hpp"
+#include "rainbohz/rendering_engine/table_loader.hpp"
 #include "rainbohz/rendering_engine/transform/timing_query.hpp"
 
 /// Ladybug compiles its own, older cpp-httplib into the engine (for its
@@ -530,6 +531,8 @@ HttpReply ServerCore::putScore(std::string_view body) {
             resource(200, {{"uri", fileUri}, {"nodes", census.totalNodes},
                               {"relationships", census.totalRelationships},
                               {"partials", nodeCount(census, "Partial")}}));
+    } catch (const ManifestError& e) {
+        return fail(422, e.what());
     } catch (const std::exception& e) {
         return fail(500, e.what());
     }

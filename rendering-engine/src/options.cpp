@@ -165,7 +165,8 @@ ParseResult parseCommandLine(int argc, const char* const* argv) {
         ->check(CLI::ExistingFile);
 
     const CLI::Option* state = app.add_option("-s,--state", options.stateFile,
-                                      "Cypher file holding the initial database state (batch mode)")
+                                      "The score to load (batch mode): hzlc's manifest.json of "
+                                      "tables, or a .cypher script")
                                    ->check(CLI::ExistingFile);
 
     const CLI::Option* request = app.add_option("-r,--request", options.requestFile,
@@ -225,7 +226,7 @@ ParseResult parseCommandLine(int argc, const char* const* argv) {
     // Mode-specific requirements. CLI11 can express these as needs/excludes,
     // but stating them here keeps the message in the engine's own words.
     if (options.mode == Mode::Batch) {
-        if (!requireOption(state, "batch", "<file.cypher>", "the initial database state to load") ||
+        if (!requireOption(state, "batch", "<manifest.json|file.cypher>", "the score to load") ||
             !requireOption(request, "batch", "<file.yaml>", "the frames and labels to render") ||
             !refuseOption(host, "batch", "it is for server mode") ||
             !refuseOption(port, "batch", "it is for server mode") ||

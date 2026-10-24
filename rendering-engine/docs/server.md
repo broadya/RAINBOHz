@@ -90,12 +90,15 @@ would let an id outlive a load, is later work (§8).
 ### 3.1 `PUT /v1/score`
 
 ```json
-{"uri": "file:///Users/me/scores/demo.cypher"}
+{"uri": "file:///Users/me/scores/demo/manifest.json"}
 ```
 
 Discards the score the server holds, then loads, transforms and precomputes
-the named Cypher file into a fresh in-memory `engine-db`. This is batch mode's
-loading sequence, `--state` and all.
+the named score into a fresh in-memory `engine-db`. This is batch mode's
+loading sequence, `--state` and all. The URI names either form of a score
+(design.md §3.1, ADR 0025): hzlc's `manifest.json` of Parquet tables, or a
+`.cypher` script. A manifest's tables must lie in its own directory, so they
+are under `--input-root` too.
 
 | Status | When | Body |
 | --- | --- | --- |
@@ -103,7 +106,7 @@ loading sequence, `--state` and all.
 | 400 | The body is not a JSON object with exactly a string `uri`, or the URI is not one §4 accepts | problem |
 | 403 | The file is outside `--input-root` | problem |
 | 404 | No regular file at that path | problem |
-| 422 | The load stopped short: a statement did not apply, an integrity check failed (`--validate-db`), or the transform or precomputation failed | problem |
+| 422 | The load stopped short: a manifest is malformed or names a table file that is missing or outside its directory, a statement did not apply, an integrity check failed (`--validate-db`), or the transform or precomputation failed | problem |
 | 500 | Anything else, e.g. the file could not be read | problem |
 
 **What the server holds afterwards.** A call refused with 400, 403 or 404

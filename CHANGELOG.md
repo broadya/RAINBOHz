@@ -25,7 +25,7 @@ The target architecture, built from 2026-09-27 onwards.
   with exact anchors, uniform stretch and local compensation (ADR 0023);
   `--validate-db` checks the edges.
 - `hzl-compiler` (Python): first version of the HzL compiler, from HzL to
-  Cypher for `engine-db`.
+  tables (or Cypher) for `engine-db`.
 - Polytempo in HzL: `synchronization_points` on a child `tempo_map`, each tied
   to a parent in a strictly lower layer (ADR 0024); a tempo map per sound
   entity, overridable per envelope with an absolute position; every tempo map
@@ -97,6 +97,15 @@ The target architecture, built from 2026-09-27 onwards.
   compiler's order (they used to come out reversed), so a score with many
   partials sums them in a different order: `convergence` moves by at most
   2.4e-7.
+- `hzlc` writes a score as Parquet tables and a `manifest.json` by default
+  (`-o` names a directory), which `rendering-engine` loads with `COPY FROM`
+  (ADR 0025). `--debug-cypher` writes the Cypher script as before, now the
+  debugging form. The engine's `--state` and `PUT /v1/score` take either,
+  by extension, and check a manifest before loading it. A malformed manifest
+  is a 422. The 5,120-partial piece `echoes` loads in 0.11 s instead of
+  9.2 s on `macos-max`, with byte-identical audio. `make test-score-forms`
+  checks every example renders the same from both forms. `hzl-compiler`
+  now depends on pyarrow.
 
 ## Before this changelog
 

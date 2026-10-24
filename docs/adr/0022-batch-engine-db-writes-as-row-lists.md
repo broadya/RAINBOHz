@@ -219,13 +219,16 @@ Impact on components:
   ends), `binder/bind/bind_file_scan.cpp` (query scan sources),
   `binder/bind/bind_ddl.cpp` (`SERIAL` as `nextval`), and
   `main/client_context.cpp` (`executeWithParams` reusing the cached plan).
-* The score load is the remaining database cost, and it is not a
-  batching problem. `hzlc` emits the whole score as one `CREATE` pattern of
-  about 9,000 lines. Ladybug's binder merges each element into the query
-  graph built so far (`QueryGraphCollection::addAndMergeQueryGraphIfConnected`,
-  `QueryGraph::merge`), so binding grows with the square of the pattern:
-  6 s of the 7.1 s load for `convergence`. The remedy is in the compiler's
-  output (per-table row lists or `COPY`), or a patch to the binder.
+* The score load was the remaining database cost when this was decided, and
+  it was not a batching problem. `hzlc` then emitted the whole score as one
+  `CREATE` pattern of about 9,000 lines. Ladybug's binder merges each element
+  into the query graph built so far
+  (`QueryGraphCollection::addAndMergeQueryGraphIfConnected`,
+  `QueryGraph::merge`), so binding grew with the square of the pattern: 6 s
+  of the 7.1 s load for `convergence`. The compiler's output has changed
+  twice since. It became per-table row lists of literals (2026-10-13), and
+  then Parquet tables loaded by `COPY FROM`, with the Cypher script kept for
+  debugging (ADR 0025).
 * Revisit if Ladybug's planner learns to use index lookups for
   `UNWIND … MATCH` on keys. Option 2 would then serve relationships
   carrying properties, which `COPY` can also carry but which none of the

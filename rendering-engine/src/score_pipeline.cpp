@@ -6,6 +6,7 @@
 #include "rainbohz/rendering_engine/precomputation.hpp"
 #include "rainbohz/rendering_engine/report.hpp"
 #include "rainbohz/rendering_engine/script_loader.hpp"
+#include "rainbohz/rendering_engine/table_loader.hpp"
 #include "rainbohz/rendering_engine/transform/transform.hpp"
 
 #include <filesystem>
@@ -42,7 +43,7 @@ LoadResult loadScore(EngineDb& db, const std::filesystem::path& schemaFile,
     // The state file is applied even when the schema did not load whole: the
     // errors it then produces say which tables are missing, which is more use
     // than stopping at the first problem.
-    const LoadReport state = loadCypherFile(db, stateFile, observe);
+    const LoadReport state = loadStateFile(db, stateFile, observe);
     reportLoad(log, "state ", state);
     total += state;
 

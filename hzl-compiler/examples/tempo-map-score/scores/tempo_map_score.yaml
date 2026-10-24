@@ -4,7 +4,7 @@
 # the physical values in engine-db/examples/tempo-map-score.json; that is
 # the golden test of the compiled route against the hand-written one.
 #
-#   hzlc compile scores/tempo_map_score.yaml -o build/tempo-map-score.cypher
+#   hzlc compile scores/tempo_map_score.yaml -o build/tempo-map-score
 score:
   hzl_version: "0.1.0"
   hzl_type: score

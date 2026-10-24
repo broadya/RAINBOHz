@@ -215,14 +215,10 @@ def emit_cypher(model: Model, comment_lines: Iterable[str] = ()) -> str:
         out.extend(_node_statements(table, rows))
         out.append("")
 
-    # Edges by relationship and (FROM, TO) pair, since a COPY names one pair;
-    # groups in order of first appearance, edges in the order added. Unlike
-    # node order, which sets the ids, edge order does not reach the audio:
-    # convergence rendered byte-identical frames either way (2026-10-13).
-    groups: dict[tuple[str, str, str], list[Edge]] = {}
-    for edge in model.edges:
-        groups.setdefault((edge.rel, edge.src.table, edge.dst.table), []).append(edge)
-    for (rel, src, dst), edges in groups.items():
+    # Unlike node order, which sets the ids, edge order does not reach the
+    # audio: convergence rendered byte-identical frames either way
+    # (2026-10-13).
+    for (rel, src, dst), edges in model.edge_groups().items():
         out.append(f"// {rel}, {src} -> {dst}: {len(edges)}")
         out.extend(_edge_statements(rel, edges))
         out.append("")
