@@ -732,7 +732,8 @@ bool runServer(const Options& options) {
                         .pipeline = {.verbose = options.verbose,
                             .validateDb = options.validateDb,
                             .perSetWav = options.perSetWav,
-                            .renderThreads = options.renderThreads}},
+                            .renderThreads = options.renderThreads,
+                            .renderKernel = options.renderKernel}},
         std::cout};
 
     http::Server server;

@@ -24,7 +24,7 @@ and quote the engine's diagnostics. The one protection it has is
 rendering-engine --mode server --host <address> --port <port>
                  --input-root <dir> --out-dir <dir>
                  [--schema <file.cypher>] [--validate-db] [--per-set-wav]
-                 [--render-threads <n>] [--verbose]
+                 [--render-threads <n>] [--render-kernel simd|scalar] [--verbose]
 ```
 
 All four of `--host`, `--port`, `--input-root` and `--out-dir` are required;
@@ -35,10 +35,11 @@ that cannot write fails before it listens. `--state`, `--request` and
 `--db-path` are refused: a score arrives by `PUT /v1/score`, frames are asked
 for one call at a time, and `engine-db` is always in memory.
 
-`--schema`, `--validate-db`, `--per-set-wav`, `--render-threads` and
-`--verbose` mean what they mean in batch mode, and apply to every call. Calls
-are still served one at a time (ADR 0016); within a render call, the frame's
-partial sets run on `--render-threads` threads (ADR 0026).
+`--schema`, `--validate-db`, `--per-set-wav`, `--render-threads`,
+`--render-kernel` and `--verbose` mean what they mean in batch mode, and
+apply to every call. Calls are still served one at a time (ADR 0016); within
+a render call, the frame's partial sets run on `--render-threads` threads
+(ADR 0026), with the kernel `--render-kernel` names (ADR 0027).
 
 Once it can accept connections the server prints its settings and a line
 

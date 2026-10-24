@@ -100,9 +100,10 @@ gtest_discover_tests(rendering_engine_tests
 # ---------------------------------------------------------------------------
 #
 # An independent NumPy implementation of the rendering model checks the
-# engine's output frame by frame. One CTest per example score: the driver
-# runs the engine on the score and its request, then the oracle on every file
-# written. A missing package fails the test, never skips it.
+# engine's output frame by frame. One CTest per example score and kernel
+# (ADR 0027): the driver runs the engine on the score and its request with
+# that kernel, then the oracle on every file written. A missing package fails
+# the test, never skips it.
 
 # The interpreter is chosen at the top level (CMakeLists.txt): the root .venv.
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
@@ -111,14 +112,17 @@ set(RE_EXAMPLES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../engine-db/examples")
 set(RE_REQUESTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../examples")
 
 function(re_add_oracle_test name score request)
-    add_test(NAME "oracle.${name}"
-        COMMAND "${Python3_EXECUTABLE}" "${RE_ORACLE_DIR}/run_oracle_check.py"
-            --engine "$<TARGET_FILE:rendering-engine>"
-            --schema "${RE_DEFAULT_SCHEMA_FILE}"
-            --state "${RE_EXAMPLES_DIR}/${score}.cypher"
-            --request "${RE_REQUESTS_DIR}/${request}"
-            --score "${RE_EXAMPLES_DIR}/${score}.json"
-            --out-dir "${CMAKE_CURRENT_BINARY_DIR}/oracle/${name}")
+    foreach(kernel IN ITEMS scalar simd)
+        add_test(NAME "oracle.${name}.${kernel}"
+            COMMAND "${Python3_EXECUTABLE}" "${RE_ORACLE_DIR}/run_oracle_check.py"
+                --engine "$<TARGET_FILE:rendering-engine>"
+                --schema "${RE_DEFAULT_SCHEMA_FILE}"
+                --state "${RE_EXAMPLES_DIR}/${score}.cypher"
+                --request "${RE_REQUESTS_DIR}/${request}"
+                --score "${RE_EXAMPLES_DIR}/${score}.json"
+                --render-kernel "${kernel}"
+                --out-dir "${CMAKE_CURRENT_BINARY_DIR}/oracle/${name}-${kernel}")
+    endforeach()
 endfunction()
 
 re_add_oracle_test(minimum-score minimum-score minimum-request.yaml)

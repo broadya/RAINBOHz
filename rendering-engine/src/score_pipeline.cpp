@@ -160,8 +160,8 @@ RenderResult renderRequestedFrames(EngineDb& db, const RenderRequest& request,
     log << '\n';
     RenderResult result;
     try {
-        result.report =
-            renderFrames(db, request, outputDir, settings.perSetWav, settings.renderThreads);
+        result.report = renderFrames(db, request, outputDir, settings.perSetWav,
+            settings.renderThreads, settings.renderKernel);
     } catch (const RenderingError& e) {
         result.stage = RenderStage::Rendering;
         result.verdict = std::string{"rendering could not run: "} + e.what();

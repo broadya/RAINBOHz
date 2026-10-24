@@ -6,12 +6,21 @@
 // Arrays form, a range of samples and an output span, add the partials'
 // samples into the span (docs/rendering.md section 7).
 //
-// This is the one file the parallel version rewrites, and the boundary at
-// which unit types stop. anchorPartial() takes unit-typed values and unwraps
-// them into the block's arrays; renderChunk() works on raw doubles and
-// SampleValues and never sees a unit type (AGENTS.md, C++ Conventions). Neither
-// allocates, locks, throws or performs I/O, and neither has access to
-// engine-db. Everything that reaches them has been validated.
+// This is the boundary at which unit types stop. anchorPartial() takes
+// unit-typed values and unwraps them into the block's arrays; renderChunk()
+// works on raw doubles and SampleValues and never sees a unit type (AGENTS.md,
+// C++ Conventions). None of these functions allocates, locks, throws or
+// performs I/O, and none has access to engine-db. Everything that reaches them
+// has been validated.
+//
+// There are two kernels with the same inputs and outputs (ADR 0027). The
+// scalar kernel is the reference: libm's sine and exponential, the partials
+// summed one at a time in lane order. The SIMD kernel (render_kernel_simd.cpp)
+// runs lanes across partials with Highway, polynomial sine and exponential,
+// and tiles the samples; its output agrees with the reference within the
+// bound of docs/rendering.md section 10, not bit for bit, and its bits depend
+// on the machine's vector width. The engine uses SIMD unless --render-kernel
+// scalar asks for the reference.
 //
 // Per partial, per sample, the loop does one sine, one exponential, and a
 // handful of additions: the phase advances by the exact one-sample increment
@@ -39,6 +48,7 @@
 #include <cstdint>
 #include <numbers>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace rainbohz::rendering_engine {
@@ -55,6 +65,25 @@ namespace rainbohz::rendering_engine {
 /// The phase that is held can make a discontinuity before the next anchor,
 /// which the roll-off makes inaudible in all but pathological cases.
 inline constexpr double kMaxPhaseStep = 1000.0 * 2.0 * std::numbers::pi;
+
+/// Which kernel renders a chunk (ADR 0027).
+enum class RenderKernel : std::uint8_t {
+    Simd,   ///< Lanes across partials, Highway; the default.
+    Scalar, ///< The reference: one partial at a time, libm.
+};
+
+/// The kernel's name, as --render-kernel takes it and the report prints it.
+///
+/// @param kernel  The kernel.
+/// @return "simd" or "scalar".
+constexpr std::string_view renderKernelName(RenderKernel kernel) noexcept {
+    return kernel == RenderKernel::Simd ? "simd" : "scalar";
+}
+
+/// The multiple a block's lane count is rounded up to: the widest vector of
+/// doubles any Highway target has, 2048-bit SVE. The SIMD kernel works in
+/// whole vectors and never needs a tail loop.
+inline constexpr std::size_t kBlockLanePadding = 32;
 
 /// The per-partial state of a block, one array per quantity, all double.
 ///
@@ -91,16 +120,18 @@ struct BlockState {
     /// counts over the block's whole life.
     std::vector<std::int64_t> cappedPhaseSteps;
 
-    /// A block of `partials` lanes, all zero.
+    /// A block of at least `partials` lanes, all zero.
     ///
-    /// @param partials  Number of lanes. The one allocation the kernel's
+    /// @param partials  Number of lanes wanted, rounded up to a multiple of
+    ///                  kBlockLanePadding. The one allocation the kernel's
     ///                  state ever makes; it happens in the preparation
     ///                  layer, once per partial set per frame.
     explicit BlockState(std::size_t partials);
 
     /// The number of lanes.
     ///
-    /// @return The length of every array, one lane per partial.
+    /// @return The length of every array: the count asked for, rounded up
+    ///         to a multiple of kBlockLanePadding.
     std::size_t size() const noexcept { return phase.size(); }
 };
 
@@ -151,9 +182,8 @@ void anchorPartial(BlockState& block, std::size_t lane, const Anchor& anchor) no
 /// and the lane's cappedPhaseSteps goes up by one. Everything is computed in
 /// double and narrowed to SampleValue once, at the add.
 ///
-/// Serial and scalar in this version; docs/rendering.md section 7.5 says
-/// what the parallel version changes, and that its inputs and outputs are
-/// these.
+/// This is the scalar reference kernel, over any set of lanes. The engine
+/// calls the dense overload below, which takes the kernel to use.
 ///
 /// @param[in,out] block   The block. The phase, freq and amp of every active
 ///                        lane are advanced to the state at sample `last`.
@@ -169,6 +199,58 @@ void anchorPartial(BlockState& block, std::size_t lane, const Anchor& anchor) no
 ///      Preconditions on the indexes are not checked.
 void renderChunk(BlockState& block, std::span<const std::size_t> active, SampleIndex first,
     SampleIndex last, const RollOffRaw& rollOff, std::span<SampleValue> out) noexcept;
+
+/// Adds the samples of lanes `[0, lanes)` over `[first, last)` into `out`,
+/// with the kernel `kernel`.
+///
+/// The dense form the engine uses: the caller anchors a chunk's active
+/// partials into the first lanes of the block, in order, so that every load
+/// is contiguous. With RenderKernel::Scalar this is exactly the reference
+/// renderChunk() with `active` = 0, 1, ..., lanes − 1; with RenderKernel::Simd
+/// it is renderChunkSimd().
+///
+/// @param kernel          Which kernel.
+/// @param[in,out] block   The block. Lanes `[0, lanes)` are advanced as by
+///                        the reference; lanes from `lanes` on are scratch,
+///                        and the SIMD kernel may overwrite them.
+/// @param lanes           How many lanes are active. At most `block.size()`.
+/// @param first           First sample of the chunk, within the frame.
+/// @param last            One past the last sample. Not before `first`; at
+///                        most `out.size()`.
+/// @param rollOff         The roll-off's band edges, radians per sample.
+/// @param[in,out] out     The frame buffer.
+/// @pre As the reference renderChunk(). Not checked.
+void renderChunk(RenderKernel kernel, BlockState& block, std::size_t lanes, SampleIndex first,
+    SampleIndex last, const RollOffRaw& rollOff, std::span<SampleValue> out) noexcept;
+
+/// The SIMD kernel: adds the samples of lanes `[0, lanes)` over
+/// `[first, last)` into `out` (docs/rendering.md section 7.5, ADR 0027).
+///
+/// The same computation as the reference, with lanes across partials in
+/// whole vectors, chosen at run time for the machine (Highway's dynamic
+/// dispatch): the sine and exponential are Highway's polynomials, the
+/// roll-off is branch-free, and the samples are taken in tiles, with each
+/// vector's state held in registers across a tile and its contribution
+/// summed into one accumulator per sample, reduced horizontally once per
+/// sample. The phase step, the cap and the count are as the reference's,
+/// lane by lane. Lanes from `lanes` up to the next whole vector are set
+/// silent and rendered; they add nothing.
+///
+/// The output agrees with the reference within the bound of
+/// docs/rendering.md section 10. For given inputs on a given machine it is
+/// always the same.
+///
+/// @param[in,out] block   The block. Lanes `[0, lanes)` are advanced as by
+///                        the reference; lanes from `lanes` on are scratch.
+/// @param lanes           How many lanes are active. At most `block.size()`.
+/// @param first           First sample of the chunk, within the frame.
+/// @param last            One past the last sample. Not before `first`; at
+///                        most `out.size()`.
+/// @param rollOff         The roll-off's band edges, radians per sample.
+/// @param[in,out] out     The frame buffer.
+/// @pre As the reference renderChunk(). Not checked.
+void renderChunkSimd(BlockState& block, std::size_t lanes, SampleIndex first, SampleIndex last,
+    const RollOffRaw& rollOff, std::span<SampleValue> out) noexcept;
 
 /// The closed-form position from which a spatial chunk starts
 /// (docs/rendering.md section 8.5).

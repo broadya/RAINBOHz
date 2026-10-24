@@ -213,11 +213,24 @@ ParseResult parseCommandLine(int argc, const char* const* argv) {
            "thread. The output does not depend on it")
         ->check(CLI::Range(std::size_t{0}, kMaxThreads));
 
+    // Taken as a name and mapped afterwards, for the reason given for --mode.
+    std::string kernelName{renderKernelName(RenderKernel::Simd)};
+    app.add_option("--render-kernel", kernelName,
+           "Kernel rendering the partial sets: simd (default), or scalar, the reference "
+           "the SIMD output agrees with to within a stated bound")
+        ->check(CLI::IsMember({std::string{renderKernelName(RenderKernel::Simd)},
+                                  std::string{renderKernelName(RenderKernel::Scalar)}},
+            CLI::ignore_case));
+
     try {
         app.parse(argc, argv);
     } catch (const CLI::ParseError& e) {
         return ParseResult{.options = std::nullopt, .exitCode = app.exit(e)};
     }
+
+    options.renderKernel = lowerCase(kernelName) == renderKernelName(RenderKernel::Scalar)
+                               ? RenderKernel::Scalar
+                               : RenderKernel::Simd;
 
     if (!modeName.empty()) {
         const auto found = modesByName().find(lowerCase(modeName));

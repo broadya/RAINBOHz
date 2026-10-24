@@ -117,6 +117,15 @@ The target architecture, built from 2026-09-27 onwards.
   (32 sets and 640 partials per frame) rendering takes 0.26 s a frame on 10
   threads against 0.31 s on one, on `macos-max`: its frames are dominated
   by the serial database gather, not the kernel.
+- `rendering-engine` renders with a SIMD kernel (ADR 0027): Google Highway,
+  lanes across partials, chosen at run time for the machine (NEON, SVE,
+  SVE2, AVX2, AVX-512), in double. Its output agrees with the scalar
+  kernel's within one float rounding plus 10⁻¹² per partial, and in practice
+  the example scores render the same bytes. `--render-kernel scalar` renders
+  with the scalar reference in batch and server mode; the report names the
+  kernel. The kernel alone is 3.1× faster on Apple Silicon. A `convergence`
+  frame (800 partials) takes 0.65 s instead of 1.27 s on one thread. Every
+  oracle score is checked under both kernels.
 
 ## Before this changelog
 

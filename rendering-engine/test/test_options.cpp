@@ -25,6 +25,7 @@ using rainbohz::rendering_engine::Mode;
 using rainbohz::rendering_engine::modeName;
 using rainbohz::rendering_engine::parseCommandLine;
 using rainbohz::rendering_engine::ParseResult;
+using rainbohz::rendering_engine::RenderKernel;
 
 constexpr const char* kFile = RE_TEST_EXAMPLE_STATE;
 
@@ -176,6 +177,33 @@ TEST(Options, RenderThreadsMustBeInRange) {
     }
     EXPECT_TRUE(parse({"--state", kFile, "--request", kFile, "--render-threads", "256"})
             .options.has_value());
+}
+
+TEST(Options, RenderKernelDefaultsToSimd) {
+    const ParseResult result = parse({"--state", kFile, "--request", kFile});
+    ASSERT_TRUE(result.options.has_value());
+    EXPECT_EQ(result.options->renderKernel, RenderKernel::Simd);
+}
+
+TEST(Options, RenderKernelTakesTheScalarReferenceInBothModes) {
+    const ParseResult batch =
+        parse({"--state", kFile, "--request", kFile, "--render-kernel", "scalar"});
+    ASSERT_TRUE(batch.options.has_value());
+    EXPECT_EQ(batch.options->renderKernel, RenderKernel::Scalar);
+
+    std::vector<std::string> line = serverLine();
+    line.insert(line.end(), {"--render-kernel", "SIMD"});
+    const ParseResult server = parse(line);
+    ASSERT_TRUE(server.options.has_value());
+    EXPECT_EQ(server.options->renderKernel, RenderKernel::Simd);
+}
+
+TEST(Options, RenderKernelMustBeNamed) {
+    for (const std::string kernel : {"vector", "0", "1", ""}) {
+        EXPECT_FALSE(parse({"--state", kFile, "--request", kFile, "--render-kernel", kernel})
+                .options.has_value())
+            << kernel;
+    }
 }
 
 } // namespace

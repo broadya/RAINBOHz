@@ -45,6 +45,9 @@ struct PipelineSettings {
     /// them: 0 for one per hardware thread. 1 by default, so that a caller
     /// gets threads only when it asks; the command line's default is 0.
     std::size_t renderThreads = 1;
+
+    /// Which kernel renders the partial sets, as renderFrames() takes it.
+    RenderKernel renderKernel = RenderKernel::Simd;
 };
 
 /// The step at which a load stopped, or Complete.

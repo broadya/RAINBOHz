@@ -23,6 +23,7 @@
 
 #include "rainbohz/rendering_engine/channel_mode.hpp"
 #include "rainbohz/rendering_engine/engine_db.hpp"
+#include "rainbohz/rendering_engine/render_kernel.hpp"
 #include "rainbohz/rendering_engine/render_request.hpp"
 #include "rainbohz/rendering_engine/sample_value.hpp"
 #include "rainbohz/rendering_engine/units.hpp"
@@ -131,6 +132,9 @@ struct RenderingReport {
     /// same for every count.
     std::size_t threads = 1;
 
+    /// Which kernel rendered the partial sets (ADR 0027).
+    RenderKernel kernel = RenderKernel::Simd;
+
     /// One outcome per requested frame, in request order.
     std::vector<FrameOutcome> frames;
 
@@ -201,6 +205,9 @@ std::string setFileName(FrameNumber frame, std::int64_t partialSetId);
 ///                   byte-for-byte the same for every count (ADR 0026): only
 ///                   the time taken changes. 1, the default, creates no
 ///                   thread.
+/// @param kernel     Which kernel renders the chunks: SIMD, the default, or
+///                   the scalar reference, whose output the SIMD kernel's
+///                   agrees with within the bound of section 10.
 /// @return One outcome per requested frame, in request order.
 /// @throws RenderingError  If there is not exactly one EngineConfig; its
 ///         sampleRate is NULL or not positive; its frame size is unusable;
@@ -211,6 +218,7 @@ std::string setFileName(FrameNumber frame, std::int64_t partialSetId);
 /// @note Side effect: writes WAV files into `outputDir`, replacing any of the
 ///       same names.
 RenderingReport renderFrames(EngineDb& db, const RenderRequest& request,
-    const std::filesystem::path& outputDir, bool perSetWav, std::size_t threads = 1);
+    const std::filesystem::path& outputDir, bool perSetWav, std::size_t threads = 1,
+    RenderKernel kernel = RenderKernel::Simd);
 
 } // namespace rainbohz::rendering_engine

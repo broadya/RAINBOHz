@@ -87,6 +87,9 @@ rendering-engine --mode server --host <address> --port <port>
       --render-threads <n>                  Threads rendering each frame's partial
                                             sets; 0 for one per hardware thread [0].
                                             The output does not depend on it
+      --render-kernel simd|scalar           Kernel rendering the partial sets [simd];
+                                            scalar is the reference the SIMD output
+                                            agrees with to within a stated bound
       --db-path <path>                      Put engine-db on disk instead of in memory
                                             (batch only)
       --validate-db                         Check engine-db's integrity after loading;
@@ -214,8 +217,8 @@ rendering-engine/
 ├── CMakePresets.json       includes the repository's shared presets
 ├── .clangd                 names the compilation database for clangd
 ├── cmake/
-│   └── Dependencies.cmake  Ladybug, CLI11, yaml-cpp, dr_wav, cpp-httplib and
-│                           nlohmann/json acquisition, pinned
+│   └── Dependencies.cmake  Ladybug, CLI11, yaml-cpp, dr_wav, cpp-httplib,
+│                           nlohmann/json and Highway acquisition, pinned
 ├── examples/
 │   ├── minimum-request.yaml  the render request `make run-rendering-engine` passes
 │   ├── two-partial-sets-request.yaml  for engine-db/examples/two-partial-sets.cypher
@@ -257,7 +260,8 @@ rendering-engine/
 │   ├── integrity.cpp
 │   ├── options.cpp
 │   ├── precomputation.cpp
-│   ├── render_kernel.cpp
+│   ├── render_kernel.cpp    the scalar reference kernel, and the choice of kernel
+│   ├── render_kernel_simd.cpp  the SIMD kernel; the only file that includes Highway
 │   ├── render_request.cpp
 │   ├── rendering.cpp
 │   ├── report.cpp
@@ -388,6 +392,7 @@ Two caveats worth stating plainly:
 | [dr_wav](https://github.com/mackron/dr_libs) | pinned by commit, see `cmake/Dependencies.cmake` | CMake FetchContent |
 | [cpp-httplib](https://github.com/yhirose/cpp-httplib) | pinned, see `cmake/Dependencies.cmake` | CMake FetchContent (fetched only; its CMake is not run) |
 | [nlohmann/json](https://github.com/nlohmann/json) | pinned, see `cmake/Dependencies.cmake` | CMake FetchContent |
+| [Highway](https://github.com/google/highway) | pinned, see `cmake/Dependencies.cmake` | CMake FetchContent (core library only; the header-only `hwy/contrib/math`) |
 | GoogleTest | pinned, see `test/CMakeLists.txt` | CMake FetchContent |
 | Python 3.12 | the repository's root `.venv` (`make venv`), or `-DPython3_EXECUTABLE=` | Ladybug's code generation, and the oracle and server tests (NumPy, PyYAML, jsonschema, openapi-spec-validator from `requirements-dev.txt`); configuring fails without it |
 
@@ -395,8 +400,9 @@ CLI11 is header-only and is used by `src/options.cpp` alone; yaml-cpp is built
 static and used by `src/render_request.cpp` alone; dr_wav is one header,
 carried by `src/wav_writer.cpp` alone (@see ADR 0009);
 cpp-httplib and nlohmann/json are headers carried by `src/server.cpp` alone
-(@see ADR 0016).
-All five are linked PRIVATE and appear in no public header, so callers of
+(@see ADR 0016); Highway is built static and used by
+`src/render_kernel_simd.cpp` alone (@see ADR 0027).
+All six are linked PRIVATE and appear in no public header, so callers of
 this component do not acquire them — the same rule Ladybug is held to.
 
 **cpp-httplib is included under a different namespace.** Ladybug compiles its

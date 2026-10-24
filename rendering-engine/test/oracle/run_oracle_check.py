@@ -8,7 +8,7 @@ Runs rendering-engine in batch mode on one score and one request, with
 both the whole frame and each partial set's file where one was written.
 
     run_oracle_check.py --engine <binary> --schema <cypher> --state <cypher>
-        --request <yaml> --score <json> --out-dir <dir>
+        --request <yaml> --score <json> --out-dir <dir> [--render-kernel simd|scalar]
 
 Exit status 0 when the engine and every oracle run succeed, 1 on any failure,
 including NumPy not being installed: a missing package fails the check rather
@@ -55,6 +55,10 @@ def main() -> int:
     parser.add_argument("--request", required=True)
     parser.add_argument("--score", required=True)
     parser.add_argument("--out-dir", required=True)
+    parser.add_argument(
+        "--render-kernel", choices=("simd", "scalar"), default="simd",
+        help="the engine's kernel: simd (its default) or the scalar reference (ADR 0027)",
+    )
     args = parser.parse_args()
 
     try:
@@ -69,6 +73,7 @@ def main() -> int:
         [
             args.engine, "--mode", "batch", "--schema", args.schema, "--state", args.state,
             "--request", args.request, "--out-dir", args.out_dir, "--per-set-wav",
+            "--render-kernel", args.render_kernel,
         ],
         capture_output=True, text=True, check=False,
     )

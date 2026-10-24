@@ -69,9 +69,10 @@ count.**
   Sets are processed in bounded waves, so memory does not grow with the
   number of sets.
 * **Invariant.** The thread count never changes the output. Every file and
-  every report field is byte-for-byte what the serial engine produces. A
-  later change that would break this, such as splitting a set into chunks,
-  needs a decision of its own.
+  every report field is byte-for-byte what the serial engine produces with
+  the same kernel ([ADR 0027](0027-render-chunks-with-a-highway-simd-kernel-checked-against-the-scalar-reference.md)).
+  A later change that would break this, such as splitting a set into
+  chunks, needs a decision of its own.
 * **Threads.** One fork-join primitive is the only code that creates
   threads. It hands out indices from an atomic counter, the calling thread
   works too, it joins every thread before returning, even when unwinding,
@@ -150,7 +151,7 @@ Impact on components:
 ## More Information
 
 * `rendering-engine/docs/rendering.md` §7.5, which this ADR implements, and
-  §8.4, the SIMD work that follows.
+  §8.4, the SIMD work that followed (ADR 0027).
 * AGENTS.md, "C++ Conventions", "Write for the parallel version, implement
   the serial one".
 * The timings are from the 2026-10-21 profile of `echoes` on `macos-max`.

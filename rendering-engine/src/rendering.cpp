@@ -1372,16 +1372,17 @@ std::vector<SetTask> listSetTasks(const ValidatedFrame& validated) {
 /// @param frame    The frame.
 /// @param size     Frame size.
 /// @param rollOff  Band edges for the run.
+/// @param kernel   Which kernel renders the set's chunks.
 /// @param[in,out] result  The task's slot: its buffer exactly one frame
 ///                        long. Zeroed, then filled; on failure, `error` set.
 void renderSetTask(const SetTask& task, FrameNumber frame, FrameSize size, const RollOff& rollOff,
-    SetResult& result) noexcept {
+    RenderKernel kernel, SetResult& result) noexcept {
     result.error = nullptr;
     result.capped.clear();
     std::ranges::fill(result.samples, 0);
     try {
         const PartialSetPlan plan = planPartialSet(task.setId, task.partials, frame, size);
-        result.capped = renderPartialSet(plan, rollOff, result.samples);
+        result.capped = renderPartialSet(plan, rollOff, result.samples, kernel);
     } catch (...) {
         result.error = std::current_exception();
     }
@@ -1407,6 +1408,7 @@ void renderSetTask(const SetTask& task, FrameNumber frame, FrameSize size, const
 /// @param perSetWav   Whether to write per-set files: mono, before the
 ///                    spatial stage.
 /// @param threads     Threads rendering sets, the caller's included.
+/// @param kernel      Which kernel renders the sets' chunks.
 /// @param[in,out] outcome  Gains the source, set and partial counts, the
 ///                         peak over every channel, the file and the set
 ///                         files.
@@ -1417,7 +1419,7 @@ void renderSetTask(const SetTask& task, FrameNumber frame, FrameSize size, const
 ///         set, as a single thread would.
 void renderSources(const ValidatedFrame& validated, const Config& config, const RollOff& rollOff,
     const std::filesystem::path& outputDir, bool perSetWav, std::size_t threads,
-    FrameOutcome& outcome, Buffers& buffers) {
+    RenderKernel kernel, FrameOutcome& outcome, Buffers& buffers) {
     const auto frameSize = static_cast<std::size_t>(config.frameSize.value());
     const std::size_t channels = channelCount(config.channelMode);
     buffers.frame.assign(frameSize * channels, 0);
@@ -1437,8 +1439,8 @@ void renderSources(const ValidatedFrame& validated, const Config& config, const 
         // Parallel: each set into its own slot. Nothing else is touched
         // until forEachIndex() returns.
         forEachIndex(threads, count, [&](std::size_t i) {
-            renderSetTask(
-                tasks[start + i], outcome.frame, config.frameSize, rollOff, buffers.wave[i]);
+            renderSetTask(tasks[start + i], outcome.frame, config.frameSize, rollOff, kernel,
+                buffers.wave[i]);
         });
 
         // Serial, in rendering order: everything a single thread did after
@@ -1488,13 +1490,14 @@ void renderSources(const ValidatedFrame& validated, const Config& config, const 
 /// @param outputDir      Where files go.
 /// @param perSetWav      Whether to write per-set files.
 /// @param threads        Threads rendering the frame's sets.
+/// @param kernel         Which kernel renders the frame's sets.
 /// @param[in,out] known  Partials already reported as failed, by id; grows.
 /// @param[in,out] buffers  Scratch, reused between frames.
 /// @return The frame's outcome.
 /// @throws Nothing: every failure is recorded in the outcome.
 FrameOutcome renderOneFrame(EngineDb& db, const Config& config, const RollOff& rollOff,
     FrameNumber frame, const std::filesystem::path& outputDir, bool perSetWav, std::size_t threads,
-    std::unordered_set<std::int64_t>& known, Buffers& buffers) {
+    RenderKernel kernel, std::unordered_set<std::int64_t>& known, Buffers& buffers) {
     FrameOutcome outcome{.frame = frame,
         .error = std::nullopt,
         .newFailures = {},
@@ -1523,7 +1526,8 @@ FrameOutcome renderOneFrame(EngineDb& db, const Config& config, const RollOff& r
     // Prepare, render, sum and write (§6.4, §7, §5). A frame that cannot be
     // written has no file, and no per-set file either.
     try {
-        renderSources(validated, config, rollOff, outputDir, perSetWav, threads, outcome, buffers);
+        renderSources(
+            validated, config, rollOff, outputDir, perSetWav, threads, kernel, outcome, buffers);
     } catch (const WavWriteError& e) {
         outcome.error = e.what();
     } catch (const std::invalid_argument& e) {
@@ -1568,7 +1572,8 @@ std::string setFileName(FrameNumber frame, std::int64_t partialSetId) {
 }
 
 RenderingReport renderFrames(EngineDb& db, const RenderRequest& request,
-    const std::filesystem::path& outputDir, bool perSetWav, std::size_t threads) {
+    const std::filesystem::path& outputDir, bool perSetWav, std::size_t threads,
+    RenderKernel kernel) {
     const Config config = readConfig(db);
     const RollOff rollOff = makeRollOff(config.sampleRate);
 
@@ -1577,13 +1582,14 @@ RenderingReport renderFrames(EngineDb& db, const RenderRequest& request,
     report.frameSize = config.frameSize;
     report.channelMode = config.channelMode;
     report.threads = resolveThreadCount(threads);
+    report.kernel = kernel;
 
     std::unordered_set<std::int64_t> known;
     Buffers buffers;
     for (const FrameRequest& requested : request.frames) {
         report.frames.push_back(
             renderOneFrame(db, config, rollOff, FrameNumber{requested.frameNumber}, outputDir,
-                perSetWav, report.threads, known, buffers));
+                perSetWav, report.threads, kernel, known, buffers));
     }
     return report;
 }

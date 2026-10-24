@@ -22,6 +22,7 @@
 #include "rainbohz/rendering_engine/amplitude_maths.hpp"
 #include "rainbohz/rendering_engine/channel_mode.hpp"
 #include "rainbohz/rendering_engine/precomputation.hpp"
+#include "rainbohz/rendering_engine/render_kernel.hpp"
 #include "rainbohz/rendering_engine/sample_value.hpp"
 #include "rainbohz/rendering_engine/segment_maths.hpp"
 #include "rainbohz/rendering_engine/spatial_maths.hpp"
@@ -217,17 +218,22 @@ PartialSetPlan planPartialSet(std::int64_t partialSetId, std::span<const Partial
 /// and the kernel adds the chunk's samples into `out`. No accumulated value
 /// survives a chunk boundary.
 ///
+/// The active partials of each chunk are anchored into the block's first
+/// lanes, in plan order, so the kernel sees them densely (ADR 0027).
+///
 /// @param plan     The set's plan, from planPartialSet().
 /// @param rollOff  The roll-off's band edges for the run.
 /// @param[in,out] out  The set's buffer, exactly one frame long. The set's
 ///                     samples are added into it; the caller zeroes it first.
+/// @param kernel   Which kernel renders the chunks: SIMD, or the scalar
+///                 reference.
 /// @return Each partial whose phase the kernel held at least once
 ///         (BlockState::cappedPhaseSteps), as its id and the count, in plan
 ///         order. Empty when no partial went beyond kMaxPhaseStep.
 /// @pre `out.size()` equals the frame size the plan was built for, and the
 ///      plan's last cut equals it. Not checked.
-std::vector<std::pair<std::int64_t, std::int64_t>> renderPartialSet(
-    const PartialSetPlan& plan, const RollOff& rollOff, std::span<SampleValue> out);
+std::vector<std::pair<std::int64_t, std::int64_t>> renderPartialSet(const PartialSetPlan& plan,
+    const RollOff& rollOff, std::span<SampleValue> out, RenderKernel kernel = RenderKernel::Simd);
 
 // ---------------------------------------------------------------------------
 // Spatial position (docs/rendering.md section 8.5)

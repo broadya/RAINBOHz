@@ -53,7 +53,7 @@ The system is an end-to-end pipeline with multiple stages. First versions of the
 - **Build step language:** Python
 - **Graph database:** LadybugDB (embedded in process in `rendering-engine` through its C++ API; the schema tools drive the `lbug` CLI)
 - **Query language:** OpenCypher
-- **Renderer:** C++20 (`rendering-engine`); Google Highway SIMD is planned, not yet used
+- **Renderer:** C++20 (`rendering-engine`); Google Highway SIMD in the render kernel (ADR 0027), with the scalar kernel kept as the reference
 - **DAW integration (future):** CLAP/ARA 3.x thin client
 - **Containerisation:** Docker (multi-arch arm64)
 - **Cloud (future):** AWS Lambda (Graviton), ENA networking
@@ -169,7 +169,7 @@ The complete system is a multi-stage pipeline. This repo initially implements st
 ### Rendering Architecture (Future Phase)
 
 - **SIMD strategy:** Structure of Arrays (SoA) layout, vectorising across partials (horizontal) rather than across samples (vertical). The canonical form must be designed for SoA from the start.
-- **Target SIMD:** Google Highway for portable SIMD across ARM targets (SVE on Graviton, NEON on Apple Silicon).
+- **Target SIMD:** Google Highway for portable SIMD across ARM targets (SVE on Graviton, NEON on Apple Silicon). Built in the render kernel with Highway's dynamic dispatch, in double, its output checked against the scalar reference within a stated bound rather than bit for bit (ADR 0027).
 - **INT64 exact accumulation** enables true delta updates — only changed partials need re-rendering, and their contribution can be subtracted/added without floating-point drift.
 - **C++ renderer** is a separate component from the Python compilation pipeline. The canonical form is the interface contract between them.
 

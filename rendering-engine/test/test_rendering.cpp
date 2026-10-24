@@ -67,6 +67,7 @@ using rainbohz::rendering_engine::precomputeAll;
 using rainbohz::rendering_engine::renderFrames;
 using rainbohz::rendering_engine::RenderingError;
 using rainbohz::rendering_engine::RenderingReport;
+using rainbohz::rendering_engine::RenderKernel;
 using rainbohz::rendering_engine::RenderRequest;
 using rainbohz::rendering_engine::requireInt64;
 using rainbohz::rendering_engine::SampleValue;
@@ -820,7 +821,8 @@ void expectSameRender(
 
 /// Renders `frames` of `db` with one thread and with each count in
 /// `threads`, each into its own fresh directory, and checks every run
-/// against the first.
+/// against the first. The SIMD kernel, the engine's default, renders every
+/// run: its output depends on the machine, never on the thread count.
 ///
 /// @param db         A precomputed score.
 /// @param frames     Frame numbers.
@@ -829,13 +831,14 @@ void expectSameRender(
 /// @return The one-thread report.
 RenderingReport expectThreadCountIrrelevant(EngineDb& db, const std::vector<std::int32_t>& frames,
     bool perSetWav, const std::string& name) {
-    const RenderingReport one =
-        renderFrames(db, requestFor(frames), freshDirectory(name + "-t1"), perSetWav, 1);
+    const RenderingReport one = renderFrames(
+        db, requestFor(frames), freshDirectory(name + "-t1"), perSetWav, 1, RenderKernel::Simd);
     EXPECT_EQ(one.threads, 1U);
+    EXPECT_EQ(one.kernel, RenderKernel::Simd);
     for (const std::size_t threads : {2U, 3U, 8U}) {
         const std::string label = name + "-t" + std::to_string(threads);
-        const RenderingReport other =
-            renderFrames(db, requestFor(frames), freshDirectory(label), perSetWav, threads);
+        const RenderingReport other = renderFrames(
+            db, requestFor(frames), freshDirectory(label), perSetWav, threads, RenderKernel::Simd);
         EXPECT_EQ(other.threads, threads);
         expectSameRender(one, other, label);
     }
@@ -923,6 +926,74 @@ TEST(Rendering, ThreadsDefaultToOneAndZeroMeansAutomatic) {
 
     EXPECT_EQ(renderFrames(db, requestFor({3}), dir, false).threads, 1U);
     EXPECT_GE(renderFrames(db, requestFor({3}), dir, false, 0).threads, 1U);
+}
+
+// ---------------------------------------------------------------------------
+// Kernel (ADR 0027): SIMD agrees with the scalar reference within the bound.
+// ---------------------------------------------------------------------------
+
+/// Renders `frames` of `db` with each kernel and checks that every sample of
+/// every file agrees within the bound of docs/rendering.md section 10, and
+/// that everything else in the report is the same.
+///
+/// @param db      A precomputed score.
+/// @param frames  Frame numbers.
+/// @param name    A name for the output directories.
+void expectKernelsAgree(
+    EngineDb& db, const std::vector<std::int32_t>& frames, const std::string& name) {
+    const RenderingReport scalar = renderFrames(
+        db, requestFor(frames), freshDirectory(name + "-scalar"), false, 1, RenderKernel::Scalar);
+    const RenderingReport simd = renderFrames(
+        db, requestFor(frames), freshDirectory(name + "-simd"), false, 1, RenderKernel::Simd);
+    EXPECT_EQ(scalar.kernel, RenderKernel::Scalar);
+    EXPECT_EQ(simd.kernel, RenderKernel::Simd);
+    ASSERT_TRUE(scalar.ok()) << firstError(scalar);
+    ASSERT_TRUE(simd.ok()) << firstError(simd);
+    ASSERT_EQ(simd.frames.size(), scalar.frames.size());
+    for (std::size_t i = 0; i < scalar.frames.size(); ++i) {
+        const FrameOutcome& a = scalar.frames[i];
+        const FrameOutcome& b = simd.frames[i];
+        const std::string where = name + ", frame " + std::to_string(a.frame.value());
+        EXPECT_EQ(b.partialCount, a.partialCount) << where;
+        EXPECT_EQ(b.cappedPhases, a.cappedPhases) << where;
+        const std::vector<SampleValue> x = readFloatWav(a.file).samples;
+        const std::vector<SampleValue> y = readFloatWav(b.file).samples;
+        ASSERT_EQ(y.size(), x.size()) << where;
+        for (std::size_t n = 0; n < x.size(); ++n) {
+            const double bound = (static_cast<double>(std::numeric_limits<SampleValue>::epsilon()) *
+                                     std::max(1.0, static_cast<double>(std::abs(x[n])))) +
+                                 (1e-12 * static_cast<double>(a.partialCount));
+            ASSERT_LE(std::abs(static_cast<double>(y[n]) - static_cast<double>(x[n])), bound)
+                << where << ", sample " << n;
+        }
+    }
+}
+
+TEST(Rendering, TheExampleScoresRenderAlikeWithEitherKernel) {
+    {
+        EngineDb db;
+        ASSERT_TRUE(loadCypherFile(db, RE_TEST_SCHEMA_FILE).ok());
+        ASSERT_TRUE(loadCypherFile(db, RE_TEST_TWO_SETS_STATE).ok());
+        ASSERT_TRUE(precomputeAll(db).ok());
+        expectKernelsAgree(db, {0, 1, 2, 3, 4, 6, 11}, "Rendering.TwoSetsKernels");
+    }
+    EngineDb db;
+    std::ostringstream log;
+    ASSERT_TRUE(loadScore(db, RE_TEST_SCHEMA_FILE, RE_TEST_SPATIAL_STATE,
+        PipelineSettings{.verbose = false, .validateDb = false, .perSetWav = false}, log)
+            .ok())
+        << log.str();
+    db.execute("MATCH (c:EngineConfig) SET c.channelMode = 7;");
+    expectKernelsAgree(db, {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, "Rendering.SpatialKernels");
+}
+
+TEST(Rendering, TheKernelDefaultsToSimd) {
+    EngineDb db;
+    ASSERT_TRUE(loadCypherFile(db, RE_TEST_SCHEMA_FILE).ok());
+    ASSERT_TRUE(loadCypherFile(db, RE_TEST_EXAMPLE_STATE).ok());
+    ASSERT_TRUE(precomputeAll(db).ok());
+    const std::filesystem::path dir = freshDirectory("Rendering.KernelDefault");
+    EXPECT_EQ(renderFrames(db, requestFor({3}), dir, false).kernel, RenderKernel::Simd);
 }
 
 } // namespace

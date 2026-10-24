@@ -271,12 +271,17 @@ PartialSetPlan planPartialSet(std::int64_t partialSetId, std::span<const Partial
     return plan;
 }
 
-std::vector<std::pair<std::int64_t, std::int64_t>> renderPartialSet(
-    const PartialSetPlan& plan, const RollOff& rollOff, std::span<SampleValue> out) {
+std::vector<std::pair<std::int64_t, std::int64_t>> renderPartialSet(const PartialSetPlan& plan,
+    const RollOff& rollOff, std::span<SampleValue> out, RenderKernel kernel) {
     BlockState block{plan.partials.size()};
     std::vector<std::size_t> cursor(plan.partials.size(), 0);
-    std::vector<std::size_t> active;
-    active.reserve(plan.partials.size());
+    // Lane j of a chunk holds partial partialOfLane[j]. The lanes are dense
+    // and in plan order: nothing survives a chunk boundary but the capped
+    // counts, so each chunk packs its active partials into the first lanes,
+    // and every load in the kernel is contiguous (ADR 0027).
+    std::vector<std::size_t> partialOfLane;
+    partialOfLane.reserve(plan.partials.size());
+    std::vector<std::int64_t> cappedSteps(plan.partials.size(), 0);
     const RollOffRaw edges = rollOff.raw();
 
     for (std::size_t c = 0; c + 1 < plan.cuts.size(); ++c) {
@@ -285,7 +290,7 @@ std::vector<std::pair<std::int64_t, std::int64_t>> renderPartialSet(
         const SampleTime at = sourceTimeAt(plan, first);
 
         // Anchor every partial present at the chunk's first sample (§7.2).
-        active.clear();
+        partialOfLane.clear();
         for (std::size_t i = 0; i < plan.partials.size(); ++i) {
             const std::vector<RenderSegment>& segments = plan.partials[i].segments;
             std::size_t& cur = cursor[i];
@@ -296,22 +301,28 @@ std::vector<std::pair<std::int64_t, std::int64_t>> renderPartialSet(
             if (!segment.present) {
                 continue;
             }
-            anchorPartial(block, i,
+            anchorPartial(block, partialOfLane.size(),
                 Anchor{.startPhase = segment.startPhase,
                     .nominal = segment.nominal,
                     .amplitude = segment.amplitude,
                     .compensation = segment.compensation,
                     .tau = at - segment.start});
-            active.push_back(i);
+            partialOfLane.push_back(i);
         }
 
-        renderChunk(block, active, first, last, edges, out);
+        renderChunk(kernel, block, partialOfLane.size(), first, last, edges, out);
+
+        // A lane's count belongs to the partial it held for this chunk.
+        for (std::size_t lane = 0; lane < partialOfLane.size(); ++lane) {
+            cappedSteps[partialOfLane[lane]] += block.cappedPhaseSteps[lane];
+            block.cappedPhaseSteps[lane] = 0;
+        }
     }
 
     std::vector<std::pair<std::int64_t, std::int64_t>> capped;
     for (std::size_t i = 0; i < plan.partials.size(); ++i) {
-        if (block.cappedPhaseSteps[i] > 0) {
-            capped.emplace_back(plan.partials[i].partialId, block.cappedPhaseSteps[i]);
+        if (cappedSteps[i] > 0) {
+            capped.emplace_back(plan.partials[i].partialId, cappedSteps[i]);
         }
     }
     return capped;

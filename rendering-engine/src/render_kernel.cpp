@@ -8,16 +8,18 @@
 #include <cstddef>
 #include <cstdint>
 #include <numbers>
+#include <ranges>
 #include <span>
 #include <vector>
 
 /// @file
-/// @brief The serial, scalar reference render kernel.
+/// @brief The scalar reference render kernel, and the choice between kernels.
 ///
 /// Implements anchorPartial() and renderChunk() of render_kernel.hpp as
 /// docs/rendering.md section 7 lays them out. The loop order is samples
 /// outer, partials inner, so that a sample's sum is complete as soon as the
-/// inner loop ends and the only per-sample storage is the output buffer.
+/// inner loop ends and the only per-sample storage is the output buffer. The
+/// SIMD kernel is in render_kernel_simd.cpp.
 ///
 /// @see render_kernel.hpp
 
@@ -48,36 +50,29 @@ inline double wrapRaw(double phase) noexcept {
     return phase;
 }
 
-} // namespace
-
-BlockState::BlockState(std::size_t partials)
-    : phase(partials, 0.0), freq(partials, 0.0), amp(partials, 0.0), gradient(partials, 0.0),
-      phaseStepOffset(partials, 0.0), ampGradient(partials, 0.0), cappedPhaseSteps(partials, 0) {}
-
-void anchorPartial(BlockState& block, std::size_t lane, const Anchor& anchor) noexcept {
-    const double g =
-        anchor.nominal.linearGradient.has_value() ? anchor.nominal.linearGradient->value() : 0.0;
-    const double phase = wrap(phaseAt(anchor.startPhase, anchor.nominal, anchor.tau) +
-                              compensationAt(anchor.compensation, anchor.tau))
-                             .value();
-    // A phase that overflowed is not carried into the loop, where one NaN
-    // would poison the whole buffer: the lane starts at 0 and the count
-    // records it, as for a step that is too large.
-    if (std::isfinite(phase)) [[likely]] {
-        block.phase[lane] = phase;
-    } else {
-        block.phase[lane] = 0.0;
-        ++block.cappedPhaseSteps[lane];
-    }
-    block.freq[lane] = frequencyAt(anchor.nominal, anchor.tau).value();
-    block.amp[lane] = amplitudeAt(anchor.amplitude, anchor.tau).value();
-    block.gradient[lane] = g;
-    block.phaseStepOffset[lane] = (0.5 * g) + anchor.compensation.slope.value();
-    block.ampGradient[lane] = anchor.amplitude.gradient.value();
+/// Rounds a lane count up to a multiple of kBlockLanePadding.
+///
+/// @param partials  Lanes wanted.
+/// @return The padded count.
+constexpr std::size_t paddedLanes(std::size_t partials) noexcept {
+    return (partials + kBlockLanePadding - 1) / kBlockLanePadding * kBlockLanePadding;
 }
 
-void renderChunk(BlockState& block, std::span<const std::size_t> active, SampleIndex first,
-    SampleIndex last, const RollOffRaw& rollOff, std::span<SampleValue> out) noexcept {
+/// The body of the reference kernel, over any range of lane indexes: the
+/// sparse `active` list of renderChunk(), or the dense 0 .. lanes − 1 of
+/// the overload that takes a RenderKernel. One body, so that the two are
+/// the same arithmetic in the same order.
+///
+/// @tparam Lanes  A range of std::size_t lane indexes.
+/// @param[in,out] block  As renderChunk().
+/// @param active  The lanes, in the order their samples are summed.
+/// @param first   As renderChunk().
+/// @param last    As renderChunk().
+/// @param rollOff As renderChunk().
+/// @param[in,out] out  As renderChunk().
+template <class Lanes>
+void renderScalar(BlockState& block, const Lanes& active, SampleIndex first, SampleIndex last,
+    const RollOffRaw& rollOff, std::span<SampleValue> out) noexcept {
     std::vector<double>& phase = block.phase;
     std::vector<double>& freq = block.freq;
     std::vector<double>& amp = block.amp;
@@ -112,6 +107,50 @@ void renderChunk(BlockState& block, std::span<const std::size_t> active, SampleI
             amp[i] += ampGradient[i];
         }
         out[static_cast<std::size_t>(n)] += static_cast<SampleValue>(acc);
+    }
+}
+
+} // namespace
+
+BlockState::BlockState(std::size_t partials)
+    : phase(paddedLanes(partials), 0.0), freq(paddedLanes(partials), 0.0),
+      amp(paddedLanes(partials), 0.0), gradient(paddedLanes(partials), 0.0),
+      phaseStepOffset(paddedLanes(partials), 0.0), ampGradient(paddedLanes(partials), 0.0),
+      cappedPhaseSteps(paddedLanes(partials), 0) {}
+
+void anchorPartial(BlockState& block, std::size_t lane, const Anchor& anchor) noexcept {
+    const double g =
+        anchor.nominal.linearGradient.has_value() ? anchor.nominal.linearGradient->value() : 0.0;
+    const double phase = wrap(phaseAt(anchor.startPhase, anchor.nominal, anchor.tau) +
+                              compensationAt(anchor.compensation, anchor.tau))
+                             .value();
+    // A phase that overflowed is not carried into the loop, where one NaN
+    // would poison the whole buffer: the lane starts at 0 and the count
+    // records it, as for a step that is too large.
+    if (std::isfinite(phase)) [[likely]] {
+        block.phase[lane] = phase;
+    } else {
+        block.phase[lane] = 0.0;
+        ++block.cappedPhaseSteps[lane];
+    }
+    block.freq[lane] = frequencyAt(anchor.nominal, anchor.tau).value();
+    block.amp[lane] = amplitudeAt(anchor.amplitude, anchor.tau).value();
+    block.gradient[lane] = g;
+    block.phaseStepOffset[lane] = (0.5 * g) + anchor.compensation.slope.value();
+    block.ampGradient[lane] = anchor.amplitude.gradient.value();
+}
+
+void renderChunk(BlockState& block, std::span<const std::size_t> active, SampleIndex first,
+    SampleIndex last, const RollOffRaw& rollOff, std::span<SampleValue> out) noexcept {
+    renderScalar(block, active, first, last, rollOff, out);
+}
+
+void renderChunk(RenderKernel kernel, BlockState& block, std::size_t lanes, SampleIndex first,
+    SampleIndex last, const RollOffRaw& rollOff, std::span<SampleValue> out) noexcept {
+    if (kernel == RenderKernel::Simd) {
+        renderChunkSimd(block, lanes, first, last, rollOff, out);
+    } else {
+        renderScalar(block, std::views::iota(std::size_t{0}, lanes), first, last, rollOff, out);
     }
 }
 

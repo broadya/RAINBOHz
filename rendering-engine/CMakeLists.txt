@@ -114,6 +114,7 @@ add_library(rendering_engine_lib STATIC
     src/parallel.cpp
     src/precomputation.cpp
     src/render_kernel.cpp
+    src/render_kernel_simd.cpp
     src/render_request.cpp
     src/rendering.cpp
     src/report.cpp
@@ -132,6 +133,12 @@ add_library(rendering_engine_lib STATIC
 )
 add_library(rainbohz::rendering_engine_lib ALIAS rendering_engine_lib)
 
+# Highway compiles render_kernel_simd.cpp once per SIMD target by including it
+# again from <hwy/foreach_target.h> under the name HWY_TARGET_INCLUDE, which
+# must be found on the include path. Only that file gets src/ on its path.
+set_source_files_properties(src/render_kernel_simd.cpp PROPERTIES
+    INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/src")
+
 target_include_directories(rendering_engine_lib
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -145,8 +152,10 @@ target_link_libraries(rendering_engine_lib
     # (src/server.cpp) appear in no public header, so they stay out of the
     # interface -- the same rule Ladybug's own types are held to.
     # Threads::Threads for std::jthread (src/parallel.cpp, ADR 0026).
+    # Highway (src/render_kernel_simd.cpp, ADR 0027) is private for the same
+    # reason: no Highway type crosses render_kernel.hpp.
     PRIVATE rainbohz::cli11 rainbohz::yaml_cpp rainbohz::dr_wav rainbohz::httplib
-            rainbohz::json rainbohz::project_warnings Threads::Threads
+            rainbohz::json rainbohz::highway rainbohz::project_warnings Threads::Threads
 )
 
 # The schema the engine applies to an empty database when no --schema is given.

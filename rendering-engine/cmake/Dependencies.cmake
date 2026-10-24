@@ -15,6 +15,7 @@
 #   rainbohz::httplib   -- HTTP server for server mode (header-only)
 #   rainbohz::json      -- JSON for server mode's request and response bodies
 #                          (header-only)
+#   rainbohz::highway   -- portable SIMD for the render kernel (static)
 
 include(FetchContent)
 
@@ -423,3 +424,49 @@ set_target_properties(nlohmann_json PROPERTIES
     INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${RE_JSON_INCLUDES}")
 
 add_library(rainbohz::json ALIAS nlohmann_json)
+
+# ---------------------------------------------------------------------------
+# Highway
+# ---------------------------------------------------------------------------
+#
+# Portable SIMD for the render kernel (src/render_kernel_simd.cpp, ADR 0027):
+# NEON on Apple Silicon, SVE and SVE2 on Graviton, AVX2 and AVX-512 on x86,
+# chosen at run time by Highway's dynamic dispatch. Only the core library is
+# built; the vectorised sine and exponential are in the header-only
+# hwy/contrib/math, so the rest of contrib (vqsort and friends, a long build)
+# stays off. Apache-2.0 or BSD-3-Clause. Check for newer releases with:
+#
+#   git ls-remote --tags --refs https://github.com/google/highway
+
+set(RE_HIGHWAY_GIT_REPOSITORY "https://github.com/google/highway"
+    CACHE STRING "Highway source repository")
+set(RE_HIGHWAY_GIT_TAG "1.4.0" CACHE STRING "Highway version to build against")
+
+set(HWY_ENABLE_TESTS    OFF CACHE BOOL "" FORCE)
+set(HWY_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(HWY_ENABLE_CONTRIB  OFF CACHE BOOL "" FORCE)
+set(HWY_ENABLE_INSTALL  OFF CACHE BOOL "" FORCE)
+set(HWY_FORCE_STATIC_LIBS ON CACHE BOOL "" FORCE)
+
+message(STATUS "rendering-engine: fetching Highway ${RE_HIGHWAY_GIT_TAG}")
+FetchContent_Declare(highway
+    GIT_REPOSITORY "${RE_HIGHWAY_GIT_REPOSITORY}"
+    GIT_TAG        "${RE_HIGHWAY_GIT_TAG}"
+    GIT_SHALLOW    TRUE
+    GIT_PROGRESS   TRUE
+    EXCLUDE_FROM_ALL
+)
+FetchContent_MakeAvailable(highway)
+
+if(NOT TARGET hwy)
+    message(FATAL_ERROR
+        "Highway was configured but the 'hwy' target does not exist. "
+        "The upstream target layout may have changed.")
+endif()
+
+# As for the others: our warning set is for code we own.
+get_target_property(RE_HIGHWAY_INCLUDES hwy INTERFACE_INCLUDE_DIRECTORIES)
+set_target_properties(hwy PROPERTIES
+    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${RE_HIGHWAY_INCLUDES}")
+
+add_library(rainbohz::highway ALIAS hwy)

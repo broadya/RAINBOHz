@@ -62,7 +62,8 @@ Built one feature at a time, as precomputation was.
 | One `AmplitudePhysicalTimeline` per partial, linear curves only | Amplitude curve types other than linear |
 | Amplitude in dB, summed per sample, one conversion to linear | Amplitude modulators (they join the dB sum, §8.1) |
 | Frequency-range roll-off, stateless (§8.2) | Frequency modulators |
-| Partial sets rendered on `--render-threads` threads, summed per SoundSource in id order, with a shared source clock per source (§6.2, §7.5) | SIMD across partials; splitting a large set across threads |
+| Partial sets rendered on `--render-threads` threads, summed per SoundSource in id order, with a shared source clock per source (§6.2, §7.5) | Splitting a large set across threads |
+| A SIMD kernel, lanes across partials, with the scalar reference kept and selectable (§7.5, ADR 0027) | Float transcendentals; the geometric recurrence for the multiplier (§8.4) |
 | Source time advancing at 1.0 per receiver sample | Distance delay, Doppler |
 | One position per SoundSource from its azimuth, elevation and distance timelines, linear curves only, azimuth along the shorter arc (§8.5) | Spatial curve types; spatial modulators |
 | All eight channel modes: perfect coincident first-order virtual microphones, gain ∝ 1/r (§8.5) | Higher-order Ambisonics; frequency-dependent patterns; air absorption |
@@ -674,21 +675,43 @@ the partial's sample.
 ### 7.5 What the parallel version changes, and what it does not
 
 The kernel boundary is designed so that the parallel version is a
-replacement of the kernel's body, not of its callers:
+replacement of the kernel's body, not of its callers. Both are built: the
+SIMD kernel (`render_kernel_simd.cpp`, ADR 0027) and threads across partial
+sets (ADR 0026). The scalar kernel of §7.1 is kept as the reference, and
+`--render-kernel scalar` renders with it.
 
-- **Lanes across partials.** The inner loop becomes a loop over vectors of
+- **Lanes across partials.** The inner loop is a loop over vectors of
   partials, each vector doing the scalar work of §7.1 on its lanes, with the
-  sine and the exponential replaced by their vectorised forms (§8.4).
-- **Sum early, but reduce late.** The lane-wise sums for one sample are
-  accumulated into one vector, and a single horizontal reduction adds that
-  into `out[n]`. The reduction is paid once per sample per block, not once
-  per vector: it is amortised over the block.
-- **Tiling.** A block is as many partials as fit in level-one cache with
-  their state, some hundreds; the middle loop runs a chunk, or a tile of it,
-  over that block; then the next block. Every partial's state is touched
-  once per sample from cache, and the output tile is in cache too.
-- **Presence as a mask.** The active list becomes a lane mask, or a
-  compaction of the block, per chunk.
+  sine and the exponential replaced by Highway's polynomials (§8.4).
+  Highway compiles the kernel for every target it supports and picks the
+  best one for the machine at the first call: two lanes of double on NEON,
+  four on AVX2, eight on AVX-512, and up to 32 on SVE.
+- **Presence as a compaction.** Nothing but the capped-step count survives
+  a chunk boundary (§7.2), so `renderPartialSet()` anchors each chunk's
+  active partials into the block's first lanes, in plan order, and keeps a
+  lane-to-partial map to carry the counts back. The kernel sees a dense
+  block, and every load is contiguous. Blocks are padded to
+  `kBlockLanePadding`, 32 lanes, the widest vector of any target. The kernel
+  makes the lanes after the last active one, up to the next whole vector,
+  silent, so there is no tail loop.
+- **Tiling, sum early, reduce late.** The chunk is taken 64 samples at a
+  time. For each vector of partials, its state stays in registers for the
+  whole tile, and its contribution to each sample is added into that
+  sample's vector accumulator, in L1. After the block's last vector, each
+  accumulator is reduced horizontally once and added into `out[n]`. A
+  partial's state is loaded and stored once per tile, and the reduction is
+  paid once per sample.
+- **Branches decided per tile, not per sample.** Two conditions are tested
+  once per vector per tile. If no lane's step can exceed π over the tile,
+  every step is taken and one conditional ±2π wraps it exactly, so the cap,
+  its count and the reduction by whole cycles are left out. If every lane
+  stays inside the audio band, the roll-off is exactly 0 dB, and its two
+  clamped ramps are left out. Otherwise the general form runs. It is
+  branch-free except where a step beyond 2π leaves a lane outside [−π, π]
+  after one wrap: there the whole vector reduces by the nearest whole
+  number of cycles. The phase step is the reference's sum, `(phase + freq) +
+  phaseStepOffset`, so phases agree with it to the bit wherever a step
+  needs at most one wrap.
 - **Threads across partial sets.** Each set's buffer is its own; sets are
   summed at the end. Nothing in a set's rendering reads another's. *Built*
   (ADR 0026): `renderSources()` plans and renders a frame's sets on
@@ -703,8 +726,12 @@ replacement of the kernel's body, not of its callers:
   not done.
 
 None of these changes the kernel's inputs, its outputs, or the anchoring
-that precedes it. The serial version calls the same function with one
-partial per "block" and a whole chunk as its tile.
+that precedes it. The two kernels share the dense call, `renderChunk(kernel,
+block, lanes, …)`; with the scalar kernel it is exactly the reference over
+lanes 0 to lanes − 1. The SIMD kernel's output agrees with the reference
+within the bound of §10, not bit for bit, and its bits depend on the
+machine's vector width. For given inputs on a given machine it is always the
+same, so the thread count never changes the output for either kernel.
 
 There is a second layout, lanes across consecutive samples of one partial,
 that would need no horizontal reduction and, with the closed form, no
@@ -843,10 +870,11 @@ a million partials at 48 kHz is around 5 × 10¹⁰ partial-samples per second
 of audio, and each transcendental in the loop is a few hundred core-seconds
 per second of audio.
 
-This version evaluates both directly, because it is the reference the
-optimisations will be checked against. Two are planned, in this order:
+The scalar kernel evaluates both directly with libm, because it is the
+reference the optimisations are checked against. Two were planned. The
+second is built, and the first is still open:
 
-1. **Geometric recurrence for the multiplier.** Within a chunk the nominal
+1. **Geometric recurrence for the multiplier** (not built). Within a chunk the nominal
    amplitude is linear in dB, so its linear multiplier is a geometric
    progression: `m_{n+1} = m_n · ρ` with `ρ = 10^{g_a/20}` computed once per
    chunk. One multiply replaces the exponential, and the value is
@@ -854,10 +882,15 @@ optimisations will be checked against. Two are planned, in this order:
    linearly with samples since the anchor — around 10⁻¹¹ relative over a
    frame. The roll-off term breaks the recurrence only while a partial is in
    a band, which is rare and can fall back to the direct form.
-2. **Vectorised transcendentals.** Highway provides polynomial `sin` and
-   `exp` over lanes at a few cycles per lane; once the loop is
-   Structure-of-Arrays across partials, both become cheap without the
-   recurrence.
+2. **Vectorised transcendentals** (built, ADR 0027). The SIMD kernel uses
+   Highway's polynomial `Sin` and `Exp`, in double, on the lanes of §7.5.
+   `toLinear` becomes `exp(clamp(dB) · ln 10 / 20)`, masked to zero at or
+   below the floor. The exponential is evaluated on every lane, and the
+   lanes the reference would not evaluate are discarded. On NEON both
+   differ from libm by about 10⁻¹⁶ (measured over 10⁶ arguments in range).
+   Measured on Apple Silicon (`macos-max`, 2026-10-25): the kernel alone is
+   3.1× the scalar kernel, 4.9 ns against 15.3 ns per partial-sample, and the
+   two transcendentals are now most of what remains.
 
 ### 8.5 Spatial position
 
@@ -1012,8 +1045,7 @@ by the position in the score, and two frames rendered separately agree at
 their join to the same bound as two samples inside one chunk.
 
 **Amplitude.** The dB ramp is evaluated in `double` and converted with one
-exponential; no recurrence is used in this version, so there is nothing to
-drift. The roll-off is a continuous function of a continuous frequency.
+exponential; no recurrence is used, so there is nothing to drift. The roll-off is a continuous function of a continuous frequency.
 
 **The sum.** Partials are summed in `SampleValue`, which is `float`. For a
 set of *N* partials the rounding of the sum behaves like a random walk of
@@ -1022,6 +1054,26 @@ thousand partials, of the order of 10⁻⁵, below the 24-bit noise floor. The
 frame sum of set buffers adds a few more steps. This is adequate for a
 reference; the INT64 exact accumulator AGENTS.md plans for delta updates will
 replace it, and the per-set buffer is where it slots in.
+
+**The SIMD kernel against the reference** (ADR 0027). Each sample is
+summed in `double` in both kernels, and narrowed to `SampleValue` once. The
+SIMD kernel sums the partials in a different order (lane by lane, then
+across the lanes), and its sine and exponential are polynomials that differ
+from libm's by about 10⁻¹⁶. The bound the tests enforce, per sample, is
+
+```math
+|\text{simd}[n] - \text{scalar}[n]| \le \varepsilon_{\text{float}} \cdot \max(1, |\text{scalar}[n]|) + 10^{-12} N
+```
+
+one rounding to `SampleValue` at the sample's magnitude, plus 10⁻¹² for
+each of the *N* partials in the sum. The second term is around 10⁴ times the
+double-precision difference the reordering can make, so it is a ceiling, not
+an estimate. In practice the narrowing hides the difference almost always:
+every example score renders the same bytes with both kernels on Apple
+Silicon, as does `convergence`. The capped-step counts are exactly the
+reference's. Phases agree to the bit, except where a step beyond 2π is
+reduced by whole cycles rather than by repeated subtraction, and there
+they agree within 10⁻⁹.
 
 **Sample times.** The instant of sample *n* is `fs + n`, both exactly
 representable, so the offset `τ = (fs + n) − s` is one subtraction with one
@@ -1053,11 +1105,13 @@ existing `units`, `segment_maths`, `EngineDb` and `precomputation`:
 5. **`spatial_maths`** — `NominalPosition`, `positionAt`, the shorter-arc
    azimuth gradient and the azimuth wrap (§8.5). Header-only, no I/O, no
    exceptions.
-6. **`render_kernel`** — the block state in SoA form, `anchorBlock` (§7.2)
-   and `renderChunk` (§7.1). Raw arrays and `SampleValue`; no unit types
-   inside, no allocation, no exceptions. This is the one file the parallel
-   version rewrites. It also holds `spatialiseChunk` (§8.5), which spreads a
-   source's mono buffer over the channels.
+6. **`render_kernel`** — the block state in SoA form, `anchorPartial`
+   (§7.2), the scalar reference `renderChunk` (§7.1), and the dense
+   `renderChunk(kernel, …)` that chooses between it and `renderChunkSimd`
+   (§7.5), which is in `render_kernel_simd.cpp`, the one file that includes
+   Highway. Raw arrays and `SampleValue`; no unit types inside, no
+   allocation, no exceptions. It also holds `spatialiseChunk` (§8.5), which
+   spreads a source's mono buffer over the channels.
 7. **`frame_plan`** — `RenderSegment`, `buildRenderSegments` (§6.4.1),
    `chunkCuts` (§6.4.2), `PartialSetPlan`, and the per-set render driver that
    anchors and calls the kernel chunk by chunk; and `SourceData`,
@@ -1184,7 +1238,7 @@ Three decisions worth stating:
   already uses for statements, integrity checks and precomputation:
 
   ```
-    rendering: sample rate 48000, frame size 48000 samples, mono (1 channel(s)), 8 thread(s)
+    rendering: sample rate 48000, frame size 48000 samples, mono (1 channel(s)), 8 thread(s), simd kernel
       FAILED   Partial 4 (id 4): amplitude timeline: point 1: time 100 is not later than point 0
       ok       frame 3: 1 source(s), 1 set(s), 1 partial(s), peak 0.501187, wrote frame-000003.wav
       ok       frame 7: 0 source(s), 0 set(s), 0 partial(s), silent, wrote frame-000007.wav
@@ -1220,7 +1274,10 @@ frame's end.
 - `render_kernel`: a constant sine against `sin()` sample by sample; a
   chirp against `phaseAt`; a fade against `amplitudeAt` and `toLinear`;
   anchoring mid-segment against the closed form; a chunk that ends and a
-  new one that anchors, agreeing with an uncut render.
+  new one that anchors, agreeing with an uncut render. Every behavioural
+  case runs under both kernels. The SIMD kernel is compared with the
+  reference within the bound of §10, on lane counts around every vector
+  width and on each edge case alone, with identical capped counts.
 - `frame_plan`: render segments for a partial covering the frame, starting
   inside it, ending inside it, and both; boundaries exactly on a frame edge
   and exactly on a sample; the chunk cuts of two partials with interleaved
@@ -1407,7 +1464,7 @@ In roughly the order expected. Each names the place in this design it goes.
 | Spatial modulators | Terms added to the position in `spatialiseChunk()`, with their boundaries merged into the spatial segments. |
 | Higher-order Ambisonics, other patterns | More channel modes in `channel_mode` and `spatial_gains`; `kMaxChannels` grows. |
 | Threads | Built: partial sets across threads, summed in order afterwards (§7.5, ADR 0026). Splitting one set across threads is the next step, and changes the last bits of the output. |
-| SIMD | §7.5: the body of `render_kernel`. |
+| SIMD | Built: §7.5, `render_kernel_simd.cpp` (ADR 0027). Float transcendentals would double the lanes on 128-bit targets, as a measured experiment. |
 | Recurrence for the multiplier | §8.4, inside `render_kernel`, checked against the direct form. |
 | INT64 exact accumulation | The per-set buffer of §6.4 step 4. |
 | Distributed mode | The egress: `object-storage` in place of `--out-dir`; the report becomes a message. |
