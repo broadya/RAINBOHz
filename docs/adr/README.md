@@ -58,6 +58,7 @@ Non-obvious design choices are recorded here, per AGENTS.md, using the
 | [0023](0023-synchronise-tempo-maps-by-exact-anchors-and-local-compensation.md) | Synchronise tempo maps by exact anchors, uniform stretch and local compensation, keeping the tempo map primary | Accepted |
 | [0024](0024-tie-tempo-maps-from-a-higher-layer-to-a-strictly-lower-one.md) | Tie tempo maps in HzL from a higher layer to a strictly lower one, and keep one map per timeline | Accepted |
 | [0025](0025-compile-scores-to-parquet-tables-keep-cypher-for-debugging.md) | Compile scores to Parquet tables with a manifest, and keep Cypher as the debugging form | Accepted |
+| [0026](0026-render-a-frames-partial-sets-on-worker-threads-bit-identical-to-serial.md) | Render a frame's partial sets on worker threads, bit-identical to the serial engine | Proposed |
 
 ## A note on the renames
 

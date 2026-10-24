@@ -89,6 +89,17 @@
         "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
       }
     },
+    {
+      "name": "macos-tsan",
+      "displayName": "macOS arm64 - RelWithDebInfo + TSan",
+      "description": "ThreadSanitizer: reports data races in the code the tests run, whether or not the timing of that run made them visible. Use before trusting any change to code that runs on more than one thread. Optimised with debug info, as TSan recommends; cannot be combined with ASan.",
+      "inherits": "release",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": {
+        "CMAKE_CXX_FLAGS": "-fsanitize=thread -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread"
+      }
+    },
 
     {
       "name": "linux-debug",
@@ -147,6 +158,7 @@
     { "name": "macos-release", "configurePreset": "macos-release" },
     { "name": "macos-max",     "configurePreset": "macos-max" },
     { "name": "macos-asan",    "configurePreset": "macos-asan" },
+    { "name": "macos-tsan",    "configurePreset": "macos-tsan" },
     { "name": "linux-debug",   "configurePreset": "linux-debug" },
     { "name": "linux-release", "configurePreset": "linux-release" },
     { "name": "linux-max",     "configurePreset": "linux-max" },
@@ -167,6 +179,12 @@
     { "name": "macos-release", "inherits": "base", "configurePreset": "macos-release" },
     { "name": "macos-max",     "inherits": "base", "configurePreset": "macos-max" },
     { "name": "macos-asan",    "inherits": "base", "configurePreset": "macos-asan" },
+    {
+      "name": "macos-tsan",
+      "inherits": "base",
+      "configurePreset": "macos-tsan",
+      "environment": { "TSAN_OPTIONS": "halt_on_error=1:second_deadlock_stack=1" }
+    },
     { "name": "linux-debug",   "inherits": "base", "configurePreset": "linux-debug" },
     { "name": "linux-release", "inherits": "base", "configurePreset": "linux-release" },
     { "name": "linux-max",     "inherits": "base", "configurePreset": "linux-max" },

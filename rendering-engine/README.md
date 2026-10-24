@@ -343,6 +343,7 @@ database path) and `cmake/ProjectWarnings.cmake`, all at the repository root.
 | `macos-release` | RelWithDebInfo. |
 | `macos-max` / `linux-max` | Release + ThinLTO, Ladybug included; no debug info. |
 | `macos-asan` | Debug + AddressSanitizer + UBSan. |
+| `macos-tsan` | RelWithDebInfo + ThreadSanitizer, Ladybug included. Run before trusting a change to threaded code: `make test-rendering-engine RE_PRESET=macos-tsan`. |
 | `linux-debug` / `linux-release` | Native Linux; serves both arm64 and x86_64. |
 | `windows-debug` / `windows-release` | MSVC, from a Developer Command Prompt. |
 | `linux-aarch64-cross` | Cross-compile to Graviton. Needs `-DRAINBOHZ_SYSROOT=...`. |

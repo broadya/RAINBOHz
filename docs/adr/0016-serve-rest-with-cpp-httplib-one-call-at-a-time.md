@@ -141,8 +141,10 @@ Impact on components:
   wait behind any load in progress, and are refused after a failed load until
   a good one.
 * `playback-server` (not built yet) — talks to engines that serve one call at
-  a time. Parallelism comes from many `rendering-engine` instances, one per
-  shard, not from one engine.
+  a time. Parallelism across calls comes from many `rendering-engine`
+  instances, one per shard, not from one engine. Within a call, an engine
+  renders a frame's partial sets on several threads
+  ([ADR 0026](0026-render-a-frames-partial-sets-on-worker-threads-bit-identical-to-serial.md)).
 * Orchestration (not built yet) — REST is the engine's ingress until the
   message bus exists. If the bus brings real parallelism, worker threads or
   asynchronous jobs can be revisited then.
