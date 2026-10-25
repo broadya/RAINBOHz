@@ -307,6 +307,12 @@ be. The sets of a source are then summed and spatialised together.
 
 ### 6.3 Gather
 
+This section describes the gather on the Ladybug backend, as Cypher. The
+native backend (design.md §5.1, ADR 0028) gives the same records for the same
+data, through the same `FrameSource` interface (`frame_gather.hpp`): it steps
+along a list's range where these queries follow `NEXT_POINT`, and sets
+`hasSuccessor` exactly where the walk here does.
+
 The gather is per frame, and it reads only what the frame needs. A
 partial's lists are reachable only from their heads (AGENTS.md, Linked
 Lists), so precomputation records, per partial per frame, a `FrameEntry`

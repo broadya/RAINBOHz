@@ -12,6 +12,7 @@
 #include "rainbohz/rendering_engine/script_loader.hpp"
 #include "rainbohz/rendering_engine/transform/transform.hpp"
 
+#include "ladybug_adapters.hpp"
 #include "test_support.hpp"
 
 #include <gtest/gtest.h>

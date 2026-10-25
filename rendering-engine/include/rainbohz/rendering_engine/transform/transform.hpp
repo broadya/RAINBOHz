@@ -25,8 +25,8 @@
 // data, declared here so that they can be tested without a database; reading
 // and writing happen only inside transformAll().
 
-#include "rainbohz/rendering_engine/engine_db.hpp"
 #include "rainbohz/rendering_engine/precomputation.hpp"
+#include "rainbohz/rendering_engine/store_types.hpp"
 #include "rainbohz/rendering_engine/units.hpp"
 
 #include <array>
@@ -39,6 +39,8 @@
 #include <vector>
 
 namespace rainbohz::rendering_engine::transform {
+
+class TransformStore;
 
 /// Thrown when the transform cannot run at all: the configuration or a
 /// TempoMap is unusable, or the score uses a feature this version does not
@@ -526,7 +528,7 @@ struct TransformReport {
 };
 
 /// Transforms every PartialSet and SoundSource with a musical timeline in
-/// `db` (§6).
+/// engine-db (§6).
 ///
 /// Reads the EngineConfig, every TempoMap with its points and
 /// synchronisation edges, every musical set's timeline, points, POINT_AT
@@ -535,9 +537,9 @@ struct TransformReport {
 /// (docs/polytempo.md); then transforms the sets one at a time in
 /// PartialSet.id order, and within a set the partials in Partial.id order;
 /// then the sources in SoundSource.id order. Each partial's and each source's
-/// output is staged as one unit of a WriteBatch, which writes 64 units per
-/// transaction, each table's rows as one statement (§7; @see ADR 0022). Any
-/// FrequencyPhysicalTimeline,
+/// output is written as one unit, 64 units per call to the store, which the
+/// Ladybug backend writes in one transaction, each table's rows as one
+/// statement (§7; @see ADR 0022, ADR 0028). Any FrequencyPhysicalTimeline,
 /// AmplitudePhysicalTimeline or PhasePhysicalTimeline a transformed partial
 /// already has, and any AzimuthPhysicalTimeline, ElevationPhysicalTimeline or
 /// DistancePhysicalTimeline a transformed source already has, is deleted and
@@ -547,12 +549,12 @@ struct TransformReport {
 /// A set, partial or source that fails is recorded in the report and the run
 /// carries on. Nothing of a failed partial or source is written, so any
 /// timelines from an earlier run are left as they were. A failure while the
-/// batch writes is confined to the unit that caused it: the batch then
-/// writes each unit in a transaction of its own.
+/// store writes is confined to the unit that caused it.
 ///
-/// @param[in,out] db  Database holding the score. Modified: every partial
-///                    that succeeds has its three physical timelines
-///                    replaced, and so does every source that succeeds.
+/// @param[in,out] store  engine-db holding the score (transform_store.hpp).
+///                       Modified: every partial that succeeds has its three
+///                       physical timelines replaced, and so does every
+///                       source that succeeds.
 /// @return What was found and what happened to each set, partial and source.
 /// @throws TransformError  If there is not exactly one EngineConfig or its
 ///         sampleRate is unusable; if any TempoMap is invalid; or if the
@@ -561,9 +563,10 @@ struct TransformReport {
 ///         point, anchors out of order, a region that cannot be fitted, or a
 ///         resolved tempo outside [1, 1000] BPM (docs/polytempo.md §6).
 ///         Nothing has been written.
-/// @throws EngineDbError  If reading the inputs fails. Nothing has been
-///         written. A database failure while writing one partial or source
-///         is recorded against it instead.
-TransformReport transformAll(EngineDb& db);
+/// @throws EngineDbError  If reading the inputs fails, in which case nothing
+///         has been written, or if the store does not answer for every unit
+///         it was given. A failure while writing one partial or source is
+///         recorded against it instead.
+TransformReport transformAll(TransformStore& store);
 
 } // namespace rainbohz::rendering_engine::transform

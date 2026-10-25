@@ -156,8 +156,8 @@ void reportSchemaCensus(std::ostream& out, EngineDb& db) {
     out << "  engine-db declares " << nodes << " NODE and " << rels << " REL tables.\n";
 }
 
-void reportDataCensus(std::ostream& out, EngineDb& db) {
-    const Census census = db.census();
+void reportDataCensus(std::ostream& out, EngineStore& store) {
+    const Census census = store.census();
 
     out << "  engine-db holds " << census.totalNodes << " nodes and " << census.totalRelationships
         << " relationships.\n";

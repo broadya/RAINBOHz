@@ -20,15 +20,18 @@
 // concepts -- see docs/adr/0006.
 //
 // This type owns the database and mediates access to it. The interface is
-// low-level -- Cypher in, rows of plain values out -- and domain code such as
-// precomputation builds on it. Values cross this interface as raw
+// low-level -- Cypher in, rows of plain values out. The stages do not use it
+// directly: they reach engine-db through the store interfaces of
+// engine_store.hpp, which the Ladybug backend implements on top of this
+// (ladybug_store.hpp, @see ADR 0028). Values cross this interface as raw
 // representations (bool, int64, double, string); wrapping them in unit types
 // (units.hpp) is the caller's job.
 //
 // Ladybug headers are deliberately kept out of this header. Callers of
 // rendering-engine should not acquire a transitive dependency on Ladybug's
-// public API just by including this file; when the real interface arrives it
-// should speak in domain types, not in lbug::main types.
+// public API just by including this file.
+
+#include "rainbohz/rendering_engine/store_types.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -49,12 +52,6 @@ class PreparedStatement;
 } // namespace lbug::main
 
 namespace rainbohz::rendering_engine {
-
-/// Thrown when the underlying graph database rejects a query or fails to open.
-class EngineDbError : public std::runtime_error {
-public:
-    using std::runtime_error::runtime_error;
-};
 
 /// The result of a statement submitted through `tryExecute`.
 struct ExecuteOutcome {
@@ -165,35 +162,6 @@ std::int64_t requireInt64(const DbValue& value);
 
 /// One row of the table catalog: the table's name, and "NODE" or "REL".
 using TableEntry = std::pair<std::string, std::string>;
-
-/// One line of a data census: a table's name, and how many rows it holds.
-using RowCount = std::pair<std::string, std::int64_t>;
-
-/// How much data the database actually holds, as opposed to how many tables
-/// were declared in it.
-///
-/// Tables with no rows are omitted. A schema declares far more tables than any
-/// one score populates, so listing the empty ones would bury the loaded ones.
-struct Census {
-    /// Populated node tables, sorted by name.
-    std::vector<RowCount> nodes;
-
-    /// Populated relationship tables, sorted by name.
-    std::vector<RowCount> relationships;
-
-    /// Row totals across all tables, including any omitted above (there are
-    /// none, but the totals do not depend on that).
-    std::int64_t totalNodes = 0;
-    /// Relationship rows across all tables, counted the same way.
-    std::int64_t totalRelationships = 0;
-
-    /// Tests whether the database holds any data at all.
-    ///
-    /// @return True when there are no node rows and no relationship rows,
-    ///         whether because nothing was loaded or because no schema has
-    ///         been applied yet.
-    bool empty() const noexcept { return totalNodes == 0 && totalRelationships == 0; }
-};
 
 /// Owns the process-local `engine-db` instance.
 ///

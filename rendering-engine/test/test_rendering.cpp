@@ -15,6 +15,7 @@
 #include "rainbohz/rendering_engine/score_pipeline.hpp"
 #include "rainbohz/rendering_engine/script_loader.hpp"
 
+#include "ladybug_adapters.hpp"
 #include "test_support.hpp"
 
 #include <gtest/gtest.h>
@@ -994,6 +995,50 @@ TEST(Rendering, TheKernelDefaultsToSimd) {
     ASSERT_TRUE(precomputeAll(db).ok());
     const std::filesystem::path dir = freshDirectory("Rendering.KernelDefault");
     EXPECT_EQ(renderFrames(db, requestFor({3}), dir, false).kernel, RenderKernel::Simd);
+}
+
+TEST(Pipeline, TheScoreChoosesItsBackendUnlessOneIsGiven) {
+    using rainbohz::rendering_engine::Backend;
+    using rainbohz::rendering_engine::backendFor;
+    PipelineSettings settings;
+    EXPECT_EQ(backendFor(settings, "score/manifest.json").backend, Backend::Native);
+    EXPECT_EQ(backendFor(settings, "score.cypher").backend, Backend::Ladybug);
+    settings.validateDb = true;
+    EXPECT_EQ(backendFor(settings, "score/manifest.json").backend, Backend::Ladybug);
+    EXPECT_FALSE(backendFor(settings, "score/manifest.json").refusal.has_value());
+
+    settings.backend = Backend::Native;
+    EXPECT_TRUE(backendFor(settings, "score/manifest.json").refusal.has_value());
+    settings.validateDb = false;
+    EXPECT_FALSE(backendFor(settings, "score/manifest.json").refusal.has_value());
+    const auto cypher = backendFor(settings, "score.cypher");
+    ASSERT_TRUE(cypher.refusal.has_value());
+    EXPECT_NE(cypher.refusal->find("--backend ladybug"), std::string::npos);
+
+    settings.backend = Backend::Ladybug;
+    EXPECT_EQ(backendFor(settings, "score/manifest.json").backend, Backend::Ladybug);
+    EXPECT_FALSE(backendFor(settings, "score/manifest.json").refusal.has_value());
+}
+
+TEST(Pipeline, ANativeLoadRunsEveryStageOfACompiledScore) {
+    const std::filesystem::path manifest =
+        std::filesystem::path{RE_TEST_COMPILED_SCORES} / "tempo-map-score" / "manifest.json";
+    ASSERT_TRUE(std::filesystem::exists(manifest))
+        << manifest << " is missing. Run the tests through CTest, whose scores.compile test "
+        << "compiles the examples, or run rendering-engine/test/compile_scores.py.";
+    std::ostringstream log;
+    auto load = rainbohz::rendering_engine::loadNativeScore(manifest, PipelineSettings{}, log);
+    ASSERT_TRUE(load.result.ok()) << load.result.verdict << "\n" << log.str();
+    ASSERT_NE(load.store, nullptr);
+    EXPECT_EQ(load.store->backend(), "native");
+    EXPECT_NE(log.str().find("into the native engine-db"), std::string::npos) << log.str();
+    EXPECT_NE(log.str().find("engine-db holds"), std::string::npos) << log.str();
+
+    const std::filesystem::path dir = freshDirectory("Pipeline.NativeLoad");
+    const auto rendered = rainbohz::rendering_engine::renderRequestedFrames(
+        *load.store, requestFor({0, 1}), dir, PipelineSettings{}, log);
+    ASSERT_TRUE(rendered.ok()) << rendered.verdict;
+    EXPECT_TRUE(std::filesystem::exists(dir / frameFileName(FrameNumber{0})));
 }
 
 } // namespace

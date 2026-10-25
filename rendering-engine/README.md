@@ -12,10 +12,10 @@ curves, labels ignored; see [docs/rendering.md](docs/rendering.md)).
 
 This directory holds the component identified as `rendering-engine` in
 @see architecture/overview.md. What exists today is
-the batch test harness end to end: an in-memory Ladybug database is created,
-the `engine-db` schema is applied to it, and an initial database state is
-loaded from a Cypher file named on the command line, with every failure
-attributed to its source line; a YAML render request, naming the frames to
+the batch test harness end to end: a score, hzlc's tables or a Cypher file
+named on the command line, is loaded into a fresh in-memory `engine-db`,
+held natively or, for a Cypher score, in Ladybug (ADR 0028), with every
+failure attributed to its file and, for Cypher, its line; a YAML render request, naming the frames to
 render and the labels that select their partials, is read and checked against
 what loaded; every partial set in musical time is transformed; every partial
 is precomputed; and each requested frame is rendered to a file.
@@ -26,7 +26,10 @@ From `architecture/overview.md` §5.2:
 
 - It is a **C++** program (this is Settled in §9, not a candidate choice).
 - It **hosts `engine-db`**, a Ladybug graph database, **in process**. This is
-  the one physical database in the system, sharded by partial set.
+  the one physical database in the system, sharded by partial set. (Since
+  ADR 0028, proposed, `engine-db` has a second implementation, a native
+  in-memory model, and a run uses one or the other; overview.md's wording is
+  the author's to change.)
 - It **performs every operation that needs the graph**: loading `canonical-form`,
   transforming the canonical model into the rendering model in place,
   precomputing phase integration, phase compensation, and rendering frames to
@@ -56,8 +59,8 @@ so that the mode axis exists in the code rather than being retrofitted later.
 
 | Mode | Lifetime | Input | Output | Status |
 | --- | --- | --- | --- | --- |
-| `batch` | runs once, then exits | a Cypher state file and a YAML render request | WAV files in a local directory | implemented for the first versions of the transform, precomputation and rendering |
-| `server` | long-running, holds one score in memory | REST calls under `/v1` ([api/openapi.yaml](api/openapi.yaml)): `PUT /score` a Cypher file, render a frame, read tempo maps and engine parameters, `POST /shutdown` | WAV files in a local directory, returned as `file://` URIs | implemented; see [docs/server.md](docs/server.md) |
+| `batch` | runs once, then exits | a score (hzlc's tables or a Cypher file) and a YAML render request | WAV files in a local directory | implemented for the first versions of the transform, precomputation and rendering |
+| `server` | long-running, holds one score in memory | REST calls under `/v1` ([api/openapi.yaml](api/openapi.yaml)): `PUT /score` a score, render a frame, read tempo maps and engine parameters, `POST /shutdown` | WAV files in a local directory, returned as `file://` URIs | implemented; see [docs/server.md](docs/server.md) |
 | `distributed` | long-running | requests over `message-bus` | object storage | not implemented |
 
 `batch` is the harness [docs/design.md](docs/design.md) §3 describes, and it is
@@ -67,12 +70,13 @@ same steps, per call, through the same code (`score_pipeline.hpp`).
 ## Usage
 
 ```
-rendering-engine [--mode batch] --state <file.cypher> --request <file.yaml> [options]
+rendering-engine [--mode batch] --state <manifest.json|file.cypher> --request <file.yaml> [options]
 rendering-engine --mode server --host <address> --port <port>
                  --input-root <dir> --out-dir <dir> [options]
 
   -m, --mode  batch|server|distributed      Run mode [batch]
-  -s, --state <file.cypher>                 Initial database state (batch: required)
+  -s, --state <manifest.json|file.cypher>   The score: hzlc's tables, or a Cypher
+                                            script (batch: required)
   -r, --request <file.yaml>                 Frames and labels to render (batch: required)
       --host <address>                      Interface to listen on (server: required)
       --port <port>                         TCP port, 0 for a free one (server: required)
@@ -94,6 +98,11 @@ rendering-engine --mode server --host <address> --port <port>
                                             (batch only)
       --validate-db                         Check engine-db's integrity after loading;
                                             stop before precomputation if it fails
+                                            (Ladybug only)
+      --backend native|ladybug              engine-db implementation (ADR 0028); without
+                                            it the score decides: tables load natively,
+                                            a .cypher score, --validate-db or --db-path
+                                            into Ladybug
   -v, --verbose                             Report every statement, not just failures
 ```
 
@@ -104,19 +113,44 @@ which interface it listens on and which files it may read are always said
 outright. Server mode is described in [docs/server.md](docs/server.md); the
 rest of this section is about batch mode.
 
+### engine-db backends
+
+`engine-db` has one schema and two implementations (ADR 0028), behind the
+store interfaces of `engine_store.hpp`; a run uses one of them.
+
+- **native**: the schema's data in C++ containers, read from hzlc's Parquet
+  tables with Apache Arrow. It is the fast path: on `echoes` (5,120 partials,
+  `macos-max`), loading takes 0.05 s instead of 5.9 s and rendering eight
+  frames 0.13 s instead of 1.7 s, with byte-identical output. It loads only
+  table manifests and runs no integrity checks.
+- **ladybug**: the Ladybug graph database. It loads Cypher scores too, runs
+  `--validate-db`, and can be put on disk with `--db-path` and opened in the
+  `lbug` shell afterwards.
+
+Without `--backend`, the score decides: a table manifest loads natively, and
+a `.cypher` score, `--validate-db` or `--db-path` choose Ladybug. Asking for
+`--backend native` with any of those three is refused, naming
+`--backend ladybug`. The native model's types are written by hand from the
+schema and tagged with what they hold; `make check-engine-db-mapping` keeps
+the tags and the schema in step.
+
 What `batch` mode does today:
 
 1. Reads `--request` and checks its shape. A malformed request stops the run
    here, before anything is loaded.
-2. Opens an empty `engine-db` — in memory, which is the deployed configuration.
-3. Applies `--schema`, one Cypher file of DDL.
-4. Applies `--state`, one Cypher file of initial database state.
-5. Prints what the schema declared and what the state actually loaded.
-6. With `--validate-db`, checks the integrity of the canonical model that
+2. Chooses the `engine-db` backend (above). On Ladybug it opens an empty
+   `engine-db`, in memory unless `--db-path` says otherwise, applies
+   `--schema`, one Cypher file of DDL, and applies `--state`, hzlc's table
+   manifest or a Cypher file. On the native backend it reads `--state`, which
+   must be hzlc's table manifest, into a fresh in-memory model; no schema is
+   applied.
+3. Prints what the state actually loaded (on Ladybug, what the schema
+   declared too).
+4. With `--validate-db` (Ladybug only), checks the integrity of the canonical model that
    loaded: no cycles or merged lists in its `NEXT_POINT` lists, and the
    columns the transform reads in their valid ranges. A violation stops the
    run here, with exit 1. See [docs/integrity.md](docs/integrity.md).
-7. Transforms every partial set and every SoundSource that has a musical
+5. Transforms every partial set and every SoundSource that has a musical
    timeline: its points are placed in physical time through the score's tempo
    map, with the offsets and collisions resolved as
    [docs/transform.md](docs/transform.md) §6.3 describes. Each partial gets
@@ -127,10 +161,10 @@ What `batch` mode does today:
    exit 1.
    With `--validate-db`, the physical timelines are then checked in turn, and
    a violation stops the run, with exit 1.
-8. Precomputes every partial ([docs/precomputation.md](docs/precomputation.md)).
-9. Lists the requested frames and checks every requested label against the
+6. Precomputes every partial ([docs/precomputation.md](docs/precomputation.md)).
+7. Lists the requested frames and checks every requested label against the
    `Label` nodes that loaded.
-10. Renders each requested frame to `--out-dir/frame-NNNNNN.wav`, a 32-bit
+8. Renders each requested frame to `--out-dir/frame-NNNNNN.wav`, a 32-bit
     float mono WAV of one frame ([docs/rendering.md](docs/rendering.md)); with
     `--per-set-wav`, also `frame-NNNNNN.set-NNNNNN.wav` per contributing
     partial set. A frame with nothing in scope is a file of silence. Then
@@ -218,7 +252,8 @@ rendering-engine/
 ├── .clangd                 names the compilation database for clangd
 ├── cmake/
 │   └── Dependencies.cmake  Ladybug, CLI11, yaml-cpp, dr_wav, cpp-httplib,
-│                           nlohmann/json and Highway acquisition, pinned
+│                           nlohmann/json, Highway and Apache Arrow
+│                           acquisition, pinned
 ├── examples/
 │   ├── minimum-request.yaml  the render request `make run-rendering-engine` passes
 │   ├── two-partial-sets-request.yaml  for engine-db/examples/two-partial-sets.cypher
@@ -228,20 +263,30 @@ rendering-engine/
 ├── include/rainbohz/rendering_engine/
 │   ├── amplitude_maths.hpp  amplitude ramp, dB conversion, roll-off
 │   ├── cypher_script.hpp   statement splitting, with line attribution
-│   ├── engine_db.hpp       in-process engine-db wrapper
+│   ├── engine_db.hpp       in-process Ladybug wrapper
+│   ├── engine_store.hpp    engine-db as the stages see it, either backend
+│   ├── frame_gather.hpp    rendering's per-frame records and FrameSource
 │   ├── file_uri.hpp        file:// URIs to and from local paths
 │   ├── frame_plan.hpp      render segments, chunk cuts, per-set driver
 │   ├── integrity.hpp       engine-db integrity checks (--validate-db)
+│   ├── ladybug_store.hpp   the Ladybug backend's stores
+│   ├── native_model.hpp    the native backend's model, tagged with the schema
+│   ├── native_store.hpp    the native backend's stores
+│   ├── native_table_loader.hpp  reading hzlc's tables natively (Arrow)
 │   ├── options.hpp         command line and run modes
+│   ├── parallel.hpp        the fork-join primitive (ADR 0026)
 │   ├── precomputation.hpp  segments, start phases, frame scope and entries
+│   ├── precomputation_store.hpp  what precomputation reads and writes
 │   ├── render_kernel.hpp   the hot loop over Structure-of-Arrays state
 │   ├── render_request.hpp  the batch-mode YAML render request
 │   ├── rendering.hpp       per-frame gather, validation, loop and report
 │   ├── report.hpp          the reports, written as text to a stream
 │   ├── sample_value.hpp    the audio sample type
+│   ├── score_manifest.hpp  reading a score's table manifest, either backend
 │   ├── score_pipeline.hpp  the load and render operations, step by step
 │   ├── script_loader.hpp   applying Cypher files to engine-db
 │   ├── server.hpp          server mode: the REST handlers and the server
+│   ├── store_types.hpp     the types every backend shares
 │   ├── segment_maths.hpp   a segment's frequency and phase
 │   ├── units.hpp           unit types for physical quantities
 │   ├── wav_writer.hpp      32-bit float WAV output (dr_wav)
@@ -250,14 +295,22 @@ rendering-engine/
 │       ├── musical_units.hpp  ticks, tempo, ticks per beat
 │       ├── tempo_map.hpp      the TempoMap and its conversion to seconds
 │       ├── squash.hpp         placing colliding points in physical time
-│       └── transform.hpp      envelope nodes, envelopes, the run and its report
+│       ├── transform.hpp      envelope nodes, envelopes, the run and its report
+│       ├── transform_store.hpp  what the transform reads and writes
+│       ├── store_handles.hpp  an owning handle to a transform store
+│       ├── ladybug_transform_store.hpp  the Ladybug backend's transform parts
+│       └── native_transform_store.hpp   the native backend's transform parts
 ├── src/
 │   ├── main.cpp            entry point, batch-mode driver, mode dispatch
 │   ├── cypher_script.cpp
 │   ├── engine_db.cpp
 │   ├── file_uri.cpp
+│   ├── frame_gather.cpp     the gather's backend-neutral checks
 │   ├── frame_plan.cpp
 │   ├── integrity.cpp
+│   ├── ladybug_*.cpp        the Ladybug backend: every stage's Cypher
+│   ├── native_*.cpp         the native backend; native_table_loader.cpp is the
+│   │                        only file that includes Arrow
 │   ├── options.cpp
 │   ├── precomputation.cpp
 │   ├── render_kernel.cpp    the scalar reference kernel, and the choice of kernel
@@ -265,12 +318,15 @@ rendering-engine/
 │   ├── render_request.cpp
 │   ├── rendering.cpp
 │   ├── report.cpp
+│   ├── score_manifest.cpp
 │   ├── score_pipeline.cpp
 │   ├── script_loader.cpp
 │   ├── server.cpp           the only file that includes cpp-httplib
 │   ├── wav_writer.cpp
 │   ├── write_batch.cpp
 │   └── transform/
+│       ├── ladybug_timing_source.cpp, ladybug_transform_store.cpp
+│       ├── native_timing_source.cpp, native_transform_store.cpp
 │       ├── squash.cpp
 │       ├── tempo_map.cpp
 │       └── transform.cpp
@@ -280,6 +336,8 @@ rendering-engine/
     │   └── run_oracle_check.py   CTest driver: engine, then oracle per frame
     ├── server/
     │   └── run_server_check.py   CTest driver: server over HTTP, then oracle per file
+    ├── compile_scores.py         CTest fixture: compiles hzl-compiler's examples to tables
+    ├── ladybug_adapters.hpp      the stages over an EngineDb, for tests written that way
     ├── test_support.hpp          a hand-written WAV reader for the tests
     ├── test_amplitude_maths.cpp
     ├── test_cypher_script.cpp

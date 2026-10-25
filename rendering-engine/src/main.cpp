@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "rainbohz/rendering_engine/engine_db.hpp"
+#include "rainbohz/rendering_engine/ladybug_store.hpp"
 #include "rainbohz/rendering_engine/options.hpp"
 #include "rainbohz/rendering_engine/render_request.hpp"
 #include "rainbohz/rendering_engine/report.hpp"
@@ -9,6 +10,10 @@
 
 #include <exception>
 #include <iostream>
+#include <memory>
+#include <optional>
+#include <string>
+#include <utility>
 
 /// @file
 /// @brief Entry point of the rendering-engine executable.
@@ -16,9 +21,10 @@
 /// Parses the command line (options.hpp) and dispatches on the run mode. Three
 /// run modes are anticipated; two are implemented.
 ///
-/// `batch` reads the render request, stands up engine-db by applying the
-/// schema from one Cypher file, loads an initial database state from a second,
-/// optionally checks its integrity (`--validate-db`), transforms every partial
+/// `batch` reads the render request, stands up engine-db with the backend
+/// --backend or the score chooses (ADR 0028), loads the score (for Ladybug,
+/// after applying the schema from a Cypher file), on Ladybug optionally
+/// checks its integrity (`--validate-db`), transforms every partial
 /// set with a musical timeline into physical timelines, precomputes every
 /// partial's integrable segments and frame entries, checks the request's
 /// labels against what loaded, and renders the requested frames to WAV files.
@@ -31,10 +37,16 @@
 
 namespace {
 
+using rainbohz::rendering_engine::Backend;
+using rainbohz::rendering_engine::BackendChoice;
+using rainbohz::rendering_engine::backendName;
 using rainbohz::rendering_engine::EngineDb;
+using rainbohz::rendering_engine::EngineStore;
+using rainbohz::rendering_engine::LadybugStore;
 using rainbohz::rendering_engine::LoadResult;
 using rainbohz::rendering_engine::Mode;
 using rainbohz::rendering_engine::modeName;
+using rainbohz::rendering_engine::NativeScoreLoad;
 using rainbohz::rendering_engine::Options;
 using rainbohz::rendering_engine::PipelineSettings;
 using rainbohz::rendering_engine::RenderRequest;
@@ -64,8 +76,9 @@ constexpr int kExitNotImplemented = 2;
 
 /// Runs the `batch` mode.
 ///
-/// Loads the render request, then loads the score into a fresh engine-db with
-/// loadScore() and, if that completes, renders the requested frames into
+/// Loads the render request, then loads the score into a fresh engine-db of
+/// the backend backendFor() chooses, with loadScore() or loadNativeScore(),
+/// and, if that completes, renders the requested frames into
 /// --out-dir with renderRequestedFrames(). Progress goes to standard output
 /// and the closing verdict on a failure to standard error.
 ///
@@ -76,15 +89,40 @@ constexpr int kExitNotImplemented = 2;
 ///         kExitFailed if the request is unusable, or either operation
 ///         stopped short (score_pipeline.hpp lists where it can).
 /// @throws EngineDbError    If engine-db cannot be opened or inspected.
-/// @throws ScriptLoadError  If the schema or state file cannot be read.
+/// @throws ScriptLoadError  If the schema or state file cannot be read, or
+///         (ManifestError) the native backend cannot use the score's tables.
 /// @note Side effect: creates `options.outputDir` and writes WAV files into
 ///       it.
 int runBatchMode(const Options& options) {
-    EngineDb db{options.dbPath};
+    const PipelineSettings settings{.verbose = options.verbose,
+        .validateDb = options.validateDb,
+        .perSetWav = options.perSetWav,
+        .renderThreads = options.renderThreads,
+        .renderKernel = options.renderKernel,
+        .backend = options.backend};
+    // An on-disk database is Ladybug's; parseCommandLine() has refused it
+    // for an explicit native backend.
+    const BackendChoice choice =
+        options.dbPath.empty()
+            ? rainbohz::rendering_engine::backendFor(settings, options.stateFile)
+            : BackendChoice{.backend = Backend::Ladybug, .refusal = std::nullopt};
+    if (choice.refusal.has_value()) {
+        std::cerr << "rendering-engine: " << *choice.refusal << ".\n";
+        return kExitFailed;
+    }
+
+    // Only the Ladybug backend opens a database; the native one builds its
+    // model as it loads.
+    std::unique_ptr<EngineDb> db;
+    if (choice.backend == Backend::Ladybug) {
+        db = std::make_unique<EngineDb>(options.dbPath);
+    }
 
     std::cout << "rendering-engine, mode " << modeName(options.mode) << '\n'
-              << "  engine-db: " << db.path() << '\n'
-              << "  schema:    " << options.schemaFile.string() << '\n'
+              << "  backend:   " << backendName(choice.backend) << '\n'
+              << "  engine-db: " << (db ? db->path() : std::string{"native, in memory"}) << '\n'
+              << "  schema:    "
+              << (db ? options.schemaFile.string() : std::string{"(not applied natively)"}) << '\n'
               << "  state:     " << options.stateFile.string() << '\n'
               << "  request:   " << options.requestFile.string() << '\n'
               << "  out-dir:   " << options.outputDir.string() << '\n'
@@ -101,21 +139,25 @@ int runBatchMode(const Options& options) {
         return kExitFailed;
     }
 
-    const PipelineSettings settings{.verbose = options.verbose,
-        .validateDb = options.validateDb,
-        .perSetWav = options.perSetWav,
-        .renderThreads = options.renderThreads,
-        .renderKernel = options.renderKernel};
-
-    const LoadResult loaded = rainbohz::rendering_engine::loadScore(
-        db, options.schemaFile, options.stateFile, settings, std::cout);
+    std::unique_ptr<EngineStore> store;
+    LoadResult loaded;
+    if (db) {
+        loaded = rainbohz::rendering_engine::loadScore(
+            *db, options.schemaFile, options.stateFile, settings, std::cout);
+        store = std::make_unique<LadybugStore>(*db);
+    } else {
+        NativeScoreLoad load =
+            rainbohz::rendering_engine::loadNativeScore(options.stateFile, settings, std::cout);
+        loaded = std::move(load.result);
+        store = std::move(load.store);
+    }
     if (!loaded.ok()) {
         std::cerr << "\nrendering-engine: " << loaded.verdict << '\n';
         return kExitFailed;
     }
 
     const RenderResult rendered = rainbohz::rendering_engine::renderRequestedFrames(
-        db, request, options.outputDir, settings, std::cout);
+        *store, request, options.outputDir, settings, std::cout);
     if (!rendered.ok()) {
         std::cerr << "\nrendering-engine: " << rendered.verdict << '\n';
         return kExitFailed;

@@ -344,6 +344,14 @@ establish: it proves every statement is accepted by Ladybug. It says nothing
 about whether the model is semantically correct — units, ranges, and whether a
 type suits the quantity it holds are not checked by anything.
 
+**A schema edit has a native side.** `rendering-engine`'s native backend
+holds `engine-db` in hand-written types tagged with what they hold (ADR 0028).
+After the author edits the schema, `make check-engine-db-mapping` fails until
+the native model accounts for the change: a new table, property or pair is
+either held, with its tag, or listed `@enginedb_unmapped{…: why}`. That is
+agent work, the schema itself is not, and it follows the one-feature rule: a
+concept nothing uses yet is listed as unmapped, not built.
+
 Ladybug binds relationship tables at DDL time, so a `CREATE REL TABLE` must come
 after the `CREATE NODE TABLE` for every table it names. Declaration order in the
 file is therefore load-bearing, and reordering is the usual fix when a rel table
@@ -393,6 +401,15 @@ Schema validation:
 - `make check-schema-comments` — show where the schemas' `//` comments
   would be refilled to 64 columns. `make format-schema-comments` applies
   it in place; the schemas are hand-edited, so only their author runs that.
+- `make check-engine-db-mapping` — fail unless the native engine-db's
+  hand-written types (`rendering-engine/include/rainbohz/rendering_engine/native_model.hpp`)
+  and `engine-schema.cypher` agree: every node table, property and
+  relationship pair is tagged `@enginedb{…}` as held, or
+  `@enginedb_unmapped{…: why}` as not, and every tag names something the
+  schema has (ADR 0028; `scripts/check_engine_db_mapping.py`, which reads
+  both and edits neither). Part of `make test`.
+- `make test-scripts` — pytest for the repository's own scripts
+  (`scripts/tests/`). Part of `make test`.
 
 Databases (built from the schema DDL, which is the source of truth):
 
@@ -434,7 +451,10 @@ Databases (built from the schema DDL, which is the source of truth):
   `--request` are always required. Extra engine options go in `RE_ARGS`, e.g.
   `RE_ARGS=--validate-db` to run the `engine-db` integrity checks
   (`rendering-engine/docs/integrity.md`), or `RE_ARGS=--per-set-wav` for a
-  file per partial set as well as per frame.
+  file per partial set as well as per frame. The score's form chooses the
+  `engine-db` backend unless `RE_ARGS=--backend native|ladybug` does (ADR
+  0028): a manifest loads natively, a `.cypher` script, `--validate-db` or
+  `--db-path` into Ladybug; the schema is applied on Ladybug only.
 - `make run-rendering-engine-server` — run the engine in server mode on
   `RE_HOST`:`RE_PORT` (default `127.0.0.1:8080`), reading scores from beneath
   `RE_INPUT_ROOT` (default the repository root) and writing frames to
@@ -508,8 +528,9 @@ Python:
   state file. `--state` takes the manifest, or the script with
   `HZL_FORM=cypher`.
 - `make test-score-forms` — compile every example score both as tables and
-  as Cypher, render both, and fail unless every frame is byte-identical
-  (`scripts/check_score_forms.py`). Part of `make test`.
+  as Cypher, render the tables natively (1 and 8 threads) and on Ladybug,
+  and the Cypher on Ladybug, and fail unless every frame is byte-identical
+  (`scripts/check_score_forms.py`, ADR 0028). Part of `make test`.
 - `make test-hzl-compiler` — pytest.
 - `make lint-hzl-compiler` — ruff lint and format check, then mypy;
   changes nothing, fails on any finding. Part of `make test`.

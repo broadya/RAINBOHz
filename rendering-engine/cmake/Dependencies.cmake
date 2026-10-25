@@ -16,6 +16,8 @@
 #   rainbohz::json      -- JSON for server mode's request and response bodies
 #                          (header-only)
 #   rainbohz::highway   -- portable SIMD for the render kernel (static)
+#   rainbohz::parquet   -- Apache Arrow's Parquet reader, for the native backend's
+#                          table loader (static)
 
 include(FetchContent)
 
@@ -470,3 +472,162 @@ set_target_properties(hwy PROPERTIES
     INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${RE_HIGHWAY_INCLUDES}")
 
 add_library(rainbohz::highway ALIAS hwy)
+
+# ---------------------------------------------------------------------------
+# Apache Arrow (Parquet)
+# ---------------------------------------------------------------------------
+#
+# The native engine-db backend reads a score's Parquet tables itself, without
+# Ladybug (src/native_table_loader.cpp, ADR 0028). Arrow's C++ library is the
+# reference reader of what hzlc's pyarrow writes. Only what that needs is
+# built: the core library and Parquet, with Snappy, pyarrow's default codec.
+# Every other component and codec is off. Apache-2.0. Arrow appears in no
+# public header: only the loader includes it.
+#
+# Arrow is built as a separate CMake project (ExternalProject), not added to
+# this one, because it builds its bundled Thrift and Snappy as targets of
+# their own, and Ladybug already defines a target named `thrift` here. The two
+# copies do not collide at link time: Ladybug's live in renamed namespaces
+# (lbug_apache::thrift, lbug_snappy) and have no C API. Arrow is configured
+# with this build's compiler, build type, flags (sanitizers included),
+# interprocedural optimisation, toolchain file and compiler launcher, so that
+# every preset links a consistent binary. Its bundled dependencies are
+# fetched, by Arrow, at build time.
+#
+# Check for newer releases at https://arrow.apache.org/release/ and pin the
+# archive by its SHA-256, checked against Apache's published .sha512 when it
+# is bumped.
+
+include(ExternalProject)
+
+set(RE_ARROW_VERSION "22.0.0" CACHE STRING "Apache Arrow version to build against")
+set(RE_ARROW_SHA256 "131250cd24dec0cddde04e2ad8c9e2bc43edc5e84203a81cf71cf1a33a6e7e0f"
+    CACHE STRING "SHA-256 of the Apache Arrow source archive")
+
+set(RE_ARROW_PREFIX "${CMAKE_BINARY_DIR}/_deps/arrow-install")
+set(RE_ARROW_INCLUDE_DIR "${RE_ARROW_PREFIX}/include")
+# Arrow names its static libraries with a `_static` suffix under MSVC, where
+# a static and an import library would otherwise share a name. The Windows
+# presets have not been built with Arrow yet; this follows Arrow's naming.
+if(MSVC)
+    set(re_arrow_static_suffix "_static")
+else()
+    set(re_arrow_static_suffix "")
+endif()
+set(re_arrow_lib "${RE_ARROW_PREFIX}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}")
+set(RE_ARROW_PARQUET_LIB
+    "${re_arrow_lib}parquet${re_arrow_static_suffix}${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(RE_ARROW_CORE_LIB "${re_arrow_lib}arrow${re_arrow_static_suffix}${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(RE_ARROW_BUNDLED_LIB
+    "${re_arrow_lib}arrow_bundled_dependencies${CMAKE_STATIC_LIBRARY_SUFFIX}")
+
+set(re_arrow_args
+    -DCMAKE_INSTALL_PREFIX=${RE_ARROW_PREFIX}
+    -DCMAKE_INSTALL_LIBDIR=lib
+    -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+    -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+    -DCMAKE_C_FLAGS=${CMAKE_C_FLAGS}
+    -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=${CMAKE_INTERPROCEDURAL_OPTIMIZATION}
+    -DARROW_BUILD_STATIC=ON
+    -DARROW_BUILD_SHARED=OFF
+    -DARROW_BUILD_TESTS=OFF
+    -DARROW_BUILD_BENCHMARKS=OFF
+    -DARROW_BUILD_EXAMPLES=OFF
+    -DARROW_BUILD_UTILITIES=OFF
+    -DARROW_PARQUET=ON
+    -DARROW_WITH_SNAPPY=ON
+    -DARROW_WITH_ZLIB=OFF
+    -DARROW_WITH_ZSTD=OFF
+    -DARROW_WITH_LZ4=OFF
+    -DARROW_WITH_BROTLI=OFF
+    -DARROW_WITH_BZ2=OFF
+    -DARROW_WITH_RE2=OFF
+    -DARROW_WITH_UTF8PROC=OFF
+    -DARROW_WITH_OPENTELEMETRY=OFF
+    -DARROW_COMPUTE=OFF
+    -DARROW_CSV=OFF
+    -DARROW_JSON=OFF
+    -DARROW_DATASET=OFF
+    -DARROW_FILESYSTEM=OFF
+    -DARROW_FLIGHT=OFF
+    -DARROW_GANDIVA=OFF
+    -DARROW_ACERO=OFF
+    -DARROW_SUBSTRAIT=OFF
+    -DARROW_JEMALLOC=OFF
+    -DARROW_MIMALLOC=OFF
+    -DARROW_S3=OFF
+    -DARROW_GCS=OFF
+    -DARROW_AZURE=OFF
+    -DARROW_HDFS=OFF
+    -DARROW_ORC=OFF
+    -DARROW_CUDA=OFF
+    -DARROW_TESTING=OFF
+    # The reader's speed is not what matters here, and plain code is the
+    # same on every target this build has.
+    -DARROW_SIMD_LEVEL=NONE
+    -DARROW_RUNTIME_SIMD_LEVEL=NONE
+    -DPARQUET_REQUIRE_ENCRYPTION=OFF
+    -DPARQUET_BUILD_EXECUTABLES=OFF
+    -DPARQUET_BUILD_EXAMPLES=OFF
+    -DARROW_DEPENDENCY_SOURCE=BUNDLED
+    -DARROW_DEPENDENCY_USE_SHARED=OFF
+)
+if(CMAKE_TOOLCHAIN_FILE)
+    list(APPEND re_arrow_args -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE})
+endif()
+if(CMAKE_OSX_SYSROOT)
+    list(APPEND re_arrow_args -DCMAKE_OSX_SYSROOT=${CMAKE_OSX_SYSROOT})
+endif()
+if(CMAKE_OSX_ARCHITECTURES)
+    list(APPEND re_arrow_args -DCMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES})
+endif()
+if(CMAKE_CXX_COMPILER_LAUNCHER)
+    list(APPEND re_arrow_args
+        -DCMAKE_C_COMPILER_LAUNCHER=${CMAKE_C_COMPILER_LAUNCHER}
+        -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER})
+endif()
+if(DEFINED CMAKE_POLICY_VERSION_MINIMUM)
+    list(APPEND re_arrow_args -DCMAKE_POLICY_VERSION_MINIMUM=${CMAKE_POLICY_VERSION_MINIMUM})
+endif()
+
+message(STATUS "rendering-engine: Apache Arrow ${RE_ARROW_VERSION}, built as an external project")
+ExternalProject_Add(arrow_external
+    URL         "https://archive.apache.org/dist/arrow/arrow-${RE_ARROW_VERSION}/apache-arrow-${RE_ARROW_VERSION}.tar.gz"
+    URL_HASH    "SHA256=${RE_ARROW_SHA256}"
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    PREFIX      "${CMAKE_BINARY_DIR}/_deps/arrow"
+    SOURCE_SUBDIR cpp
+    CMAKE_ARGS  ${re_arrow_args}
+    BUILD_BYPRODUCTS "${RE_ARROW_PARQUET_LIB}" "${RE_ARROW_CORE_LIB}" "${RE_ARROW_BUNDLED_LIB}"
+    EXCLUDE_FROM_ALL TRUE
+)
+
+# The imported targets name the install directory, which must exist when
+# CMake generates, before Arrow has been built into it.
+file(MAKE_DIRECTORY "${RE_ARROW_INCLUDE_DIR}")
+
+add_library(re_arrow_bundled STATIC IMPORTED GLOBAL)
+set_target_properties(re_arrow_bundled PROPERTIES IMPORTED_LOCATION "${RE_ARROW_BUNDLED_LIB}")
+add_dependencies(re_arrow_bundled arrow_external)
+
+add_library(re_arrow_core STATIC IMPORTED GLOBAL)
+set_target_properties(re_arrow_core PROPERTIES
+    IMPORTED_LOCATION "${RE_ARROW_CORE_LIB}"
+    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${RE_ARROW_INCLUDE_DIR}"
+    INTERFACE_INCLUDE_DIRECTORIES "${RE_ARROW_INCLUDE_DIR}"
+    # Arrow's static headers expect this, as its CMake package would set it.
+    INTERFACE_COMPILE_DEFINITIONS "ARROW_STATIC"
+    INTERFACE_LINK_LIBRARIES "re_arrow_bundled;Threads::Threads")
+add_dependencies(re_arrow_core arrow_external)
+
+add_library(re_parquet STATIC IMPORTED GLOBAL)
+set_target_properties(re_parquet PROPERTIES
+    IMPORTED_LOCATION "${RE_ARROW_PARQUET_LIB}"
+    INTERFACE_COMPILE_DEFINITIONS "PARQUET_STATIC"
+    INTERFACE_LINK_LIBRARIES "re_arrow_core")
+add_dependencies(re_parquet arrow_external)
+
+add_library(rainbohz::parquet ALIAS re_parquet)

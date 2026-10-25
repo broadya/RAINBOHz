@@ -13,6 +13,7 @@
 #include "rainbohz/rendering_engine/precomputation.hpp"
 #include "rainbohz/rendering_engine/script_loader.hpp"
 
+#include "ladybug_adapters.hpp"
 #include "test_support.hpp"
 
 #include <gtest/gtest.h>

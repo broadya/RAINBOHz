@@ -11,6 +11,8 @@
 #include "rainbohz/rendering_engine/script_loader.hpp"
 #include "rainbohz/rendering_engine/transform/timing_query.hpp"
 
+#include "../ladybug_adapters.hpp"
+
 #include <gtest/gtest.h>
 
 #include <cmath>

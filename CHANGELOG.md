@@ -51,6 +51,18 @@ The target architecture, built from 2026-09-27 onwards.
 - `CONTRIBUTING.md`, `SECURITY.md`, `CITATION.cff` and this changelog.
 - `macos-max` and `linux-max` CMake presets: fully optimised builds (Release
   with ThinLTO, Ladybug included).
+- A native `engine-db` backend in `rendering-engine` beside Ladybug (ADR
+  0028, proposed): the stages reach `engine-db` through one store interface
+  each, implemented by Ladybug and by a hand-written in-memory model that
+  reads hzlc's Parquet tables with Apache Arrow. `--backend native|ladybug`;
+  without it the score decides (tables natively; a `.cypher` score,
+  `--validate-db` or `--db-path` on Ladybug), per batch run and per
+  `PUT /v1/score`. Byte-identical frames either way; on `echoes` a load and
+  eight frames take 0.17 s instead of 7.6 s.
+- `make check-engine-db-mapping`: the native model's types carry
+  `@enginedb{…}` tags naming what part of the schema they hold, checked
+  against `engine-schema.cypher` in `make test`; and `make test-scripts` for
+  the repository's own scripts.
 
 ### Changed
 
@@ -126,6 +138,14 @@ The target architecture, built from 2026-09-27 onwards.
   kernel. The kernel alone is 3.1× faster on Apple Silicon. A `convergence`
   frame (800 partials) takes 0.65 s instead of 1.27 s on one thread. Every
   oracle score is checked under both kernels.
+- A tempo map's children (`GET /v1/tempo-maps/{id}/children` and the root's
+  `children`) come in a stated order: by child id, then by each edge's
+  `sync_point_parent` and `sync_point_child`, nulls last. Two edges between
+  the same maps had no defined order before; the transform reads them in the
+  same stated order.
+- `make test-score-forms` renders each example natively and on Ladybug, and
+  `rendering-engine`'s manifest reader is shared by both backends
+  (`score_manifest.hpp`).
 
 ## Before this changelog
 

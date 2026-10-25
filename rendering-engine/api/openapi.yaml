@@ -244,8 +244,11 @@ paths:
       description: |
         The maps synchronised to this one, each with the synchronisation
         points of the edge that joins it here, in child id order. A child
-        synchronised to several parents appears under each of them, with that
-        edge's points. Not paged: a map is expected to have few children.
+        joined here by two edges appears once per edge, ordered by
+        sync_point_parent and then sync_point_child, a null after every value.
+        A child synchronised to several parents appears under each of them,
+        with that edge's points. Not paged: a map is expected to have few
+        children.
       parameters:
         - $ref: "#/components/parameters/TempoMapId"
       responses:

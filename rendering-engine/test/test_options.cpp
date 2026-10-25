@@ -11,6 +11,7 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,7 @@
 
 namespace {
 
+using rainbohz::rendering_engine::Backend;
 using rainbohz::rendering_engine::Mode;
 using rainbohz::rendering_engine::modeName;
 using rainbohz::rendering_engine::parseCommandLine;
@@ -204,6 +206,55 @@ TEST(Options, RenderKernelMustBeNamed) {
                 .options.has_value())
             << kernel;
     }
+}
+
+/// An existing file named like a table manifest, for an explicit native
+/// backend, which refuses a Cypher score.
+std::string manifestFile() {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "rainbohz-options-test-manifest.json";
+    std::ofstream{file} << "{}";
+    return file.string();
+}
+
+TEST(Options, TheBackendIsLeftToTheScoreByDefault) {
+    const ParseResult result = parse({"--state", kFile, "--request", kFile});
+    ASSERT_TRUE(result.options.has_value());
+    EXPECT_FALSE(result.options->backend.has_value());
+}
+
+TEST(Options, TheBackendIsNamedIgnoringCaseInBothModes) {
+    const ParseResult batch =
+        parse({"--state", manifestFile(), "--request", kFile, "--backend", "Native"});
+    ASSERT_TRUE(batch.options.has_value());
+    EXPECT_EQ(batch.options->backend, Backend::Native);
+
+    std::vector<std::string> line = serverLine();
+    line.insert(line.end(), {"--backend", "ladybug"});
+    const ParseResult server = parse(line);
+    ASSERT_TRUE(server.options.has_value());
+    EXPECT_EQ(server.options->backend, Backend::Ladybug);
+
+    EXPECT_FALSE(
+        parse({"--state", kFile, "--request", kFile, "--backend", "kuzu"}).options.has_value());
+}
+
+TEST(Options, AnExplicitNativeBackendRefusesWhatOnlyLadybugDoes) {
+    // A Cypher score, the integrity checks, and a database on disk.
+    EXPECT_FALSE(
+        parse({"--state", kFile, "--request", kFile, "--backend", "native"}).options.has_value());
+    EXPECT_FALSE(parse(
+        {"--state", manifestFile(), "--request", kFile, "--backend", "native", "--validate-db"})
+            .options.has_value());
+    EXPECT_FALSE(parse({"--state", manifestFile(), "--request", kFile, "--backend", "native",
+                           "--db-path", existingDirectory() + "/rainbohz-options-db"})
+            .options.has_value());
+    std::vector<std::string> line = serverLine();
+    line.insert(line.end(), {"--backend", "native", "--validate-db"});
+    EXPECT_FALSE(parse(line).options.has_value());
+
+    // Left to the score, each of these simply chooses Ladybug.
+    EXPECT_TRUE(parse({"--state", kFile, "--request", kFile, "--validate-db"}).options.has_value());
 }
 
 } // namespace

@@ -12,17 +12,16 @@
 // frames do not interact. Within a frame, the partial sets are rendered on
 // several threads (ADR 0026).
 //
-// This is the only piece of rendering that takes an EngineDb, and it only
-// reads. Per frame it gathers the frame's FrameEntry nodes and what follows
-// them along the lists, validates each partial and its source (section 9),
-// and hands the
-// result to frame_plan.hpp, which does everything after that over in-memory
-// data. Errors are exceptions, thrown at gather and caught per partial; a
-// frame's failure is a consequence recorded in the report, not a second
-// exception. Nothing on the render path after the gather throws.
+// This is the only piece of rendering that reads engine-db, through the
+// FrameSource its backend provides (frame_gather.hpp), and it only reads. Per frame it gathers the
+// frame's FrameEntry nodes and what follows them along the lists, validates each partial and its
+// source (section 9), and hands the result to frame_plan.hpp, which does everything after that over
+// in-memory data. Errors are exceptions, thrown at gather and caught per partial; a frame's failure
+// is a consequence recorded in the report, not a second exception. Nothing on the render path after
+// the gather throws.
 
 #include "rainbohz/rendering_engine/channel_mode.hpp"
-#include "rainbohz/rendering_engine/engine_db.hpp"
+#include "rainbohz/rendering_engine/frame_gather.hpp"
 #include "rainbohz/rendering_engine/render_kernel.hpp"
 #include "rainbohz/rendering_engine/render_request.hpp"
 #include "rainbohz/rendering_engine/sample_value.hpp"
@@ -193,7 +192,8 @@ std::string setFileName(FrameNumber frame, std::int64_t partialSetId);
 /// Labels in the request are ignored in this version: every partial in a
 /// frame's scope is rendered (section 2).
 ///
-/// @param db         Database holding the precomputed score. Read only.
+/// @param[in,out] source  engine-db holding the precomputed score, as
+///                   rendering reads it. Read only.
 /// @param request    The frames to render.
 /// @param outputDir  Where the files go. Must exist.
 /// @param perSetWav  Whether to also write each contributing partial set's
@@ -217,7 +217,7 @@ std::string setFileName(FrameNumber frame, std::int64_t partialSetId);
 ///         failure while gathering a frame fails that frame instead.
 /// @note Side effect: writes WAV files into `outputDir`, replacing any of the
 ///       same names.
-RenderingReport renderFrames(EngineDb& db, const RenderRequest& request,
+RenderingReport renderFrames(FrameSource& source, const RenderRequest& request,
     const std::filesystem::path& outputDir, bool perSetWav, std::size_t threads = 1,
     RenderKernel kernel = RenderKernel::Simd);
 

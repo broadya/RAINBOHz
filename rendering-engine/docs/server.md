@@ -36,8 +36,8 @@ that cannot write fails before it listens. `--state`, `--request` and
 for one call at a time, and `engine-db` is always in memory.
 
 `--schema`, `--validate-db`, `--per-set-wav`, `--render-threads`,
-`--render-kernel` and `--verbose` mean what they mean in batch mode, and
-apply to every call. Calls are still served one at a time (ADR 0016); within
+`--render-kernel`, `--backend` and `--verbose` mean what they mean in batch
+mode, and apply to every call. Calls are still served one at a time (ADR 0016); within
 a render call, the frame's partial sets run on `--render-threads` threads
 (ADR 0026), with the kernel `--render-kernel` names (ADR 0027).
 
@@ -104,17 +104,25 @@ loading sequence, `--state` and all. The URI names either form of a score
 `.cypher` script. A manifest's tables must lie in its own directory, so they
 are under `--input-root` too.
 
+Each score is loaded into the `engine-db` backend `--backend` names, or,
+without it, the one the score chooses (ADR 0028): a manifest loads natively,
+a `.cypher` script into Ladybug, and every score into Ladybug when the server
+runs with `--validate-db`. So one server can hold a Cypher score in Ladybug
+after a table score natively. A server started with `--backend native`
+refuses a `.cypher` score with 422, naming `--backend ladybug`.
+
 | Status | When | Body |
 | --- | --- | --- |
 | 200 | The score loaded, transformed and precomputed | `uri` (the resolved file), `nodes`, `relationships` (row totals), `partials` |
 | 400 | The body is not a JSON object with exactly a string `uri`, or the URI is not one §4 accepts | problem |
 | 403 | The file is outside `--input-root` | problem |
 | 404 | No regular file at that path | problem |
-| 422 | The load stopped short: a manifest is malformed or names a table file that is missing or outside its directory, a statement did not apply, an integrity check failed (`--validate-db`), or the transform or precomputation failed | problem |
+| 422 | The score cannot be loaded into the server's backend (a `.cypher` score with `--backend native`), or the load stopped short: a manifest is malformed or names a table file that is missing or outside its directory, a table the native backend cannot use, a statement did not apply, an integrity check failed (`--validate-db`), or the transform or precomputation failed | problem |
 | 500 | Anything else, e.g. the file could not be read | problem |
 
-**What the server holds afterwards.** A call refused with 400, 403 or 404
-never reaches the score, and the score loaded before it stays. A call that
+**What the server holds afterwards.** A call refused with 400, 403 or 404,
+or with 422 because its score cannot go into the server's backend, never
+reaches the score, and the score loaded before it stays. A call that
 gets as far as loading discards that score first; if the load then fails, with
 422 or 500, the server holds **no** score, and every call that needs one
 answers 409 until a load succeeds. A score is never half-replaced, and a client
@@ -192,7 +200,9 @@ written in physical time. 422 when there is more than one Score.
 
 #### `GET /v1/tempo-maps/{id}/children`
 
-`{"tempo_map_id": 0, "children": [...]}`, in child id order. Not paged: few maps
+`{"tempo_map_id": 0, "children": [...]}`, in child id order; a child joined by
+two edges comes once per edge, ordered by `sync_point_parent` and then
+`sync_point_child`, a `null` after every value. Not paged: few maps
 have many children, and paging them needs a key to order on. The plan is a
 junction node with a SERIAL key (§8). 404 for an unknown map.
 
@@ -329,12 +339,14 @@ curl -s -X POST localhost:8080/v1/shutdown
 | `api/openapi.yaml` | The OpenAPI 3.1.1 document: every path, parameter, schema and response, with examples |
 | `server.hpp` / `server.cpp` | `ServerCore`, which turns a call's path segments, query parameters and body into a status and a JSON body with no HTTP involved, and `runServer()`, which routes HTTP to it. `server.cpp` is the only file that includes cpp-httplib and nlohmann/json |
 | `transform/timing_query.hpp` | The read-only queries behind §3.4 and §3.5, with no HTTP or JSON, in the transform because they read musical time; the interface carries only plain integers and physical units: `readRootTempoMap()`, `readTempoMapChildren()`, `readTempoMapPoints()`, `readEngineParameters()`, `framePosition()` and `parseBeatsTicks()` |
-| `score_pipeline.hpp` | `loadScore()` and `renderRequestedFrames()`: the steps both modes run |
+| `score_pipeline.hpp` | `backendFor()`, `loadScore()` (Ladybug), `loadNativeScore()` and `renderRequestedFrames()`: the steps both modes run |
 | `report.hpp` | The narrative, written to any stream: standard output in batch mode and here |
 | `file_uri.hpp` | `file://` URIs to and from paths |
 
-**Reading a map's points.** A map's points are a `NEXT_POINT` list. Ladybug
-refuses a variable-length pattern of more than 30 hops
+**Reading a map's points.** A map's points are a `NEXT_POINT` list, read
+through the backend's `TimingSource` in chunks of up to 30 points. On the
+native backend a chunk is the next 30 points of an index built once per load.
+On Ladybug, which refuses a variable-length pattern of more than 30 hops
 ([precomputation.md](precomputation.md) §10, "Reading the linked list"), so
 the list is walked in chunks. The map's head is found by key, and then each
 query follows up to 30 hops from the last point read, nearest first. A page
@@ -347,8 +359,10 @@ against the real schema with maps built in the test, including synchronisation
 edges, which a loaded score cannot have yet, and lists longer than several
 chunks. `test_server.cpp` drives `ServerCore` directly, covering every status
 and both media types. `test/server/run_server_check.py` (CTest `server.*`)
-starts the real binary on a free port. It checks 404, 405 and 409, loads an
-example score over HTTP, reads its engine parameters, and pages through its
+starts the real binary on a free port, once per example score in Cypher (on
+Ladybug), and once on the compiled tables of the tempo-map example (CTest
+`server.native.*`, on the native backend). It checks 404, 405 and 409, loads
+the score over HTTP, reads its engine parameters, and pages through its
 root map's points by following `next`. For the score in musical time, it
 checks the frame position of each beat of a partial's envelope nodes against
 the oracle's independent times. It then renders every frame of the request,

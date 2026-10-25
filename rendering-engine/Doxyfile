@@ -56,4 +56,9 @@ GENERATE_LATEX         = NO
 
 # Graphviz is optional: no include or collaboration graphs, and no extra
 # dependency for `make docs`.
+# The native engine-db's mapping tags (native_model.hpp, ADR 0028), which
+# scripts/check_engine_db_mapping.py checks against the schema. A tag holds no
+# comma, because an alias splits its argument at one.
+ALIASES                = "enginedb{1}=<b>engine-db:</b> \1" \
+                         "enginedb_unmapped{1}=<b>engine-db, not held:</b> \1"
 HAVE_DOT               = NO

@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 
-"""Checks that a score's two compiled forms render the same audio.
+"""Checks that a score's two compiled forms render the same audio on both backends.
 
 hzlc writes a score as Parquet tables and a manifest, or with
 `--debug-cypher` as one Cypher script. The engine loads either, and the two
 must give the same engine-db: the same ids in particular, since
-relationships name their ends by id (ADR 0025). The engine must also write
-the same frames whatever its --render-threads (ADR 0026). This compiles one
-score both ways, renders the same request from the tables with one thread
-and with eight, and from the Cypher with eight, and fails unless every frame
-file is byte-identical across the three.
+relationships name their ends by id (ADR 0025). The tables load into either
+engine-db backend, the Cypher into Ladybug only, and the backends must agree
+(ADR 0028). The engine must also write the same frames whatever its
+--render-threads (ADR 0026). This compiles one score both ways and renders
+the same request four times: from the tables natively with one thread and
+with eight, from the tables into Ladybug with eight, and from the Cypher with
+eight. It fails unless every frame file is byte-identical across the four.
 
 Usage:
     check_score_forms.py --engine <binary> --schema <cypher> --score <score.yaml> \\
@@ -63,13 +65,17 @@ def main() -> int:
     run([*hzlc, "-o", str(out / "tables")])
     run([*hzlc, "-o", str(out / "score.cypher"), "--debug-cypher"])
 
-    runs = (
-        ("tables-t1", out / "tables" / "manifest.json", "1"),
-        ("tables-t8", out / "tables" / "manifest.json", "8"),
-        ("cypher-t8", out / "score.cypher", "8"),
+    # Each run: its name, the score form, the thread count, and the backend
+    # (None: the score decides, so the tables load natively and the Cypher
+    # into Ladybug; ADR 0028).
+    runs: tuple[tuple[str, Path, str, str | None], ...] = (
+        ("native-t1", out / "tables" / "manifest.json", "1", None),
+        ("native-t8", out / "tables" / "manifest.json", "8", None),
+        ("ladybug-tables-t8", out / "tables" / "manifest.json", "8", "ladybug"),
+        ("ladybug-cypher-t8", out / "score.cypher", "8", None),
     )
     seconds = {}
-    for name, state, threads in runs:
+    for name, state, threads, backend in runs:
         seconds[name] = run(
             [
                 args.engine,
@@ -85,6 +91,7 @@ def main() -> int:
                 threads,
                 "--out-dir",
                 str(out / f"frames-{name}"),
+                *(["--backend", backend] if backend else []),
             ]
         )
 
@@ -92,7 +99,7 @@ def main() -> int:
     files = sorted(p.name for p in (out / f"frames-{reference}").iterdir())
     if not files:
         sys.exit(f"{args.score}: no frames written")
-    for name, _, _ in runs[1:]:
+    for name, _, _, _ in runs[1:]:
         other = sorted(p.name for p in (out / f"frames-{name}").iterdir())
         if other != files:
             sys.exit(f"{args.score}: {name} wrote different files: {other} vs {files}")
@@ -108,7 +115,7 @@ def main() -> int:
             )
     print(
         f"{Path(args.score).stem}: {len(files)} frame file(s) byte-identical; run "
-        + ", ".join(f"{seconds[name]:.2f} s {name}" for name, _, _ in runs)
+        + ", ".join(f"{seconds[name]:.2f} s {name}" for name, _, _, _ in runs)
     )
     return 0
 

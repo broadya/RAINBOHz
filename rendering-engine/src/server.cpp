@@ -3,6 +3,7 @@
 #include "rainbohz/rendering_engine/server.hpp"
 
 #include "rainbohz/rendering_engine/file_uri.hpp"
+#include "rainbohz/rendering_engine/ladybug_store.hpp"
 #include "rainbohz/rendering_engine/render_request.hpp"
 #include "rainbohz/rendering_engine/rendering.hpp"
 #include "rainbohz/rendering_engine/script_loader.hpp"
@@ -69,6 +70,7 @@ using transform::TempoMapNode;
 using transform::TempoMapPointInfo;
 using transform::TempoMapPointPage;
 using transform::TimingQueryError;
+using transform::TimingSource;
 
 /// The JSON value type of nlohmann/json.
 using Json = nlohmann::json;
@@ -399,16 +401,16 @@ std::vector<std::string> readFrameRequest(
 /// TimingQueryError into the status of its kind and any other exception into
 /// 500.
 ///
-/// @tparam Answer  Callable as `Json(EngineDb&, std::string& verdict)`,
+/// @tparam Answer  Callable as `Json(TimingSource&, std::string& verdict)`,
 ///                 returning the resource and setting the verdict.
 /// @param echo      Where the call and its verdict are echoed.
 /// @param call      The call's method and path, e.g. "GET /v1/engine-config".
-/// @param db        The loaded score; null when none is loaded.
+/// @param store     The loaded score; null when none is loaded.
 /// @param problems  Everything wrong with the request.
 /// @param answer    Builds the resource.
 /// @return The reply.
 template <typename Answer>
-HttpReply answerRead(std::ostream& echo, const std::string& call, EngineDb* db,
+HttpReply answerRead(std::ostream& echo, const std::string& call, EngineStore* store,
     const std::vector<std::string>& problems, Answer answer) {
     echo << call << '\n';
     if (!problems.empty()) {
@@ -416,13 +418,13 @@ HttpReply answerRead(std::ostream& echo, const std::string& call, EngineDb* db,
             problems.size() == 1 ? problems.front() : "the request is not usable";
         return conclude(echo, describeProblems(problems), detail, problem(400, detail, problems));
     }
-    if (db == nullptr) {
+    if (store == nullptr) {
         const std::string detail = "no score is loaded; PUT /v1/score first";
         return conclude(echo, "", detail, problem(409, detail));
     }
     try {
         std::string verdict;
-        const Json body = answer(*db, verdict);
+        const Json body = answer(store->timingSource(), verdict);
         return conclude(echo, "", verdict, resource(200, body));
     } catch (const TimingQueryError& e) {
         return conclude(echo, "", e.what(), problem(statusOf(e.kind()), e.what()));
@@ -513,19 +515,40 @@ HttpReply ServerCore::putScore(std::string_view body) {
     // The held score is discarded before the new one is loaded, not after:
     // a load that fails leaves the server holding nothing rather than a score
     // the caller has just asked to replace.
+    store_.reset();
     db_.reset();
+    // Each score loads into the backend --backend or the score itself
+    // chooses (ADR 0028): a server may hold a Cypher score in Ladybug after a
+    // table score natively.
+    const BackendChoice choice = backendFor(settings_.pipeline, stateFile);
+    if (choice.refusal.has_value()) {
+        return fail(422, *choice.refusal);
+    }
     try {
-        auto db = std::make_unique<EngineDb>();
-        log << "  schema:    " << settings_.schemaFile.string() << '\n'
-            << "  state:     " << stateFile.string() << '\n'
-            << '\n';
-        const LoadResult loaded =
-            loadScore(*db, settings_.schemaFile, stateFile, settings_.pipeline, log);
+        log << "  backend:   " << backendName(choice.backend) << '\n';
+        if (choice.backend == Backend::Ladybug) {
+            log << "  schema:    " << settings_.schemaFile.string() << '\n';
+        }
+        log << "  state:     " << stateFile.string() << '\n' << '\n';
+
+        std::unique_ptr<EngineDb> db;
+        std::unique_ptr<EngineStore> store;
+        LoadResult loaded;
+        if (choice.backend == Backend::Ladybug) {
+            db = std::make_unique<EngineDb>();
+            loaded = loadScore(*db, settings_.schemaFile, stateFile, settings_.pipeline, log);
+            store = std::make_unique<LadybugStore>(*db);
+        } else {
+            NativeScoreLoad load = loadNativeScore(stateFile, settings_.pipeline, log);
+            loaded = std::move(load.result);
+            store = std::move(load.store);
+        }
         if (!loaded.ok()) {
             return fail(422, loaded.verdict);
         }
-        const Census census = db->census();
+        const Census census = store->census();
         db_ = std::move(db);
+        store_ = std::move(store);
         const std::string fileUri = pathToFileUri(stateFile);
         return conclude(echo_, log.str(), "loaded " + fileUri,
             resource(200, {{"uri", fileUri}, {"nodes", census.totalNodes},
@@ -554,7 +577,7 @@ HttpReply ServerCore::renderFrame(std::string_view frameText, std::string_view b
             400, problems.size() == 1 ? problems.front() : "the request is not usable", problems);
     }
 
-    if (!db_) {
+    if (!store_) {
         return fail(409, "no score is loaded; PUT /v1/score first");
     }
 
@@ -564,7 +587,7 @@ HttpReply ServerCore::renderFrame(std::string_view frameText, std::string_view b
         // which engine-db does not hold".
         const RenderRequest one{.file = std::filesystem::path{"request body"}, .frames = {frame}};
         const RenderResult rendered =
-            renderRequestedFrames(*db_, one, settings_.outputDir, settings_.pipeline, log);
+            renderRequestedFrames(*store_, one, settings_.outputDir, settings_.pipeline, log);
         switch (rendered.stage) {
         case RenderStage::Complete:
             break;
@@ -597,9 +620,9 @@ HttpReply ServerCore::shutdown() {
 }
 
 HttpReply ServerCore::tempoMapRoot(const QueryParameters& query) {
-    return answerRead(echo_, "GET /v1/tempo-maps/root", db_.get(), checkQuery(query, {}),
-        [](EngineDb& db, std::string& verdict) {
-            const TempoMapNode root = readRootTempoMap(db);
+    return answerRead(echo_, "GET /v1/tempo-maps/root", store_.get(), checkQuery(query, {}),
+        [](TimingSource& source, std::string& verdict) {
+            const TempoMapNode root = readRootTempoMap(source);
             Json body = mapJson(root.map);
             body["tempo_ramp_physical_time"] = root.tempoRampPhysicalTime;
             body["children"] = childrenJson(root.children);
@@ -614,9 +637,9 @@ HttpReply ServerCore::tempoMapChildren(std::string_view id, const QueryParameter
     const std::optional<std::int64_t> mapId = readMapId(id, problems);
     const std::vector<std::string> queryProblems = checkQuery(query, {});
     problems.insert(problems.end(), queryProblems.begin(), queryProblems.end());
-    return answerRead(echo_, "GET /v1/tempo-maps/" + std::string{id} + "/children", db_.get(),
-        problems, [&](EngineDb& db, std::string& verdict) {
-            const std::vector<TempoMapChild> children = readTempoMapChildren(db, *mapId);
+    return answerRead(echo_, "GET /v1/tempo-maps/" + std::string{id} + "/children", store_.get(),
+        problems, [&](TimingSource& source, std::string& verdict) {
+            const std::vector<TempoMapChild> children = readTempoMapChildren(source, *mapId);
             verdict = "TempoMap " + std::to_string(*mapId) + ": " +
                       std::to_string(children.size()) + " child(ren)";
             return Json{{"tempo_map_id", *mapId}, {"children", childrenJson(children)}};
@@ -648,9 +671,9 @@ HttpReply ServerCore::tempoMapPoints(std::string_view id, const QueryParameters&
         }
     }
 
-    return answerRead(echo_, "GET /v1/tempo-maps/" + std::string{id} + "/points", db_.get(),
-        problems, [&](EngineDb& db, std::string& verdict) {
-            const TempoMapPointPage page = readTempoMapPoints(db, *mapId, after, limit);
+    return answerRead(echo_, "GET /v1/tempo-maps/" + std::string{id} + "/points", store_.get(),
+        problems, [&](TimingSource& source, std::string& verdict) {
+            const TempoMapPointPage page = readTempoMapPoints(source, *mapId, after, limit);
             Json points = Json::array();
             for (const TempoMapPointInfo& point : page.points) {
                 points.push_back(Json{{"position", nullable(point.position)},
@@ -690,9 +713,9 @@ HttpReply ServerCore::framePosition(std::string_view id, const QueryParameters& 
         }
     }
 
-    return answerRead(echo_, "GET /v1/tempo-maps/" + std::string{id} + "/frame-position", db_.get(),
-        problems, [&](EngineDb& db, std::string& verdict) {
-            const FramePosition position = transform::framePosition(db, *mapId, *at);
+    return answerRead(echo_, "GET /v1/tempo-maps/" + std::string{id} + "/frame-position",
+        store_.get(), problems, [&](TimingSource& source, std::string& verdict) {
+            const FramePosition position = transform::framePosition(source, *mapId, *at);
             const std::string written = std::to_string(at->beats) + ":" + std::to_string(at->ticks);
             verdict = "TempoMap " + std::to_string(*mapId) + " at " + written + ": frame " +
                       std::to_string(position.frame.value()) + ", offset " +
@@ -703,9 +726,9 @@ HttpReply ServerCore::framePosition(std::string_view id, const QueryParameters& 
 }
 
 HttpReply ServerCore::engineConfig(const QueryParameters& query) {
-    return answerRead(echo_, "GET /v1/engine-config", db_.get(), checkQuery(query, {}),
-        [](EngineDb& db, std::string& verdict) {
-            const EngineParameters parameters = readEngineParameters(db);
+    return answerRead(echo_, "GET /v1/engine-config", store_.get(), checkQuery(query, {}),
+        [](TimingSource& source, std::string& verdict) {
+            const EngineParameters parameters = readEngineParameters(source);
             const std::string_view mode = channelModeName(parameters.channelMode);
             verdict = std::to_string(parameters.sampleRate.value()) + " Hz, frames of " +
                       std::to_string(parameters.frameSize.value()) + " samples, " +
@@ -733,7 +756,8 @@ bool runServer(const Options& options) {
                             .validateDb = options.validateDb,
                             .perSetWav = options.perSetWav,
                             .renderThreads = options.renderThreads,
-                            .renderKernel = options.renderKernel}},
+                            .renderKernel = options.renderKernel,
+                            .backend = options.backend}},
         std::cout};
 
     http::Server server;

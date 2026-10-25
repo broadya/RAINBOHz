@@ -10,7 +10,7 @@
 | `playback-client/` | Playback client, C++ — loops a range of a score through the default audio device; first version |
 | `docs/adr/` | Architecture Decision Records |
 | `cmake/` | Shared CMake configuration for the C++ components: warnings, presets and cross toolchains |
-| `scripts/` | Schema loading, validation, diagrams and comment wrapping, and the shared DDL machinery |
+| `scripts/` | Schema loading, validation, diagrams and comment wrapping, the shared DDL machinery, the native model's mapping check, and the score-forms check |
 | `proof-of-concept/` | Proofs of concept, each in its own sub-directory, tried before being built into the components. The original sub-directories are frozen as a historical record. Not built |
 | `playground/` | Musical experiments: `pg` loops an HzL piece through the engine and reloads it on request. **No stability guarantee**; may change or vanish at any time |
 
@@ -26,6 +26,7 @@ make docs                       # regenerate this README, schema diagrams and AP
 make readme                     # just this README, from docs/readme/
 make validate-schemas           # check the schemas load into a real Ladybug
 make check-schema-comments      # show schema comments that need rewrapping
+make check-engine-db-mapping    # check the native engine-db's types against the schema
 make init-engine-db             # build a database from the engine schema
 make rendering-engine        # build the rendering engine
 make test-rendering-engine   # and run its tests
@@ -45,7 +46,8 @@ lock, `requirements-dev.txt`, which `make lock` generates from
 
 The C++ components are built with CMake behind those targets, and using CMake
 directly works just as well — see [`rendering-engine/README.md`](rendering-engine/README.md).
-**The first C++ build compiles Ladybug from source and takes a long time.**
+**The first C++ build compiles Ladybug, and Apache Arrow's Parquet reader,
+from source and takes a long time.**
 
 `make test` runs schema validation first, because it takes seconds and needs no
 compiler — a schema that does not load makes everything after it moot.
@@ -60,6 +62,16 @@ dependencies, precompute and render. Its schema is
 holds the rendering-model and canonical-model concepts, but not yet the modulator
 musical timelines or any dependency information. See
 [ADR 0006](docs/adr/0006-retire-rendering-db-engine-db-is-the-whole-database.md).
+
+`engine-db` has two implementations of that one schema, and a run uses one
+of them ([ADR 0028](docs/adr/0028-give-engine-db-a-native-implementation-beside-ladybug-behind-domain-stores.md),
+proposed): the Ladybug graph database, and a native in-memory model whose
+hand-written types are tagged with the part of the schema each holds.
+hzlc's tables load natively, and much faster; a `.cypher` score and
+`--validate-db` need Ladybug. `make check-engine-db-mapping` fails when the
+schema and the native types' tags disagree, so a schema edit is followed by
+a look at the native side. See
+[`rendering-engine/README.md`](rendering-engine/README.md).
 
 The `.cypher` schema file under `canonical-db/` is a **design artefact**. It
 describes the practitioner-facing model and is kept loadable, but nothing loads

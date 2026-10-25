@@ -38,6 +38,7 @@
 // cpp-httplib and nlohmann/json are confined to the implementation.
 
 #include "rainbohz/rendering_engine/engine_db.hpp"
+#include "rainbohz/rendering_engine/engine_store.hpp"
 #include "rainbohz/rendering_engine/options.hpp"
 #include "rainbohz/rendering_engine/score_pipeline.hpp"
 
@@ -230,8 +231,12 @@ private:
     /// Where each call's narrative is echoed.
     std::ostream& echo_;
 
-    /// The loaded score's database; null when no score is loaded.
+    /// The loaded score's database; null when no score is loaded. Declared
+    /// before store_, which points into it, so that it is destroyed after.
     std::unique_ptr<EngineDb> db_;
+
+    /// engine-db, as the stages see it; null when no score is loaded.
+    std::unique_ptr<EngineStore> store_;
 };
 
 /// Runs server mode until a POST /v1/shutdown call.

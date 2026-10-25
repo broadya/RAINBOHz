@@ -26,8 +26,8 @@
 // partial's amplitude timeline, for its times only, so that it can write the
 // FrameEntry nodes rendering starts from (§6.7).
 
-#include "rainbohz/rendering_engine/engine_db.hpp"
 #include "rainbohz/rendering_engine/segment_maths.hpp"
+#include "rainbohz/rendering_engine/store_types.hpp"
 #include "rainbohz/rendering_engine/units.hpp"
 
 #include <array>
@@ -42,6 +42,8 @@
 #include <vector>
 
 namespace rainbohz::rendering_engine {
+
+class PrecomputationStore;
 
 /// Thrown when precomputation cannot run at all: the configuration it needs
 /// for every partial is missing or unusable. Nothing has been written.
@@ -589,27 +591,29 @@ struct PrecomputationReport {
 ///
 /// Reads the EngineConfig and every partial's inputs, then precomputes the
 /// partials one at a time, in Partial.id order. Each partial's output is
-/// staged as one unit of a WriteBatch, which writes 64 partials per
-/// transaction, each table's rows as one statement (§10; @see ADR 0022).
-/// Any output a partial already has -- its PartialSegmentPhysicalTimeline, segments,
-/// their nominal frequencies, its compensation segments, its PARTIAL_IN_FRAME
-/// edges and its FrameEntry nodes -- is deleted and rebuilt. Frame nodes are created as needed and
+/// written as one unit, 64 partials per call to the store, which the Ladybug
+/// backend writes in one transaction, each table's rows as one statement
+/// (§10; @see ADR 0022, ADR 0028). Any output a partial already has -- its
+/// PartialSegmentPhysicalTimeline, segments, their nominal frequencies, its
+/// compensation segments, its PARTIAL_IN_FRAME edges and its FrameEntry
+/// nodes -- is deleted and rebuilt. Frame nodes are created as needed and
 /// never deleted.
 ///
 /// A partial that fails is recorded in the report and the run carries on.
 /// Nothing of it is written, so any output from an earlier run is left as it
-/// was. A failure while the batch writes is confined to the partial that
-/// caused it: the batch then writes each partial in a transaction of its own.
+/// was. A failure while the store writes is confined to the partial that
+/// caused it.
 ///
-/// @param[in,out] db  Database holding the score. Modified: every partial
-///                    that succeeds has its output replaced, and missing
-///                    Frame nodes are created.
+/// @param[in,out] store  engine-db holding the score. Modified: every partial
+///                       that succeeds has its output replaced, and missing
+///                       Frame nodes are created.
 /// @return One outcome per partial.
 /// @throws PrecomputationError  If there is not exactly one EngineConfig, or
 ///         its frame size is unusable. Nothing has been written.
-/// @throws EngineDbError  If reading the inputs fails. Nothing has been
-///         written. A database failure while writing one partial is recorded
+/// @throws EngineDbError  If reading the inputs fails, in which case nothing
+///         has been written, or if the store does not answer for every unit
+///         it was given. A failure while writing one partial is recorded
 ///         against that partial instead.
-PrecomputationReport precomputeAll(EngineDb& db);
+PrecomputationReport precomputeAll(PrecomputationStore& store);
 
 } // namespace rainbohz::rendering_engine

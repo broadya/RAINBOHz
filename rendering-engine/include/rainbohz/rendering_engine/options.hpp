@@ -26,6 +26,7 @@
 // no third-party type appears in this header, the same rule Ladybug is held
 // to.
 
+#include "rainbohz/rendering_engine/engine_store.hpp"
 #include "rainbohz/rendering_engine/render_kernel.hpp"
 
 #include <cstddef>
@@ -123,6 +124,12 @@ struct Options {
     /// docs/rendering.md section 10; the reference is there to render a
     /// reference signal from any score.
     RenderKernel renderKernel = RenderKernel::Simd;
+
+    /// Which engine-db backend loads the score (@see ADR 0028): native or
+    /// Ladybug. nullopt, the default, lets the score decide: hzlc's tables
+    /// load natively, and a Cypher script, `--validate-db` or `--db-path`
+    /// need Ladybug (backendFor() in score_pipeline.hpp).
+    std::optional<Backend> backend = std::nullopt;
 };
 
 /// The outcome of parsing a command line.

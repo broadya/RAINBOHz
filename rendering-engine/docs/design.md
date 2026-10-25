@@ -178,15 +178,20 @@ data. A `.cypher` file is a script, as above: hzlc's debugging form
 (`--debug-cypher`), or a state written by hand like those in
 `engine-db/examples/`. Both forms of one score load the same database
 (`make test-score-forms`). The tables are much faster: 0.11 s against 9.2 s
-for `echoes`' 82,005 rows.
+for `echoes`' 82,005 rows. That is on Ladybug; the native backend (§5.1)
+reads the same tables itself with Apache Arrow, and is the one a manifest
+loads into unless `--backend ladybug` says otherwise.
 
-A manifest is checked whole before anything runs (`table_loader.hpp`):
+A manifest is checked whole before anything runs, by the same code for both
+backends (`score_manifest.hpp`):
 
 - every table and column name is an identifier;
 - every file is a plain `.parquet` name that resolves, symlinks followed, to
   a regular file in the manifest's own directory, so a manifest under
   `--input-root` reads nothing outside it;
-- each node table must be empty before its rows are copied in, because
+- on Ladybug, each node table must be empty before its rows are copied in
+  (the native loader starts from an empty model and refuses a table listed
+  twice), because
   relationships name their ends by id and the ids are row indices only in a
   fresh table; and its row count must match the manifest's afterwards.
 
@@ -286,7 +291,8 @@ usually a no-op. Reconciliation, if it is ever needed, belongs somewhere else.
 ## 5. Why `engine-db` is in process
 
 The database is derived from `canonical-form` and is transient: there is no
-persistence requirement, so an in-memory Ladybug instance is the natural fit.
+persistence requirement, so an in-memory store is the natural fit: Ladybug in
+memory, or the native model of §5.1.
 Ladybug supports in-memory and on-disk with the same code, which is one of the
 reasons it was chosen over TerminusDB (AGENTS.md, migration rationale).
 
@@ -297,6 +303,65 @@ is worth the option. It is not part of the deployed configuration.
 Being in-process is also the whole point of the 0.2 redesign. The transform
 reads and writes the same store, so the score is never serialised in order to be
 converted.
+
+### 5.1 Two implementations behind store interfaces
+
+`engine-db` has one schema, `engine-db/schema/engine-schema.cypher`, and two
+implementations (ADR 0028, proposed): the Ladybug database, and a native
+model held in C++ containers. A run uses exactly one of them, so there is
+still one database per engine and no transfer between two stores.
+
+The stages never see which. Each reaches `engine-db` through the store
+interface made for it, speaking in the records it reads and the units it
+writes:
+
+| Interface | Header | Used by |
+| --- | --- | --- |
+| `transform::TransformStore` | `transform/transform_store.hpp` | `transformAll()` |
+| `transform::TimingSource` | `transform/timing_query.hpp` | the server's tempo-map and engine-config calls |
+| `PrecomputationStore` | `precomputation_store.hpp` | `precomputeAll()` |
+| `FrameSource` | `frame_gather.hpp` | `renderFrames()` |
+
+`EngineStore` (`engine_store.hpp`) gathers the four, with the census and the
+label names. Every stage reads everything it needs in one bulk read, computes
+over in-memory data, and writes each partial's or source's output as one
+all-or-nothing unit, 64 per call. That was already their shape; the
+interfaces made it the contract.
+
+- **Ladybug** (`ladybug_store.hpp`, `ladybug_*.cpp`) holds every stage's
+  Cypher, unchanged from before the split, and writes through WriteBatch
+  (ADR 0022). Loading a score, `--validate-db` and the schema census stay
+  operations on `EngineDb`, because only this backend has them.
+- **Native** (`native_store.hpp`, `native_*.cpp`) holds the data in the
+  types of `native_model.hpp`. They are written by hand from the schema and
+  shaped for the stages: a timeline's points are one contiguous range, so
+  `NEXT_POINT` is vector order, and a FrameEntry is one row with its six list
+  nodes. Every type, field and relationship pair carries an `@enginedb{…}`
+  tag naming what it holds, and `make check-engine-db-mapping` fails unless
+  the tags and the schema agree. A score is read from hzlc's Parquet tables
+  with Apache Arrow (`native_table_loader.hpp`), the only file that includes
+  it. Each read gives what the Ladybug query of the same name gives, in the
+  same order wherever the query states one, and each unit is checked whole
+  before anything of it changes.
+
+The backend is `--backend native|ladybug`. Without it, the score decides: a
+table manifest loads natively, and a `.cypher` script, `--validate-db` or
+`--db-path`, which only Ladybug serves, choose Ladybug (`backendFor()`).
+
+The two are kept equal by test. `test/transform/test_store_equivalence.cpp`
+runs every compiled example through both and requires every unit, report,
+census, gathered record and timing answer equal, and every frame
+byte-identical; `make test-score-forms` renders every example natively and
+on Ladybug, from tables and from Cypher; the oracle and a server test run on
+the native backend too. One rule follows from equality: where a stage depends
+on the order of rows a query returns, the order is stated, in the Cypher and
+in the native read alike, never left to Ladybug's plan.
+
+Two ids differ between the backends, and nothing reads them but their own
+lists: WriteBatch inserts phase points with and without a phase, and nominal
+frequencies with and without a linear component, in two statements each, so
+Ladybug numbers each group in turn, where the native model numbers them in
+list order.
 
 ## 6. Open questions
 

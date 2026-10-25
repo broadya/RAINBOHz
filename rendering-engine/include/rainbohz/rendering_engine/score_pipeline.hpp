@@ -15,12 +15,16 @@
 // exits non-zero, server mode puts it in the response.
 
 #include "rainbohz/rendering_engine/engine_db.hpp"
+#include "rainbohz/rendering_engine/engine_store.hpp"
+#include "rainbohz/rendering_engine/native_store.hpp"
 #include "rainbohz/rendering_engine/render_request.hpp"
 #include "rainbohz/rendering_engine/rendering.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 
@@ -48,7 +52,34 @@ struct PipelineSettings {
 
     /// Which kernel renders the partial sets, as renderFrames() takes it.
     RenderKernel renderKernel = RenderKernel::Simd;
+
+    /// Which engine-db backend loads a score (@see ADR 0028); nullopt to
+    /// let the score decide (backendFor()).
+    std::optional<Backend> backend = std::nullopt;
 };
+
+/// The backend a score loads into, or why it cannot be loaded.
+struct BackendChoice {
+    /// The backend to load the score into.
+    Backend backend = Backend::Native;
+
+    /// Why the score cannot be loaded as asked; nullopt when it can.
+    std::optional<std::string> refusal;
+};
+
+/// Chooses the backend a score loads into.
+///
+/// A backend given in the settings is used. Without one, the score decides:
+/// hzlc's tables (a `.json` manifest) load natively, and a `.cypher` script,
+/// which only Ladybug reads, loads into Ladybug. The integrity checks are
+/// Cypher queries, so settings.validateDb also chooses Ladybug. Native is
+/// refused for a Cypher score and for validateDb, saying which backend to
+/// use instead.
+///
+/// @param settings   backend and validateDb are used.
+/// @param stateFile  The score.
+/// @return The backend, or why the score cannot be loaded as asked.
+BackendChoice backendFor(const PipelineSettings& settings, const std::filesystem::path& stateFile);
 
 /// The step at which a load stopped, or Complete.
 enum class LoadStage : std::uint8_t {
@@ -90,7 +121,7 @@ struct LoadResult {
 /// @param db          Database to load into. Expected to be empty; a load does
 ///                    not clear what is already there.
 /// @param schemaFile  Cypher file of schema DDL.
-/// @param stateFile   Cypher file holding the score.
+/// @param stateFile   The score: a Cypher file, or hzlc's manifest of tables.
 /// @param settings    verbose and validateDb are used; perSetWav and
 ///                    renderThreads are not.
 /// @param log         Where the narrative goes.
@@ -101,6 +132,34 @@ struct LoadResult {
 ///       precomputation to `db`. A load that stops short leaves what it had
 ///       written.
 LoadResult loadScore(EngineDb& db, const std::filesystem::path& schemaFile,
+    const std::filesystem::path& stateFile, const PipelineSettings& settings, std::ostream& log);
+
+/// A native load: how it ended, and the store holding the score.
+struct NativeScoreLoad {
+    /// The step that stopped the load, with its verdict, or Complete.
+    LoadResult result;
+
+    /// The store holding the score as far as it loaded; null when the
+    /// tables could not be read at all.
+    std::unique_ptr<NativeStore> store;
+};
+
+/// Loads a score into a fresh native engine-db and makes it ready to render.
+///
+/// In order: reads the score's tables (native::loadNativeScore()), then, as
+/// loadScore() does for Ladybug, transforms every partial set and
+/// SoundSource and precomputes every partial, each step only if the one
+/// before succeeded, reporting what engine-db holds as loadScore() does.
+/// There are no integrity checks: they run on the Ladybug backend only
+/// (@see ADR 0028).
+///
+/// @param stateFile  hzlc's `manifest.json` of the score's tables.
+/// @param settings   verbose is used.
+/// @param log        Where the narrative goes.
+/// @return How the load ended, and the store.
+/// @throws ScriptLoadError  If the manifest cannot be read.
+/// @throws ManifestError    If the manifest or one of its tables is unusable.
+NativeScoreLoad loadNativeScore(
     const std::filesystem::path& stateFile, const PipelineSettings& settings, std::ostream& log);
 
 /// The step at which rendering stopped, or Complete.
@@ -138,7 +197,8 @@ struct RenderResult {
 /// the frames with renderFrames(). Labels select nothing yet: every partial
 /// in a frame's scope is rendered.
 ///
-/// @param db         Database holding a score that loadScore() completed.
+/// @param[in,out] store  engine-db holding a score that loadScore() completed.
+///                   Read only.
 /// @param request    The frames to render.
 /// @param outputDir  Where the WAV files go; created if absent.
 /// @param settings   verbose, perSetWav and renderThreads are used;
@@ -149,7 +209,7 @@ struct RenderResult {
 /// @throws EngineDbError  If engine-db cannot be read.
 /// @note Side effect: creates `outputDir` and writes WAV files into it,
 ///       replacing any of the same names.
-RenderResult renderRequestedFrames(EngineDb& db, const RenderRequest& request,
+RenderResult renderRequestedFrames(EngineStore& store, const RenderRequest& request,
     const std::filesystem::path& outputDir, const PipelineSettings& settings, std::ostream& log);
 
 } // namespace rainbohz::rendering_engine

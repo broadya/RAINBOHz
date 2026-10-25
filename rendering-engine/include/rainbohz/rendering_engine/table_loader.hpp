@@ -16,26 +16,18 @@
 // See ADR 0025 and hzl-compiler/docs/design.md section 7.
 
 #include "rainbohz/rendering_engine/engine_db.hpp"
+#include "rainbohz/rendering_engine/score_manifest.hpp"
 #include "rainbohz/rendering_engine/script_loader.hpp"
 
 #include <filesystem>
 
 namespace rainbohz::rendering_engine {
 
-/// Thrown when a manifest can be read but not used: it is not JSON of the
-/// expected shape, or names a data file that is missing or outside its
-/// directory. A fault in the score, as a statement that does not apply is,
-/// rather than in reading it.
-class ManifestError : public ScriptLoadError {
-public:
-    using ScriptLoadError::ScriptLoadError;
-};
-
 /// Loads the tables a manifest lists into `db`, nodes first, in the
 /// manifest's order.
 ///
-/// The manifest is read and checked whole before anything is executed, so a
-/// bad manifest leaves `db` untouched. A table or column name must be an
+/// The manifest is read and checked whole (readScoreManifest()) before
+/// anything is executed, so a bad manifest leaves `db` untouched. A table or column name must be an
 /// identifier, and a data file a plain `.parquet` file name that resolves,
 /// symlinks followed, to a regular file in the manifest's own directory: a
 /// manifest names nothing outside it.
@@ -60,8 +52,9 @@ public:
 /// @return Counts of applied statements and one ScriptFailure per failed one.
 /// @throws ScriptLoadError  If the manifest cannot be read.
 /// @throws ManifestError  If it is not valid JSON of the expected shape, or
-///         names a data file that is missing or outside its directory.
-///         Nothing has been executed at either point.
+///         names a data file that is missing or outside its directory, or
+///         whose path holds a quote or backslash, which COPY cannot name.
+///         Nothing has been executed at any of these points.
 /// @throws Anything `observe` throws.
 [[nodiscard]] LoadReport loadTableManifest(
     EngineDb& db, const std::filesystem::path& manifest, const StatementObserver& observe = {});
@@ -70,6 +63,10 @@ public:
 /// extension: a `.json` file is a table manifest (loadTableManifest()), a
 /// `.cypher` file a Cypher script (loadCypherFile()).
 ///
+/// @param[in,out] db  Database to load, as the loader chosen loads it.
+/// @param file        The state file.
+/// @param observe     Called once per statement. Optional.
+/// @return What the loader chosen reports.
 /// @throws ScriptLoadError  For any other extension, or as the loader chosen
 ///         throws.
 /// @throws Anything `observe` throws.

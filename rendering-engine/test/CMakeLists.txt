@@ -33,6 +33,8 @@ add_executable(rendering_engine_tests
     test_file_uri.cpp
     test_frame_plan.cpp
     test_integrity.cpp
+    test_native_model.cpp
+    test_native_table_loader.cpp
     test_options.cpp
     test_parallel.cpp
     test_precomputation.cpp
@@ -53,6 +55,7 @@ add_executable(rendering_engine_tests
     transform/test_musical_units.cpp
     transform/test_polytempo.cpp
     transform/test_squash.cpp
+    transform/test_store_equivalence.cpp
     transform/test_tempo_map.cpp
     transform/test_timing_query.cpp
     transform/test_transform.cpp
@@ -88,11 +91,25 @@ target_compile_definitions(rendering_engine_tests
         RE_TEST_SPATIAL_STATE="${RE_SPATIAL_STATE_FILE}"
         RE_TEST_SPATIAL_MUSICAL_STATE="${RE_SPATIAL_MUSICAL_STATE_FILE}"
         RE_SPATIAL_ORACLE_CSV="${CMAKE_CURRENT_SOURCE_DIR}/oracle/spatial_gains.csv"
+        RE_TEST_COMPILED_SCORES="${CMAKE_CURRENT_BINARY_DIR}/compiled-scores"
 )
+
+# hzl-compiler's example scores, compiled to tables once per CTest run, for
+# the tests that load a score into both engine-db backends (ADR 0028). The
+# interpreter is the root .venv's, where hzlc is installed (CMakeLists.txt).
+# Run directly, outside CTest, those tests fail and say how to get the
+# scores.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_test(NAME scores.compile
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/compile_scores.py"
+        --examples "${CMAKE_CURRENT_SOURCE_DIR}/../../hzl-compiler/examples"
+        --out-dir "${CMAKE_CURRENT_BINARY_DIR}/compiled-scores")
+set_tests_properties(scores.compile PROPERTIES FIXTURES_SETUP compiled_scores)
 
 gtest_discover_tests(rendering_engine_tests
     DISCOVERY_MODE PRE_TEST
     DISCOVERY_TIMEOUT 120
+    PROPERTIES FIXTURES_REQUIRED compiled_scores
 )
 
 # ---------------------------------------------------------------------------
@@ -135,6 +152,25 @@ re_add_oracle_test(phase-musical-score phase-musical-score phase-musical-request
 re_add_oracle_test(polytempo-shift-score polytempo-shift-score polytempo-shift-request.yaml)
 re_add_oracle_test(polytempo-stretch-score polytempo-stretch-score polytempo-stretch-request.yaml)
 
+# The oracle on the native backend (ADR 0028): the hzl-compiler twins of
+# three examples, compiled to tables by the scores.compile fixture and so
+# loaded natively, checked against the Cypher examples' own oracle scores.
+function(re_add_native_oracle_test example request)
+    add_test(NAME "oracle.native.${example}"
+        COMMAND "${Python3_EXECUTABLE}" "${RE_ORACLE_DIR}/run_oracle_check.py"
+            --engine "$<TARGET_FILE:rendering-engine>"
+            --schema "${RE_DEFAULT_SCHEMA_FILE}"
+            --state "${CMAKE_CURRENT_BINARY_DIR}/compiled-scores/${example}/manifest.json"
+            --request "${RE_REQUESTS_DIR}/${request}"
+            --score "${RE_EXAMPLES_DIR}/${example}.json"
+            --out-dir "${CMAKE_CURRENT_BINARY_DIR}/oracle/native-${example}")
+    set_tests_properties("oracle.native.${example}" PROPERTIES FIXTURES_REQUIRED compiled_scores)
+endfunction()
+
+re_add_native_oracle_test(tempo-map-score tempo-map-request.yaml)
+re_add_native_oracle_test(polytempo-shift-score polytempo-shift-request.yaml)
+re_add_native_oracle_test(polytempo-stretch-score polytempo-stretch-request.yaml)
+
 # Server mode, end to end over HTTP (docs/server.md): the same score and
 # request as an oracle test, served instead of run as a batch, and the
 # files the server names checked by the same oracle. One score in musical
@@ -163,6 +199,32 @@ function(re_add_server_test name score request)
 endfunction()
 
 re_add_server_test(tempo-map-score tempo-map-score tempo-map-request.yaml "0,2,4,8")
+
+# The same calls on the native backend (ADR 0028): the hzl-compiler twin of
+# an example, compiled to tables by the scores.compile fixture, which the
+# server loads natively because the score is a table manifest. The oracle is
+# the Cypher example's, which the twin must match (make test-hzl-oracle).
+set(RE_COMPILED_SCORES_DIR "${CMAKE_CURRENT_BINARY_DIR}/compiled-scores")
+function(re_add_native_server_test name example request)
+    set(beats_args "")
+    if(ARGC GREATER 3)
+        set(beats_args --beats "${ARGV3}")
+    endif()
+    add_test(NAME "server.native.${name}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/server/run_server_check.py"
+            --engine "$<TARGET_FILE:rendering-engine>"
+            --schema "${RE_DEFAULT_SCHEMA_FILE}"
+            --state "${RE_COMPILED_SCORES_DIR}/${example}/manifest.json"
+            --request "${RE_REQUESTS_DIR}/${request}"
+            --score "${RE_EXAMPLES_DIR}/${example}.json"
+            --out-dir "${CMAKE_CURRENT_BINARY_DIR}/server/native-${name}"
+            --spec "${RE_OPENAPI_SPEC}"
+            ${beats_args})
+    set_tests_properties("server.native.${name}" PROPERTIES
+        TIMEOUT 300 FIXTURES_REQUIRED compiled_scores)
+endfunction()
+
+re_add_native_server_test(tempo-map-score tempo-map-score tempo-map-request.yaml "0,2,4,8")
 re_add_server_test(two-partial-sets two-partial-sets two-partial-sets-request.yaml)
 
 # The OpenAPI document (api/openapi.yaml): valid OpenAPI 3.1.1, with every

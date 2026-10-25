@@ -108,8 +108,17 @@ add_library(rendering_engine_lib STATIC
     src/cypher_script.cpp
     src/engine_db.cpp
     src/file_uri.cpp
+    src/frame_gather.cpp
     src/frame_plan.cpp
     src/integrity.cpp
+    src/ladybug_frame_source.cpp
+    src/ladybug_precomputation_store.cpp
+    src/ladybug_store.cpp
+    src/native_frame_source.cpp
+    src/native_model.cpp
+    src/native_precomputation_store.cpp
+    src/native_store.cpp
+    src/native_table_loader.cpp
     src/options.cpp
     src/parallel.cpp
     src/precomputation.cpp
@@ -118,11 +127,16 @@ add_library(rendering_engine_lib STATIC
     src/render_request.cpp
     src/rendering.cpp
     src/report.cpp
+    src/score_manifest.cpp
     src/score_pipeline.cpp
     src/script_loader.cpp
     src/server.cpp
     src/spatial_gains.cpp
     src/table_loader.cpp
+    src/transform/ladybug_timing_source.cpp
+    src/transform/ladybug_transform_store.cpp
+    src/transform/native_timing_source.cpp
+    src/transform/native_transform_store.cpp
     src/transform/polytempo.cpp
     src/transform/squash.cpp
     src/transform/tempo_map.cpp
@@ -153,9 +167,11 @@ target_link_libraries(rendering_engine_lib
     # interface -- the same rule Ladybug's own types are held to.
     # Threads::Threads for std::jthread (src/parallel.cpp, ADR 0026).
     # Highway (src/render_kernel_simd.cpp, ADR 0027) is private for the same
-    # reason: no Highway type crosses render_kernel.hpp.
+    # reason: no Highway type crosses render_kernel.hpp. So is Arrow's Parquet
+    # reader (src/native_table_loader.cpp, ADR 0028).
     PRIVATE rainbohz::cli11 rainbohz::yaml_cpp rainbohz::dr_wav rainbohz::httplib
-            rainbohz::json rainbohz::highway rainbohz::project_warnings Threads::Threads
+            rainbohz::json rainbohz::highway rainbohz::parquet rainbohz::project_warnings
+            Threads::Threads
 )
 
 # The schema the engine applies to an empty database when no --schema is given.

@@ -698,6 +698,13 @@ the transform's.
 
 ## 10. Code structure
 
+What the transform reads and writes goes through a store interface,
+`transform/transform_store.hpp`, implemented by each `engine-db` backend
+(design.md §5.1, ADR 0028). The queries and write statements below are
+the Ladybug backend's; the native backend reads the same records from its
+model and writes the same units into it, and a test requires the two to
+agree.
+
 Five pieces under `transform/`, each depending only on the ones above it,
 alongside `units`, `EngineDb` and the existing modules:
 

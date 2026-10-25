@@ -57,6 +57,11 @@ WHITESPACE_TOOL := scripts/strip_trailing_whitespace.py
 # silently skips statements and cannot report failure. See scripts/ladybug_ddl.py.
 LOAD_TOOL := scripts/load_schema.py
 
+# Checks the native engine-db's hand-written types against the schema they
+# hold (ADR 0028). Reads both and edits neither.
+MAPPING_TOOL := scripts/check_engine_db_mapping.py
+NATIVE_MODEL := rendering-engine/include/rainbohz/rendering_engine/native_model.hpp
+
 # engine-db is the schema of the one physical database, and the only one the
 # system runs on. canonical-db is a design artefact describing the
 # composer-facing model; it is kept loadable but nothing loads it. See AGENTS.md.
@@ -174,7 +179,7 @@ PC_DOC_SOURCES := $(filter-out $(PC_DIR)/test/%,$(PC_SOURCES)) \
 
 .PHONY: all docs readme clean-docs api-docs-rendering-engine api-docs-playback-client \
         validate-schemas validate-engine-schema validate-canonical-schema \
-        check-whitespace \
+        check-whitespace check-engine-db-mapping test-scripts \
         init-engine-db init-canonical-db \
         reset-engine-db reset-canonical-db \
         rendering-engine configure-rendering-engine test-rendering-engine \
@@ -293,6 +298,18 @@ check-schema-comments: venv
 ## check-whitespace: fail if any tracked text file has trailing whitespace
 check-whitespace: venv
 	$(VENV_PY) $(WHITESPACE_TOOL)
+
+# Read-only and part of `test`, like check-whitespace. A schema edit fails it
+# until the native model's tags account for the change: the schema is the
+# author's to edit, the native types follow it.
+
+## check-engine-db-mapping: fail unless the native model's tags and the engine-db schema agree
+check-engine-db-mapping: venv
+	$(VENV_PY) $(MAPPING_TOOL) --schema $(ENGINE_SCHEMA) $(NATIVE_MODEL)
+
+## test-scripts: run the tests of the repository's own scripts
+test-scripts: venv
+	$(VENV_PY) -m pytest -q scripts/tests
 
 # ---------------------------------------------------------------------------
 # Databases
@@ -574,7 +591,7 @@ FORMS_EXAMPLES := \
     spatial-score/scores/spatial_score.yaml:$(RE_DIR)/examples/spatial-request.yaml:1 \
     demo/scores/demo.yaml:$(HZL_DIR)/examples/demo/render-request.yaml:0
 
-## test-score-forms: compile every example as tables and as Cypher, render with 1 and 8 threads, and check the frames are byte-identical
+## test-score-forms: compile every example as tables and as Cypher, render natively (1 and 8 threads) and on Ladybug (tables and Cypher), and check the frames are byte-identical
 test-score-forms: hzl-compiler rendering-engine
 	@for example in $(FORMS_EXAMPLES); do \
 	    score=$$(echo "$$example" | cut -d: -f1); \
@@ -607,7 +624,7 @@ build: rendering-engine playback-client hzl-compiler
 # compiler, and a schema that does not load makes the rest moot.
 
 ## test: run every component's tests
-test: check-whitespace validate-schemas lint-hzl-compiler test-hzl-compiler test-rendering-engine test-playback-client test-hzl-oracle test-score-forms
+test: check-whitespace validate-schemas check-engine-db-mapping test-scripts lint-hzl-compiler test-hzl-compiler test-rendering-engine test-playback-client test-hzl-oracle test-score-forms
 
 ## clean: remove all generated artefacts
 clean: clean-docs clean-rendering-engine clean-playback-client clean-hzl-compiler clean-venv

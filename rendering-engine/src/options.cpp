@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -125,6 +126,31 @@ bool refuseOption(const CLI::Option* option, std::string_view mode, std::string_
     return false;
 }
 
+/// What an explicit native backend cannot serve, among the options given:
+/// the integrity checks, which are Cypher queries; a database on disk, which
+/// is Ladybug's; and, in batch mode, a score that is not a table manifest.
+///
+/// @param options  The parsed options.
+/// @return The start of a message naming what needs Ladybug; nullopt when
+///         nothing does, or the backend is not explicitly native.
+std::optional<std::string> nativeRefusal(const Options& options) {
+    if (options.backend != Backend::Native) {
+        return std::nullopt;
+    }
+    if (options.validateDb) {
+        return "--validate-db runs the integrity checks, which are Cypher queries, so it";
+    }
+    if (!options.dbPath.empty()) {
+        return "--db-path opens a Ladybug database on disk, so it";
+    }
+    if (options.mode == Mode::Batch && options.stateFile.extension() != ".json") {
+        return "--state " + options.stateFile.string() +
+               " is not a table manifest; the native backend reads hzlc's tables only. A "
+               ".cypher score";
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 std::string_view modeName(Mode mode) noexcept {
@@ -222,10 +248,25 @@ ParseResult parseCommandLine(int argc, const char* const* argv) {
                                   std::string{renderKernelName(RenderKernel::Scalar)}},
             CLI::ignore_case));
 
+    // Taken as a name and mapped afterwards, for the reason given for --mode.
+    std::string backendText;
+    const CLI::Option* backend =
+        app.add_option("--backend", backendText,
+               "engine-db backend: native, or ladybug. Without it the score decides: hzlc's "
+               "tables load natively, a .cypher score, --validate-db or --db-path into Ladybug")
+            ->check(CLI::IsMember({std::string{backendName(Backend::Native)},
+                                      std::string{backendName(Backend::Ladybug)}},
+                CLI::ignore_case));
+
     try {
         app.parse(argc, argv);
     } catch (const CLI::ParseError& e) {
         return ParseResult{.options = std::nullopt, .exitCode = app.exit(e)};
+    }
+
+    if (backend->count() > 0) {
+        options.backend = lowerCase(backendText) == backendName(Backend::Native) ? Backend::Native
+                                                                                 : Backend::Ladybug;
     }
 
     options.renderKernel = lowerCase(kernelName) == renderKernelName(RenderKernel::Scalar)
@@ -266,6 +307,13 @@ ParseResult parseCommandLine(int argc, const char* const* argv) {
                 dbPath, "server", "engine-db is in memory, replaced by every PUT /v1/score")) {
             return ParseResult{.options = std::nullopt, .exitCode = 1};
         }
+    }
+
+    // What only Ladybug can do is refused for an explicit native backend now,
+    // rather than after the score has loaded (@see ADR 0028).
+    if (const std::optional<std::string> refusal = nativeRefusal(options)) {
+        std::cerr << "rendering-engine: " << *refusal << " needs --backend ladybug.\n";
+        return ParseResult{.options = std::nullopt, .exitCode = 1};
     }
 
     // An existing file where the output directory should be is caught now,

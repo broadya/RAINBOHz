@@ -35,89 +35,6 @@ namespace {
 /// Whose fault a TimingQueryError is; short for TimingQueryError::Kind.
 using Kind = TimingQueryError::Kind;
 
-// ---------------------------------------------------------------------------
-// Queries
-// ---------------------------------------------------------------------------
-
-/// One TempoMap by id: its id, name and ticks_per_beat.
-constexpr std::string_view kFindMap =
-    "MATCH (m:TempoMap {id: $id}) RETURN m.id, m.name, m.ticks_per_beat;";
-
-/// Each Score, its ramp shape, and its root TempoMap, if it has one.
-/// NEXT_POINT is ONE_ONE per pair, so there is at most one row per Score.
-constexpr std::string_view kReadScores =
-    "MATCH (s:Score) OPTIONAL MATCH (s)-[:NEXT_POINT]->(m:TempoMap) "
-    "RETURN s.id, m.id, m.name, m.ticks_per_beat, s.tempo_ramp_physical_time ORDER BY s.id;";
-
-/// The Score whose root TempoMap is the map $id, with its ramp shape; no row
-/// when the map is not a root. NEXT_POINT is ONE_ONE, so there is at most one.
-constexpr std::string_view kScoresOfMap = "MATCH (s:Score)-[:NEXT_POINT]->(m:TempoMap {id: $id}) "
-                                          "RETURN s.id, s.tempo_ramp_physical_time;";
-
-/// The child TempoMaps of the map $id, with their synchronization points.
-/// The edge runs from child to parent.
-constexpr std::string_view kReadChildren =
-    "MATCH (c:TempoMap)-[s:TEMPO_MAP_SYNCHRONIZATION_POINT]->(p:TempoMap {id: $id}) "
-    "RETURN c.id, c.name, c.ticks_per_beat, s.sync_point_parent, s.sync_point_child "
-    "ORDER BY c.id;";
-
-/// The first TempoMapPoint of the map $id: the head of its point list.
-constexpr std::string_view kReadHead =
-    "MATCH (m:TempoMap {id: $id})-[:NEXT_POINT]->(p:TempoMapPoint) "
-    "RETURN p.id, p.position, p.start_tempo, p.hold;";
-
-/// The next kWalkChunk points after one, nearest first. NEXT_POINT is ONE_ONE,
-/// so each hop count reaches exactly one point.
-constexpr std::string_view kReadChunk =
-    "MATCH (a:TempoMapPoint {id: $id})-[e:NEXT_POINT*1..30]->(p:TempoMapPoint) "
-    "RETURN p.id, p.position, p.start_tempo, p.hold, length(e) AS hops ORDER BY hops;";
-static_assert(kWalkChunk == 30, "kReadChunk's upper bound is kWalkChunk");
-
-/// Reads the EngineConfig's frame size, sample rate and channel mode.
-constexpr std::string_view kReadConfig =
-    "MATCH (c:EngineConfig) RETURN c.frameSize, c.sampleRate, c.channelMode;";
-
-// ---------------------------------------------------------------------------
-// Reading
-// ---------------------------------------------------------------------------
-
-/// Reads a bool column that may be NULL.
-///
-/// @param value  One value from a DbRow.
-/// @return The bool, or nullopt if NULL.
-/// @throws EngineDbError  If `value` is neither NULL nor a bool.
-std::optional<bool> optionalBool(const DbValue& value) {
-    if (std::holds_alternative<std::monostate>(value)) {
-        return std::nullopt;
-    }
-    if (const auto* flag = std::get_if<bool>(&value)) {
-        return *flag;
-    }
-    throw EngineDbError{"expected a BOOL column"};
-}
-
-/// Reads a TempoMap from the first three columns of a row.
-///
-/// @param row  A row whose columns 0 to 2 are id, name and ticks_per_beat.
-/// @return The map.
-TempoMapInfo mapFrom(const DbRow& row) {
-    return TempoMapInfo{.id = requireInt64(row.at(0)),
-        .name = optionalString(row.at(1)),
-        .ticksPerBeat = optionalInt64(row.at(2))};
-}
-
-/// Reads a TempoMapPoint from the first four columns of a row.
-///
-/// @param row  A row whose columns 0 to 3 are id, position, start_tempo and
-///             hold.
-/// @return The point, as read.
-TempoMapPointInfo pointFrom(const DbRow& row) {
-    return TempoMapPointInfo{.id = requireInt64(row.at(0)),
-        .position = optionalInt64(row.at(1)),
-        .startTempo = optionalDouble(row.at(2)),
-        .hold = optionalBool(row.at(3))};
-}
-
 /// Names a map for a message.
 ///
 /// @param mapId  TempoMap.id.
@@ -128,32 +45,32 @@ std::string describeMap(std::int64_t mapId) {
 
 /// Finds a TempoMap by its id.
 ///
-/// @param db     Database to read.
-/// @param mapId  TempoMap.id.
+/// @param[in,out] source  What the timing queries read.
+/// @param mapId           TempoMap.id.
 /// @return The map.
 /// @throws TimingQueryError  NotFound when there is no such map.
-TempoMapInfo requireMap(EngineDb& db, std::int64_t mapId) {
-    const std::vector<DbRow> rows = db.query(kFindMap, {{"id", mapId}});
-    if (rows.empty()) {
+TempoMapInfo requireMap(TimingSource& source, std::int64_t mapId) {
+    std::optional<TempoMapInfo> map = source.findTempoMap(mapId);
+    if (!map.has_value()) {
         throw TimingQueryError{Kind::NotFound, "there is no " + describeMap(mapId)};
     }
-    return mapFrom(rows.front());
+    return std::move(*map);
 }
 
 /// Walks a TempoMap's NEXT_POINT list from its head, a chunk of hops per
-/// query, handing each point to `visit` in list order until it returns false
+/// read, handing each point to `visit` in list order until it returns false
 /// or the list ends.
 ///
 /// Lists are acyclic by construction upstream, not by constraint (AGENTS.md,
 /// Linked Lists), so the walk stops, with an error, at a revisited point.
 ///
 /// @tparam Visit  Callable as `bool(const TempoMapPointInfo&)`.
-/// @param db     Database to read.
-/// @param mapId  TempoMap.id, known to exist.
-/// @param visit  Called for each point; returns true to go on.
+/// @param[in,out] source  What the timing queries read.
+/// @param mapId           TempoMap.id, known to exist.
+/// @param visit           Called for each point; returns true to go on.
 /// @throws TimingQueryError  Unprocessable when the list loops.
 template <typename Visit>
-void walkPoints(EngineDb& db, std::int64_t mapId, Visit visit) {
+void walkPoints(TimingSource& source, std::int64_t mapId, Visit visit) {
     std::unordered_set<std::int64_t> seen;
     const auto accept = [&](const TempoMapPointInfo& point) {
         if (!seen.insert(point.id).second) {
@@ -164,18 +81,18 @@ void walkPoints(EngineDb& db, std::int64_t mapId, Visit visit) {
         return visit(point);
     };
 
-    const std::vector<DbRow> head = db.query(kReadHead, {{"id", mapId}});
-    if (head.empty()) {
+    const std::optional<TempoMapPointInfo> head = source.readHead(mapId);
+    if (!head.has_value()) {
         return;
     }
-    TempoMapPointInfo point = pointFrom(head.front());
+    TempoMapPointInfo point = *head;
     if (!accept(point)) {
         return;
     }
     for (;;) {
-        const std::vector<DbRow> chunk = db.query(kReadChunk, {{"id", point.id}});
-        for (const DbRow& row : chunk) {
-            point = pointFrom(row);
+        const std::vector<TempoMapPointInfo> chunk = source.readNextPoints(point.id);
+        for (const TempoMapPointInfo& next : chunk) {
+            point = next;
             if (!accept(point)) {
                 return;
             }
@@ -222,8 +139,8 @@ std::optional<BeatsTicks> parseBeatsTicks(std::string_view text) {
     return BeatsTicks{.beats = *beats, .ticks = *ticks};
 }
 
-TempoMapNode readRootTempoMap(EngineDb& db) {
-    const std::vector<DbRow> scores = db.query(kReadScores);
+TempoMapNode readRootTempoMap(TimingSource& source) {
+    const std::vector<ScoreRootRecord> scores = source.readScores();
     if (scores.empty()) {
         throw TimingQueryError{Kind::NotFound, "engine-db holds no Score"};
     }
@@ -232,37 +149,30 @@ TempoMapNode readRootTempoMap(EngineDb& db) {
             Kind::Unprocessable, "engine-db holds " + std::to_string(scores.size()) +
                                      " Scores, so the root TempoMap is ambiguous; one is expected"};
     }
-    const DbRow& score = scores.front();
-    if (!optionalInt64(score.at(1)).has_value()) {
-        throw TimingQueryError{Kind::NotFound,
-            "Score " + std::to_string(requireInt64(score.at(0))) + " has no TempoMap"};
+    const ScoreRootRecord& score = scores.front();
+    if (!score.root.has_value()) {
+        throw TimingQueryError{
+            Kind::NotFound, "Score " + std::to_string(score.scoreId) + " has no TempoMap"};
     }
-    TempoMapNode root{.map = TempoMapInfo{.id = requireInt64(score.at(1)),
-                          .name = optionalString(score.at(2)),
-                          .ticksPerBeat = optionalInt64(score.at(3))},
+    TempoMapNode root{.map = *score.root,
         .tempoRampPhysicalTime =
-            tempoRampFromScore(optionalBool(score.at(4))) == TempoRamp::PhysicalTime,
+            tempoRampFromScore(score.tempoRampPhysicalTime) == TempoRamp::PhysicalTime,
         .children = {}};
-    root.children = readTempoMapChildren(db, root.map.id);
+    root.children = readTempoMapChildren(source, root.map.id);
     return root;
 }
 
-std::vector<TempoMapChild> readTempoMapChildren(EngineDb& db, std::int64_t mapId) {
-    static_cast<void>(requireMap(db, mapId));
-    std::vector<TempoMapChild> children;
-    for (const DbRow& row : db.query(kReadChildren, {{"id", mapId}})) {
-        children.push_back(TempoMapChild{.map = mapFrom(row),
-            .syncPointParent = optionalInt64(row.at(3)),
-            .syncPointChild = optionalInt64(row.at(4))});
-    }
-    return children;
+std::vector<TempoMapChild> readTempoMapChildren(TimingSource& source, std::int64_t mapId) {
+    static_cast<void>(requireMap(source, mapId));
+    return source.readChildren(mapId);
 }
 
-TempoMapPointPage readTempoMapPoints(
-    EngineDb& db, std::int64_t mapId, std::optional<std::int64_t> after, std::int32_t limit) {
-    TempoMapPointPage page{.map = requireMap(db, mapId), .points = {}, .nextAfter = std::nullopt};
+TempoMapPointPage readTempoMapPoints(TimingSource& source, std::int64_t mapId,
+    std::optional<std::int64_t> after, std::int32_t limit) {
+    TempoMapPointPage page{
+        .map = requireMap(source, mapId), .points = {}, .nextAfter = std::nullopt};
     std::optional<std::int64_t> previous;
-    walkPoints(db, mapId, [&](const TempoMapPointInfo& point) {
+    walkPoints(source, mapId, [&](const TempoMapPointInfo& point) {
         const std::string what = describeMap(mapId) + ": TempoMapPoint " + std::to_string(point.id);
         // The cursor is a position, so positions must order the list.
         if (!point.position.has_value()) {
@@ -287,15 +197,15 @@ TempoMapPointPage readTempoMapPoints(
     return page;
 }
 
-EngineParameters readEngineParameters(EngineDb& db) {
-    const std::vector<DbRow> rows = db.query(kReadConfig);
+EngineParameters readEngineParameters(TimingSource& source) {
+    const std::vector<EngineConfigRecord> rows = source.readEngineConfigs();
     if (rows.size() != 1) {
         throw TimingQueryError{Kind::Unprocessable,
             "expected exactly one EngineConfig, found " + std::to_string(rows.size())};
     }
-    const std::optional<std::int64_t> frameSize = optionalInt64(rows.front().at(0));
-    const std::optional<std::int64_t> sampleRate = optionalInt64(rows.front().at(1));
-    const std::optional<std::int64_t> channelMode = optionalInt64(rows.front().at(2));
+    const std::optional<std::int64_t> frameSize = rows.front().frameSize;
+    const std::optional<std::int64_t> sampleRate = rows.front().sampleRate;
+    const std::optional<std::int64_t> channelMode = rows.front().channelMode;
 
     if (!sampleRate.has_value() || *sampleRate <= 0 ||
         *sampleRate > std::numeric_limits<std::int32_t>::max()) {
@@ -321,9 +231,9 @@ EngineParameters readEngineParameters(EngineDb& db) {
     return parameters;
 }
 
-FramePosition framePosition(EngineDb& db, std::int64_t mapId, BeatsTicks at) {
-    const TempoMapInfo map = requireMap(db, mapId);
-    const std::vector<DbRow> scores = db.query(kScoresOfMap, {{"id", mapId}});
+FramePosition framePosition(TimingSource& source, std::int64_t mapId, BeatsTicks at) {
+    const TempoMapInfo map = requireMap(source, mapId);
+    const std::vector<std::optional<bool>> scores = source.rampsOfScoresRootedAt(mapId);
     if (scores.empty()) {
         throw TimingQueryError{Kind::Unprocessable,
             describeMap(mapId) +
@@ -333,7 +243,7 @@ FramePosition framePosition(EngineDb& db, std::int64_t mapId, BeatsTicks at) {
     }
     // The ramp shape belongs to the Score. NEXT_POINT is ONE_ONE, so the map
     // has exactly one.
-    const TempoRamp ramp = tempoRampFromScore(optionalBool(scores.front().at(1)));
+    const TempoRamp ramp = tempoRampFromScore(scores.front());
     if (!map.ticksPerBeat.has_value() || *map.ticksPerBeat <= 0 ||
         *map.ticksPerBeat > std::numeric_limits<std::int32_t>::max()) {
         throw TimingQueryError{
@@ -354,7 +264,7 @@ FramePosition framePosition(EngineDb& db, std::int64_t mapId, BeatsTicks at) {
     const MusicalTime position{(at.beats * resolution) + at.ticks};
 
     std::vector<TempoMapPointRecord> records;
-    walkPoints(db, mapId, [&](const TempoMapPointInfo& point) {
+    walkPoints(source, mapId, [&](const TempoMapPointInfo& point) {
         records.push_back(TempoMapPointRecord{.id = point.id,
             .position = point.position,
             .startTempo = point.startTempo,
@@ -368,7 +278,7 @@ FramePosition framePosition(EngineDb& db, std::int64_t mapId, BeatsTicks at) {
         throw TimingQueryError{Kind::Unprocessable, describeMap(mapId) + ": " + e.what()};
     }
 
-    const EngineParameters parameters = readEngineParameters(db);
+    const EngineParameters parameters = readEngineParameters(source);
     // Floored, so that a position between samples gives the one before it.
     const SampleTime sample{
         std::floor(toSampleTime(tempoMap->toSeconds(position), parameters.sampleRate).value())};

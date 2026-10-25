@@ -20,16 +20,17 @@
 // child to parent. Nothing here assumes a child has only one parent.
 //
 // A map's points are a NEXT_POINT list. They are read by walking it from the
-// map, which is found by its key, in chunks of up to kWalkChunk hops: Ladybug
-// refuses a variable-length pattern of more than 30 hops (precomputation.md
-// section 10, "Reading the linked list"). A page of points therefore costs a
-// walk from the head to the end of the page, which grows with the cursor,
-// and each hop's far end is still found by a scan of TempoMapPoint,
-// Ladybug's parked edge-hop cost; both are accepted for now (docs/server.md
-// section 8).
+// map, which is found by its key, in chunks of up to kWalkChunk points
+// (TimingSource::readNextPoints()). The chunk size is Ladybug's: it refuses
+// a variable-length pattern of more than 30 hops (precomputation.md section
+// 10, "Reading the linked list"). A page of points therefore costs a walk
+// from the head to the end of the page, which grows with the cursor; on the
+// Ladybug backend each hop's far end is also found by a scan of
+// TempoMapPoint, its parked edge-hop cost. Both are accepted for now
+// (docs/server.md section 8).
 
 #include "rainbohz/rendering_engine/channel_mode.hpp"
-#include "rainbohz/rendering_engine/engine_db.hpp"
+#include "rainbohz/rendering_engine/store_types.hpp"
 #include "rainbohz/rendering_engine/units.hpp"
 
 #include <cstdint>
@@ -117,7 +118,8 @@ struct TempoMapNode {
     bool tempoRampPhysicalTime = true;
 
     /// Its children, in child id order. A child joined by two edges appears
-    /// twice, once per edge.
+    /// twice, once per edge, ordered by the edge's sync point in the parent
+    /// and then in the child.
     std::vector<TempoMapChild> children;
 };
 
@@ -183,6 +185,83 @@ struct FramePosition {
     SampleIndex offset{0};
 };
 
+/// A Score as the timing queries read it: its ramp shape and its root
+/// TempoMap.
+struct ScoreRootRecord {
+    /// Score.id.
+    std::int64_t scoreId = 0;
+    /// The TempoMap the Score's NEXT_POINT leads to; nullopt when it has
+    /// none.
+    std::optional<TempoMapInfo> root;
+    /// Score.tempo_ramp_physical_time; nullopt for NULL, which means true.
+    std::optional<bool> tempoRampPhysicalTime;
+};
+
+/// What the timing queries read, implemented by each engine-db backend
+/// (@see ADR 0028). Every call only reads.
+class TimingSource {
+public:
+    virtual ~TimingSource() = default;
+
+    TimingSource(const TimingSource&) = delete;
+    TimingSource& operator=(const TimingSource&) = delete;
+    TimingSource(TimingSource&&) = delete;
+    TimingSource& operator=(TimingSource&&) = delete;
+
+    /// Reads every EngineConfig.
+    ///
+    /// @return One record per EngineConfig node, in no particular order.
+    /// @throws EngineDbError  If the read fails.
+    virtual std::vector<EngineConfigRecord> readEngineConfigs() = 0;
+
+    /// Reads every Score with its root TempoMap.
+    ///
+    /// @return One record per Score, in Score.id order.
+    /// @throws EngineDbError  If the read fails.
+    virtual std::vector<ScoreRootRecord> readScores() = 0;
+
+    /// Finds a TempoMap by its id.
+    ///
+    /// @param mapId  TempoMap.id.
+    /// @return The map; nullopt when there is none.
+    /// @throws EngineDbError  If the read fails.
+    virtual std::optional<TempoMapInfo> findTempoMap(std::int64_t mapId) = 0;
+
+    /// Reads the ramp shape of every Score whose root TempoMap is `mapId`.
+    ///
+    /// @param mapId  TempoMap.id.
+    /// @return Each such Score's tempo_ramp_physical_time, nullopt for NULL;
+    ///         empty when the map is no Score's root.
+    /// @throws EngineDbError  If the read fails.
+    virtual std::vector<std::optional<bool>> rampsOfScoresRootedAt(std::int64_t mapId) = 0;
+
+    /// Reads a TempoMap's children with their synchronisation edges.
+    ///
+    /// @param mapId  TempoMap.id.
+    /// @return One entry per edge from a child to the map, in child id order,
+    ///         then by sync_point_parent and sync_point_child, a NULL after
+    ///         every value.
+    /// @throws EngineDbError  If the read fails.
+    virtual std::vector<TempoMapChild> readChildren(std::int64_t mapId) = 0;
+
+    /// Reads the first point of a TempoMap's list.
+    ///
+    /// @param mapId  TempoMap.id.
+    /// @return The head point; nullopt when the list is empty.
+    /// @throws EngineDbError  If the read fails.
+    virtual std::optional<TempoMapPointInfo> readHead(std::int64_t mapId) = 0;
+
+    /// Reads the points that follow one in its list, nearest first.
+    ///
+    /// @param pointId  TempoMapPoint.id.
+    /// @return Up to kWalkChunk points; fewer only when the list ends.
+    /// @throws EngineDbError  If the read fails.
+    virtual std::vector<TempoMapPointInfo> readNextPoints(std::int64_t pointId) = 0;
+
+protected:
+    TimingSource() = default;
+};
+
 /// Parses a position written `beats:ticks`, or a bare number of beats.
 ///
 /// Both parts are unsigned decimal integers that fit INT64: no sign, no
@@ -196,25 +275,29 @@ std::optional<BeatsTicks> parseBeatsTicks(std::string_view text);
 /// Reads the root of the tempo-map tree: the TempoMap of the Score, with its
 /// children.
 ///
-/// @param db  The loaded score. Not modified.
+/// @param[in,out] source  The loaded score, as the timing queries read it.
+///                         Not modified.
 /// @return The root and its children.
 /// @throws TimingQueryError  NotFound when there is no Score, or it has no
 ///         TempoMap; Unprocessable when there is more than one Score.
-/// @throws EngineDbError  If a query fails.
-TempoMapNode readRootTempoMap(EngineDb& db);
+/// @throws EngineDbError  If a read fails.
+TempoMapNode readRootTempoMap(TimingSource& source);
 
 /// Reads a TempoMap's children.
 ///
-/// @param db     The loaded score. Not modified.
+/// @param[in,out] source  The loaded score, as the timing queries read it.
+///                         Not modified.
 /// @param mapId  TempoMap.id.
-/// @return The map's children, in child id order.
+/// @return The map's children, in child id order, then by the edge's sync
+///         points (TempoMapNode::children).
 /// @throws TimingQueryError  NotFound when there is no such map.
-/// @throws EngineDbError  If a query fails.
-std::vector<TempoMapChild> readTempoMapChildren(EngineDb& db, std::int64_t mapId);
+/// @throws EngineDbError  If a read fails.
+std::vector<TempoMapChild> readTempoMapChildren(TimingSource& source, std::int64_t mapId);
 
 /// Reads one page of a TempoMap's points.
 ///
-/// @param db     The loaded score. Not modified.
+/// @param[in,out] source  The loaded score, as the timing queries read it.
+///                         Not modified.
 /// @param mapId  TempoMap.id.
 /// @param after  Only points whose position is greater are returned;
 ///               nullopt to start at the head of the list.
@@ -223,19 +306,20 @@ std::vector<TempoMapChild> readTempoMapChildren(EngineDb& db, std::int64_t mapId
 /// @throws TimingQueryError  NotFound when there is no such map;
 ///         Unprocessable when a point before the end of the page has a NULL
 ///         position, positions do not strictly increase, or the list loops.
-/// @throws EngineDbError  If a query fails.
-TempoMapPointPage readTempoMapPoints(
-    EngineDb& db, std::int64_t mapId, std::optional<std::int64_t> after, std::int32_t limit);
+/// @throws EngineDbError  If a read fails.
+TempoMapPointPage readTempoMapPoints(TimingSource& source, std::int64_t mapId,
+    std::optional<std::int64_t> after, std::int32_t limit);
 
 /// Reads the engine parameters.
 ///
-/// @param db  The loaded score. Not modified.
+/// @param[in,out] source  The loaded score, as the timing queries read it.
+///                         Not modified.
 /// @return The parameters, with the frame size resolved.
 /// @throws TimingQueryError  Unprocessable when there is not exactly one
 ///         EngineConfig, its sampleRate is NULL or not positive, its frame
 ///         size is unusable, or its channelMode is NULL or unknown.
 /// @throws EngineDbError  If the query fails.
-EngineParameters readEngineParameters(EngineDb& db);
+EngineParameters readEngineParameters(TimingSource& source);
 
 /// Finds the sample at or before a musical position on a TempoMap.
 ///
@@ -251,7 +335,8 @@ EngineParameters readEngineParameters(EngineDb& db);
 /// the transform resolves (docs/polytempo.md) but this call does not read
 /// back yet.
 ///
-/// @param db     The loaded score. Not modified.
+/// @param[in,out] source  The loaded score, as the timing queries read it.
+///                         Not modified.
 /// @param mapId  TempoMap.id.
 /// @param at     The position.
 /// @return The frame and offset.
@@ -260,7 +345,7 @@ EngineParameters readEngineParameters(EngineDb& db);
 ///         when there is no such map; Unprocessable when the map is not a
 ///         Score's root, is invalid, the engine parameters are unusable, or
 ///         the frame does not fit INT32.
-/// @throws EngineDbError  If a query fails.
-FramePosition framePosition(EngineDb& db, std::int64_t mapId, BeatsTicks at);
+/// @throws EngineDbError  If a read fails.
+FramePosition framePosition(TimingSource& source, std::int64_t mapId, BeatsTicks at);
 
 } // namespace rainbohz::rendering_engine::transform

@@ -19,6 +19,7 @@
 
 #include "rainbohz/rendering_engine/cypher_script.hpp"
 #include "rainbohz/rendering_engine/engine_db.hpp"
+#include "rainbohz/rendering_engine/engine_store.hpp"
 #include "rainbohz/rendering_engine/integrity.hpp"
 #include "rainbohz/rendering_engine/precomputation.hpp"
 #include "rainbohz/rendering_engine/render_request.hpp"
@@ -77,10 +78,11 @@ void reportSchemaCensus(std::ostream& out, EngineDb& db);
 /// Prints the totals, then, unless the database is empty, the node tables and
 /// the relationship tables as two blocks with their counts in one column.
 ///
-/// @param out  Where the report goes.
-/// @param db   Database to inspect. Non-const only because querying it is.
-/// @throws EngineDbError  If Ladybug rejects either scan.
-void reportDataCensus(std::ostream& out, EngineDb& db);
+/// @param out    Where the report goes.
+/// @param store  engine-db to inspect, of either backend. Non-const only
+///               because querying it is.
+/// @throws EngineDbError  If the census cannot be read.
+void reportDataCensus(std::ostream& out, EngineStore& store);
 
 /// Prints each problem as a FAILED line, in the same layout narrateStatement()
 /// uses for a statement that did not apply.

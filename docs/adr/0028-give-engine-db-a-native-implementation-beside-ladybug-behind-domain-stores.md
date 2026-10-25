@@ -68,7 +68,7 @@ For the native types:
 
 Chosen: **domain stores, with hand-written native types whose mapping to the
 schema is tagged and checked; native mode does not use Ladybug at all; native
-is the default.**
+is the default for every score it can load.**
 
 * **One database per run, two implementations.** A run uses exactly one
   `engine-db`, either the Ladybug or the native implementation, chosen by
@@ -96,7 +96,21 @@ is the default.**
   compiler, which is responsible for its integrity. `--validate-db` is a
   software test, and runs on the Ladybug backend. With `--backend native` it
   is refused, saying why. This may be revisited.
-* **Native is the default** once it meets the confirmation below.
+* **Native is the default for every score it can load.** Without
+  `--backend`, the score decides: hzlc's tables (a manifest) load natively;
+  a `.cypher` score, which only Ladybug reads, `--validate-db` and
+  `--db-path` choose Ladybug. In server mode the choice is made per
+  `PUT /v1/score`. So everything the compiler emits, and so the deployed
+  path, runs natively, and every Cypher workflow (the hand-written examples
+  the engine's tests load, the debugging form, the integrity checks) keeps
+  working without a flag. An explicit `--backend native` refuses a Cypher
+  score, `--validate-db` and `--db-path`, naming `--backend ladybug`.
+* **Orders are stated, not inherited.** Where a stage depends on the order
+  of the rows a read returns, the order is written out in full, in the Cypher
+  (ORDER BY, with `x IS NULL` before `x` where a NULL may occur) and in the
+  native read alike. It is never left to Ladybug's plan, which the native
+  side could not reproduce. The equivalence test found one such read, a
+  tempo map's synchronisation edges, and it is now stated on both sides.
 
 Generated types were not chosen. They would mirror Ladybug's layout,
 junction tables and linked lists included, and that shape is much of the
@@ -121,6 +135,10 @@ would still go through Ladybug, and they are two of the three costs.
   `make test` until the native side has been looked at.
 * Bad, because there are two implementations of every read and write, and
   each schema change has native work to go with it.
+* Bad, because results the stages read in no stated order (a Cypher
+  query without ORDER BY) must still come out the same from both backends.
+  Where a stage depends on such an order, the fix is to state it, in the
+  query and in the native store alike.
 * Bad, because the checker verifies names and coverage, not meaning. A field
   with the wrong unit passes it. Only the cross-backend oracle catches that,
   and only for what the example scores exercise.
@@ -132,8 +150,9 @@ would still go through Ladybug, and they are two of the three costs.
 Impact on components:
 
 * `rendering-engine` — stages reach `engine-db` only through domain stores;
-  `--backend` selects the implementation, default native; `--validate-db`
-  and Cypher scores require `ladybug`.
+  `--backend` selects the implementation, and without it the score does
+  (native for tables); `--validate-db` and Cypher scores require
+  `ladybug`.
 * `engine-db` — two implementations of one schema. The `.cypher` schema stays
   the single definition, hand-edited by the author.
 * `hzl-compiler` — none. Its Parquet tables are what native mode reads.
@@ -149,11 +168,29 @@ Impact on components:
 * `make test-score-forms` renders every example score natively and on
   Ladybug (from tables and from Cypher), with the same `--render-kernel`, and
   requires every frame file and every report to be byte-identical.
-* The rendering, server and pipeline tests run once per backend.
-* Each stage has a test that runs it on both stores from the same score and
-  requires equal records.
-* Timings of `echoes` and `convergence` on `macos-max`, per stage, are
-  recorded here against the 2026-10-21 baseline once native mode is built.
+* Each stage has a test that runs it on both stores from the same compiled
+  score and requires equal records: the transform's and precomputation's
+  units, the gathered frames and the timing answers.
+* The server and pipeline tests that load a compiled score run once per
+  backend. Most engine tests build their database from hand-written Cypher,
+  which only Ladybug loads, and stay Ladybug tests: they test the stages,
+  which are the same code on either backend.
+* The oracle and a server test run on natively loaded scores too
+  (`oracle.native.*`, `server.native.*`).
+* Timings, measured on 2026-10-25 on `macos-max` in server mode (load is
+  `PUT /v1/score`, render is every frame), median of three, the same tables
+  on both backends:
+
+  | Score | Backend | Load | Render | Total |
+  | --- | --- | --- | --- | --- |
+  | echoes (5,120 partials, 8 frames) | Ladybug | 5.94 s | 1.67 s | 7.61 s |
+  | echoes | native | 0.047 s | 0.126 s | 0.17 s |
+  | convergence (800 partials, 20 frames) | Ladybug | 3.20 s | 1.91 s | 5.10 s |
+  | convergence | native | 0.012 s | 0.71 s | 0.72 s |
+
+  Every frame of both backends is byte-identical to the frames the engine
+  rendered before the stores were introduced. What remains of convergence's
+  time is its kernel, which is synthesis rather than data access.
 
 ## More Information
 

@@ -863,6 +863,13 @@ confined to the partial that caused it (§10; @see ADR 0022).
 
 ## 10. Code structure
 
+What precomputation reads and writes goes through a store interface,
+`precomputation_store.hpp`, implemented by each `engine-db` backend
+(design.md §5.1, ADR 0028). The queries and write statements below are
+the Ladybug backend's; the native backend reads the same records from its
+model and writes the same units into it, and a test requires the two to
+agree.
+
 Four pieces in `rendering-engine`, each depending only on the ones above it
 in this list:
 
