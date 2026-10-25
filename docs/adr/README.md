@@ -60,6 +60,7 @@ Non-obvious design choices are recorded here, per AGENTS.md, using the
 | [0025](0025-compile-scores-to-parquet-tables-keep-cypher-for-debugging.md) | Compile scores to Parquet tables with a manifest, and keep Cypher as the debugging form | Accepted |
 | [0026](0026-render-a-frames-partial-sets-on-worker-threads-bit-identical-to-serial.md) | Render a frame's partial sets on worker threads, bit-identical to the serial engine | Accepted |
 | [0027](0027-render-chunks-with-a-highway-simd-kernel-checked-against-the-scalar-reference.md) | Render chunks with a Highway SIMD kernel, checked against the scalar reference | Proposed |
+| [0028](0028-give-engine-db-a-native-implementation-beside-ladybug-behind-domain-stores.md) | Give `engine-db` a native C++ implementation beside Ladybug, behind domain stores | Proposed |
 
 ## A note on the renames
 
